@@ -1,0 +1,13 @@
+package com.gr74.ScreenMasterMicroservices;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class ScreenMasterMicroservicesApplication {
+
+	public static void main(String[] args) {
+		SpringApplication.run(ScreenMasterMicroservicesApplication.class, args);
+	}
+
+}

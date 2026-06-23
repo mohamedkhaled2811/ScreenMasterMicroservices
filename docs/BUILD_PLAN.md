@@ -20,14 +20,14 @@ Five business services + gateway + Eureka, on Docker Compose, with **database-pe
 
 ---
 
-## Phase 0 — Foundations (you are here)
+## Phase 0 — Foundations ✅ done
 **Goal:** understand the system and set up the workspace before writing services.
 
 - [x] **0.1** Read both source docs; write the concept library ([docs/concepts/](concepts/)) and project guidance ([CLAUDE.md](../CLAUDE.md)).
 - [x] **0.2** This build plan.
-- [ ] **0.3** Decide & scaffold the **multi-module Maven layout**: turn the current single-module `pom.xml` into a **parent pom** (`<packaging>pom</packaging>`, `<modules>`), and create empty child modules: `gateway`, `discovery`, `catalog`, `booking`, `payment`, `notification`. *(Concept: [spring-boot-annotations.md](concepts/spring-boot-annotations.md) — one `@SpringBootApplication` per module.)*
+- [x] **0.3** Scaffolded the **multi-module Maven layout**: root `pom.xml` is now the **parent pom** (`<packaging>pom</packaging>`, `<modules>`, Spring Cloud BOM + Lombok in management blocks); created the six child modules `gateway`, `discovery`, `catalog`, `booking`, `payment`, `notification`, each with its own lean dependency set. Removed the placeholder root `src/`. *(Concepts: [maven-multi-module.md](concepts/maven-multi-module.md); [spring-boot-annotations.md](concepts/spring-boot-annotations.md) — the `@SpringBootApplication` per module is added in Phase 1.)*
 
-**Done when:** `./mvnw -q -pl discovery -am package` builds an empty module; the repo tree shows one folder per service.
+**Done when:** ~~`./mvnw -q -pl discovery -am package` builds an empty module; the repo tree shows one folder per service.~~ ✅ Verified: `./mvnw -q -pl discovery -am package` and a full-reactor `./mvnw -q package` both pass under JDK 21; all six modules produce a jar. *(Plan: [docs/plans/2026-06-24-multi-module-scaffold.html](plans/2026-06-24-multi-module-scaffold.html).)*
 
 > *Optional pre-work the schema doc recommends but the lab doesn't strictly need:* add **Flyway** and pin the schema, and convert **ordinal enums → `@Enumerated(STRING)`**. We'll fold these into each service as we carve it out, rather than touching the monolith first.
 

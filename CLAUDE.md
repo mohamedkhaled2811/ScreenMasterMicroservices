@@ -10,12 +10,12 @@ A **learning project** for Mohamed Khaled to practice microservices by **decompo
 - **[docs/BUILD_PLAN.md](docs/BUILD_PLAN.md)** — the step-by-step roadmap (derived from the two above). This is *what we do, in order*.
 - **[docs/concepts/](docs/concepts/)** — one focused explainer per annotation / pattern / tool we use. This is the *reference library*.
 
-The goal is **learning, not shipping** — favor clear, idiomatic, well-explained code over cleverness or completeness. "Ugly code, working demos" (field guide). The payoff is *feeling* each microservices cost first-hand (the missing JOIN, the distributed transaction, the partial failure) so the interview answers come from experience.
+The goal is **learning by building it properly** — this is a learning project, but it should be treated as **production code that follows industry best practices**. Favor clear, idiomatic, well-structured code; do *not* default to the simplest possible thing. The payoff is *feeling* each microservices cost first-hand (the missing JOIN, the distributed transaction, the partial failure) **and** seeing how a production-grade system addresses it — so the interview answers come from real experience with real practices.
 
 ## Who I'm working with
 Mohamed is **new to microservices** and learning deliberately. So:
 - **Explain as you go.** When you introduce a new annotation, pattern, or tool, point to (or create) its file in `docs/concepts/` and give a one-line "why this, here."
-- Prefer the **simplest thing that demonstrates the concept** over production hardening.
+- **Build it as production-grade by default.** Apply best practices (validation, error handling, resilience, observability, tests, idempotency, clean boundaries) rather than the minimum that demos the concept. When a shortcut is genuinely warranted for learning, call it out explicitly and explain the production alternative.
 - Tie choices back to the field guide milestone and the schema doc.
 
 ## Tech stack (from pom.xml)
@@ -40,12 +40,11 @@ Gateway → { **Catalog**, **Booking** (absorbs Theater + Scheduling), **Payment
 - **DTOs cross the wire, not entities.**
 
 ## Working agreements
-- **Commit/push only when asked.** Default branch is `master`; branch before committing if asked to commit.
-- Co-author trailer on commits:
-  `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`
+- **Never commit, push, or create branches on your own.** Do not run `git commit`, `git push`, `git branch`, or `git checkout -b` unless I explicitly ask you to in that message. When I do ask you to commit, stage and commit exactly what I requested — nothing more.
+- **No AI co-author trailer.** Do not add `Co-Authored-By: Claude ...` (or any similar AI attribution) to commit messages.
 - When adding a new concept (annotation/pattern/tool) that isn't yet in `docs/concepts/`, **add a short file for it** and link it from `docs/concepts/README.md`.
 - Keep `docs/BUILD_PLAN.md` in sync: when a milestone's status changes, update its checkbox/notes there.
-- Don't gold-plate. If a milestone's demo works, move on.
+- **Build it right the first time.** Apply best practices proactively; don't ship a deliberately rough version expecting to harden it later. (This is a learning-by-doing-it-properly project, not a "ugly code, working demos" project.)
 
 ## Build / run (will fill in as services exist)
 ```bash

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+
+	<parent>
+		<groupId>com.gr74</groupId>
+		<artifactId>screenmaster-parent</artifactId>
+		<version>0.0.1-SNAPSHOT</version>
+	</parent>
+
+	<artifactId>gateway</artifactId>
+	<name>gateway</name>
+	<description>API gateway — single front door, routes to services via lb://.</description>
+
+	<!--
+	  The edge. Spring Cloud Gateway (webmvc flavour) does the routing; the Eureka
+	  CLIENT lets it resolve lb://catalog etc. No JPA here — the gateway owns no data.
+	  Routes + edge auth arrive in Phase 1 (1.3) / Phase 7.
+	-->
+	<dependencies>
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-starter-gateway-server-webmvc</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
+
+	<!--
+	  No spring-boot-maven-plugin yet: no @SpringBootApplication exists, so repackage would
+	  fail. The plugin + boot app arrive in Phase 1; for now this builds as a plain jar.
+	-->
+
+</project>

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+
+	<parent>
+		<groupId>com.gr74</groupId>
+		<artifactId>screenmaster-parent</artifactId>
+		<version>0.0.1-SNAPSHOT</version>
+	</parent>
+
+	<artifactId>discovery</artifactId>
+	<name>discovery</name>
+	<description>Eureka service-discovery server.</description>
+
+	<!--
+	  The registry every other service talks to. It runs the Eureka SERVER
+	  (not the client), so it pulls the server starter only.
+	  @EnableEurekaServer + the app class arrive in Phase 1 (BUILD_PLAN 1.1).
+	-->
+	<dependencies>
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-starter-netflix-eureka-server</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
+
+	<!--
+	  No spring-boot-maven-plugin yet: this module has no @SpringBootApplication, so the
+	  plugin's repackage goal ("find main class") would fail. The plugin (and the boot app)
+	  are added in Phase 1 when this becomes a runnable Eureka server. For now it builds as a
+	  plain jar, which is enough to prove the scaffold (BUILD_PLAN 0.3 "done when").
+	-->
+
+</project>

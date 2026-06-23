@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<!--
+  ScreenMaster feature plan: multi-module Maven scaffold (BUILD_PLAN step 0.3).
+  Lays out WHAT CHANGES and OPTIONS with trade-offs for review BEFORE coding.
+-->
+<title>Plan: Multi-module Maven scaffold — ScreenMaster</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel-2: #1d212b; --border: #2a2f3a;
+    --text: #e6e8ee; --muted: #9aa3b2; --accent: #6ea8fe; --accent-2: #7ee787;
+    --warn: #f0b429; --bad: #f47174; --good: #4ec9a4;
+    --chip: #232838;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 32px 20px 80px; }
+  header.page { border-bottom: 1px solid var(--border); padding-bottom: 18px; margin-bottom: 28px; }
+  h1 { font-size: 26px; margin: 0 0 6px; }
+  h2 { font-size: 19px; margin: 36px 0 12px; padding-top: 6px; }
+  .meta { color: var(--muted); font-size: 14px; display: flex; gap: 16px; flex-wrap: wrap; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 0; }
+  .chip {
+    background: var(--chip); border: 1px solid var(--border); color: var(--muted);
+    border-radius: 999px; padding: 3px 11px; font-size: 12.5px;
+  }
+  .status { font-weight: 600; }
+  .status.draft { color: var(--warn); }
+  .status.approved { color: var(--good); }
+  p, li { color: var(--text); }
+  .muted { color: var(--muted); }
+  section { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin: 14px 0; }
+  ul.tight { margin: 6px 0; padding-left: 20px; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13.5px; }
+  code { background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; }
+  pre { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow-x: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+
+  /* Option cards */
+  .options { display: grid; gap: 16px; grid-template-columns: 1fr; }
+  @media (min-width: 760px) { .options { grid-template-columns: 1fr 1fr; } }
+  .option { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; position: relative; }
+  .option.recommended { border-color: var(--accent-2); box-shadow: 0 0 0 1px var(--accent-2) inset; }
+  .option h3 { margin: 0 0 4px; font-size: 17px; }
+  .badge {
+    position: absolute; top: -10px; right: 14px; background: var(--accent-2); color: #0c1a10;
+    font-size: 11.5px; font-weight: 700; border-radius: 999px; padding: 2px 10px;
+  }
+  .pros, .cons { margin: 8px 0; padding-left: 18px; }
+  .pros li { color: var(--good); }
+  .cons li { color: var(--bad); }
+  .pros li span, .cons li span { color: var(--text); }
+
+  /* What-changes table */
+  table { width: 100%; border-collapse: collapse; margin: 6px 0; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+  td.kind { white-space: nowrap; }
+  .tag { font-size: 11.5px; border-radius: 5px; padding: 1px 7px; border: 1px solid var(--border); }
+  .tag.new { color: var(--accent-2); }
+  .tag.edit { color: var(--warn); }
+  .tag.del { color: var(--bad); }
+
+  .callout { border-left: 3px solid var(--accent); background: var(--panel-2); padding: 10px 14px; border-radius: 0 8px 8px 0; }
+  .open-q { border-left-color: var(--warn); }
+  .decided { border-left-color: var(--good); }
+  footer { margin-top: 40px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); padding-top: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page">
+    <h1>Plan: <em>Multi-module Maven scaffold</em></h1>
+    <div class="meta">
+      <span>Date: <strong>2026-06-24</strong></span>
+      <span>Author: Claude Code + Mohamed</span>
+      <span class="status approved">Status: APPROVED — implemented 2026-06-24</span>
+    </div>
+    <div class="chips">
+      <span class="chip">Build plan: 0.3 (Phase 0)</span>
+      <span class="chip">Milestone: pre-M1</span>
+      <span class="chip">Services: gateway · discovery · catalog · booking · payment · notification</span>
+    </div>
+  </header>
+
+  <h2>1. Summary</h2>
+  <section>
+    <p>Convert the current <strong>single-module</strong> <code>pom.xml</code> into a
+    <strong>parent (aggregator) POM</strong> and create <strong>six empty child modules</strong>:
+    <code>gateway</code>, <code>discovery</code>, <code>catalog</code>, <code>booking</code>,
+    <code>payment</code>, <code>notification</code>. No business logic and no
+    <code>@SpringBootApplication</code> classes yet — that's Phase 1. This step exists so that
+    from here on, <strong>each service is its own buildable unit with its own dependency surface</strong>,
+    which is the structural precondition for everything the lab teaches: independent deployability,
+    database-per-service, and clean boundaries. It teaches the Maven <em>reactor</em> (parent
+    aggregates + manages versions; children declare only what they use).</p>
+  </section>
+
+  <h2>2. Milestone &amp; schema link</h2>
+  <section>
+    <ul class="tight">
+      <li><strong>Build plan step:</strong> completes <code>BUILD_PLAN.md</code> <strong>0.3</strong> — the last open Phase 0 item.</li>
+      <li><strong>Field-guide milestone:</strong> pre-M1 setup. M1 (skeleton + infra) assumes one runnable module per service; this creates those slots.</li>
+      <li><strong>Schema doc:</strong> <code>ARCHITECTURE_AND_SCHEMA.md</code> §8 — the proposed decomposition. We collapse Theater + Scheduling into <code>booking</code>, so six modules, not eight.</li>
+      <li><strong>Concept:</strong> <code>concepts/spring-boot-annotations.md</code> — one <code>@SpringBootApplication</code> per module (added in Phase 1, not here).</li>
+    </ul>
+  </section>
+
+  <h2>3. What changes</h2>
+  <section>
+    <p class="muted">Concrete surface area. The root <code>src/</code> placeholder app is removed; six child module folders are created, each with a minimal <code>pom.xml</code> and the standard source dirs.</p>
+    <table>
+      <thead><tr><th>Kind</th><th>Where</th><th>What</th></tr></thead>
+      <tbody>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>pom.xml</code> (root)</td><td>Becomes parent: <code>&lt;packaging&gt;pom&lt;/packaging&gt;</code>, add <code>&lt;modules&gt;</code> for all six, move dependency <em>versions</em>/BOMs into <code>&lt;dependencyManagement&gt;</code>, drop the concrete <code>&lt;dependencies&gt;</code> and the Spring Boot / compiler plugin executions (children own those).</td></tr>
+        <tr><td class="kind"><span class="tag del">DEL</span></td><td><code>src/</code> (root)</td><td>Remove placeholder <code>ScreenMasterMicroservicesApplication.java</code> + test + <code>application.properties</code>. A parent POM owns no code.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>discovery/pom.xml</code></td><td>Child module; parent = root. Empty deps for now.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>gateway/pom.xml</code></td><td>Child module.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>catalog/pom.xml</code></td><td>Child module.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>booking/pom.xml</code></td><td>Child module (absorbs Theater + Scheduling later).</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>payment/pom.xml</code></td><td>Child module.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>notification/pom.xml</code></td><td>Child module.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>&lt;module&gt;/src/main/{java,resources}</code>, <code>src/test/java</code></td><td>Standard empty source dirs per module (kept via <code>.gitkeep</code> until Phase 1 fills them).</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>concepts/README.md</code> + new <code>concepts/maven-multi-module.md</code></td><td>New concept file explaining parent POM / reactor / <code>dependencyManagement</code> vs <code>dependencies</code>, linked from the README (per CLAUDE.md).</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>docs/BUILD_PLAN.md</code></td><td>Tick <code>0.3</code> and Phase 0; note the "done when" was met.</td></tr>
+      </tbody>
+    </table>
+    <p class="muted" style="margin-top:14px">Resulting tree:</p>
+    <pre>ScreenMasterMicroservices/
+├─ pom.xml            ← parent (packaging=pom, &lt;modules&gt;, dependencyManagement)
+├─ gateway/      pom.xml + src/{main,test}
+├─ discovery/    pom.xml + src/{main,test}
+├─ catalog/      pom.xml + src/{main,test}
+├─ booking/      pom.xml + src/{main,test}
+├─ payment/      pom.xml + src/{main,test}
+└─ notification/ pom.xml + src/{main,test}</pre>
+  </section>
+
+  <h2>4. Options</h2>
+  <p class="muted">Decisions confirmed up front are marked. Alternatives kept so the trade-offs stay reviewable.</p>
+
+  <h3 style="font-size:15px;color:var(--muted);margin-bottom:4px">4a. Where dependencies live</h3>
+  <div class="options">
+    <div class="option recommended">
+      <span class="badge">Chosen</span>
+      <h3>A — Lean parent + dependencyManagement</h3>
+      <p>Parent declares <em>versions</em> only (Spring Cloud BOM import + Lombok etc. in <code>&lt;dependencyManagement&gt;</code>). Each child pulls just the starters it needs.</p>
+      <ul class="pros">
+        <li><span>Gateway pulls gateway-server, not JPA; payment stays tiny — real service boundaries.</span></li>
+        <li><span>Versions pinned in one place; children list deps without versions.</span></li>
+        <li><span>Matches production multi-module layout — what an interviewer expects.</span></li>
+      </ul>
+      <ul class="cons"><li><span>A little more per-child boilerplate (each lists its own starters).</span></li></ul>
+      <p class="muted">Best when: services genuinely differ in what they need (they do).</p>
+    </div>
+    <div class="option">
+      <h3>B — Parent declares all common deps</h3>
+      <p>Every child inherits JPA + security + web + … from the parent's <code>&lt;dependencies&gt;</code>.</p>
+      <ul class="pros"><li><span>Less boilerplate to start.</span></li></ul>
+      <ul class="cons">
+        <li><span>Couples services: discovery/payment drag in JPA they never use.</span></li>
+        <li><span>Hides each service's real surface area — the opposite of the lesson.</span></li>
+      </ul>
+      <p class="muted">Best when: all modules are near-identical (not our case).</p>
+    </div>
+  </div>
+
+  <h3 style="font-size:15px;color:var(--muted);margin:22px 0 4px">4b. The existing root <code>src/</code></h3>
+  <div class="options">
+    <div class="option recommended">
+      <span class="badge">Chosen</span>
+      <h3>A — Delete it</h3>
+      <p>Parent POM (<code>packaging=pom</code>) compiles no code. Remove the placeholder app, test, and <code>application.properties</code>.</p>
+      <ul class="pros">
+        <li><span>Parent stays a pure aggregator — no stray <code>@SpringBootApplication</code> at the root.</span></li>
+        <li><span>Each service gets its own bootstrap class in Phase 1, named for the service.</span></li>
+      </ul>
+      <ul class="cons"><li><span>Throws away the generated starter class (it's a 3-line placeholder — no loss).</span></li></ul>
+    </div>
+    <div class="option">
+      <h3>B — Move it into a child (e.g. catalog)</h3>
+      <p>Relocate the placeholder app into one module as a seed.</p>
+      <ul class="pros"><li><span>Keeps a compiling Boot app immediately.</span></li></ul>
+      <ul class="cons">
+        <li><span>Misnamed throwaway class we'd rewrite in Phase 1 anyway.</span></li>
+        <li><span>Picks a favorite child arbitrarily.</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>5. Risks / microservices cost felt</h2>
+  <section>
+    <div class="callout">
+      <p>This step itself surfaces no distributed-systems cost — it's the <strong>scaffold</strong> those costs will later live in. The thing it makes <em>tangible</em> is <strong>independent deployability</strong>: once each service is its own module/jar, you can build and run one without the others (<code>./mvnw -pl payment package</code>), which is exactly what lets us later <code>docker stop payment</code> and watch Booking's circuit breaker open (Phase 5). The production-grade choice here is the lean parent: it forces each service to declare its own dependencies, so the boundaries are real from day one rather than a shared "god classpath" we'd have to untangle later.</p>
+    </div>
+  </section>
+
+  <h2>6. Open questions</h2>
+  <section>
+    <div class="callout decided">
+      <ul class="tight">
+        <li><strong>Module naming / groupId.</strong> Proposing artifactIds = bare service names (<code>catalog</code>, <code>booking</code>, …) under the existing <code>com.gr74</code> groupId, base package <code>com.gr74.&lt;service&gt;</code>. Confirm or adjust.</li>
+        <li><strong>Verification target.</strong> "Done when" per BUILD_PLAN: <code>./mvnw -q -pl discovery -am package</code> builds the empty module. I'll run that to prove the scaffold before ticking 0.3.</li>
+        <li><strong>Keep <code>compose.yaml</code> as-is?</strong> It has a single placeholder Postgres. Leave untouched this step (Phase 1.4 rewrites it for the full system). I'll not touch it.</li>
+        <li><strong>Lombok in the parent.</strong> Pin Lombok + the compiler annotation-processor config in the parent's <code>dependencyManagement</code>/<code>pluginManagement</code> so children get it consistently. OK?</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    ScreenMaster Microservices — feature plan. Review in a browser, confirm the open questions, then we implement step 0.3.
+  </footer>
+
+</div>
+</body>
+</html>

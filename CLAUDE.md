@@ -18,6 +18,15 @@ Mohamed is **new to microservices** and learning deliberately. So:
 - **Build it as production-grade by default.** Apply best practices (validation, error handling, resilience, observability, tests, idempotency, clean boundaries) rather than the minimum that demos the concept. When a shortcut is genuinely warranted for learning, call it out explicitly and explain the production alternative.
 - Tie choices back to the field guide milestone and the schema doc.
 
+## Feature planning workflow
+Before implementing **any feature**, the flow is **plan first, code second**:
+1. **Ask before generating.** When a feature is agreed on, ask Mohamed "want a plan for this?" — don't auto-generate. Trivial one-line fixes / typos / config tweaks can skip the plan (say so when skipping).
+2. **Plan as an HTML file in [docs/plans/](docs/plans/).** One file per feature, named `YYYY-MM-DD-<feature-slug>.html` (e.g. `2026-06-24-catalog-service.html`). Start from `docs/plans/_template.html`.
+3. **Show options, not just one path.** The plan must lay out *what will change* and present **different options / approaches** with trade-offs, so Mohamed can review and pick before any code is written. Tie each option back to the relevant field-guide milestone and the schema doc.
+4. **Wait for approval.** Implement only after he's reviewed the plan and chosen an approach. Update the plan file if the decision changes the scope.
+
+See [docs/plans/README.md](docs/plans/README.md) for the full convention.
+
 ## Tech stack (from pom.xml)
 - **Spring Boot 4.1.0**, **Java 21**, **Spring Cloud 2025.1.2**.
 - Spring Web MVC + WebFlux (`WebClient`/`RestClient`), Spring Data JPA, Spring Security, Thymeleaf.
@@ -34,7 +43,7 @@ Gateway → { **Catalog**, **Booking** (absorbs Theater + Scheduling), **Payment
 - **DI:** constructor injection via Lombok `@RequiredArgsConstructor` + `final` fields. No field `@Autowired`.
 - **Logging:** `@Slf4j`, structured, with the trace id in the log pattern. Never `System.out.println` (a flagged monolith gap).
 - **Enums:** always `@Enumerated(EnumType.STRING)` (the monolith has fragile ordinal enums — don't repeat that).
-- **Schema:** **Flyway migrations**, `ddl-auto=validate` — not `ddl-auto=update`.
+- **Schema:** **Liquibase migrations**, `ddl-auto=validate` — not `ddl-auto=update`.
 - **Cross-service references:** ids + API/event lookups, never cross-service FKs or JOINs. Snapshot immutable facts into the consumer (Booking already snapshots seat price / total).
 - **Secrets:** env vars / `.env` for local, never committed. No hard-coded JWT secret.
 - **DTOs cross the wire, not entities.**
@@ -60,3 +69,4 @@ docker compose logs -f booking               # follow a service
 | Why we split this way | [docs/ARCHITECTURE_AND_SCHEMA.md](docs/ARCHITECTURE_AND_SCHEMA.md) §8 + concepts/service-decomposition-ddd.md |
 | What an annotation/pattern means | [docs/concepts/](docs/concepts/) (start at its README) |
 | The theory / interview answers | [docs/microservices-interview-field-guide.md](docs/microservices-interview-field-guide.md) |
+| The plan for a feature (before coding) | [docs/plans/](docs/plans/) (start at its README) |

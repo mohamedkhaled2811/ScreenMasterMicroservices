@@ -16,7 +16,8 @@
 	<!--
 	  The registry every other service talks to. It runs the Eureka SERVER
 	  (not the client), so it pulls the server starter only.
-	  @EnableEurekaServer + the app class arrive in Phase 1 (BUILD_PLAN 1.1).
+	  Runnable since BUILD_PLAN 1.1: DiscoveryApplication is the @EnableEurekaServer
+	  boot app, and the spring-boot-maven-plugin (below) repackages it into a jar.
 	-->
 	<dependencies>
 		<dependency>
@@ -32,10 +33,17 @@
 	</dependencies>
 
 	<!--
-	  No spring-boot-maven-plugin yet: this module has no @SpringBootApplication, so the
-	  plugin's repackage goal ("find main class") would fail. The plugin (and the boot app)
-	  are added in Phase 1 when this becomes a runnable Eureka server. For now it builds as a
-	  plain jar, which is enough to prove the scaffold (BUILD_PLAN 0.3 "done when").
+	  Repackages the module into a runnable "fat" jar (the plugin's config — Lombok
+	  exclude etc. — is inherited from the parent's pluginManagement). Safe now that a
+	  @SpringBootApplication main class exists for the repackage goal to find.
 	-->
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+		</plugins>
+	</build>
 
 </project>

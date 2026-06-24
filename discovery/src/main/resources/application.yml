@@ -1,0 +1,50 @@
+# =============================================================================
+#  discovery — Netflix Eureka SERVER (the service registry)
+#  BUILD_PLAN 1.1 · concept: docs/concepts/service-discovery.md
+#  Localhost-friendly config. Compose injects container-DNS overrides via env
+#  vars in 1.4 (Spring relaxed binding: EUREKA_*), so this file needs no profiles.
+# =============================================================================
+
+server:
+  # The conventional Eureka port. The gateway/clients default their defaultZone
+  # to http://localhost:8761/eureka, so pinning 8761 keeps everything talking.
+  port: 8761
+
+spring:
+  application:
+    # Names this node in the registry and in log lines. Clients announce their own
+    # spring.application.name as their registry id (catalog, booking, …).
+    name: discovery
+
+eureka:
+  instance:
+    # On one machine, identify by hostname rather than guessing a routable IP.
+    hostname: localhost
+  client:
+    # This IS the registry, and it has no peers in our single-node lab, so it must
+    # not try to register with — or pull a registry from — itself. Leaving these
+    # true makes a standalone server log noisy connection-refused retries on boot.
+    register-with-eureka: false
+    fetch-registry: false
+    service-url:
+      # Where clients (and a peer, if we ever ran one) reach this registry.
+      defaultZone: http://${eureka.instance.hostname}:${server.port}/eureka/
+  server:
+    # LAB CHOICE (plan axis 1, option A1): off.
+    # Self-preservation stops Eureka from evicting instances when it suspects a
+    # network partition (too few heartbeats arriving). In production that's a
+    # safety feature; in this local lab we *deliberately* `docker stop` services
+    # (Phases 3 & 5) and want them evicted promptly so the dashboard tells the
+    # truth. We turn it off here and explain the production trade-off in the
+    # concept doc — learned, not hidden.
+    enable-self-preservation: false
+    # How often Eureka sweeps out instances whose lease expired (default 60s).
+    # A tighter interval makes "I stopped a service, watch it disappear" snappy.
+    eviction-interval-timer-in-ms: 15000
+
+# Structured logging with a trace-id slot. Tracing isn't wired until Phase 6, so
+# %X{traceId} is empty for now — but every service shares this pattern from day
+# one, so when Micrometer Tracing lands the ids just start appearing.
+logging:
+  pattern:
+    level: "%5p [${spring.application.name},%X{traceId:-},%X{spanId:-}]"

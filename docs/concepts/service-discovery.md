@@ -32,5 +32,15 @@ This is the "client-side discovery" model, appropriate for a Docker Compose lab.
 - **Load balancing** answers *which one of those instances do I call this time?* (Spring Cloud LoadBalancer, client-side.)
 - **Gateway** is the *external* front door; it *uses* discovery to route inward.
 
+## Our Eureka server, two settings worth understanding (BUILD_PLAN 1.1)
+
+The `discovery` service is a Eureka **server** (`@EnableEurekaServer`, port 8761). Two bits of its config encode real trade-offs:
+
+**`register-with-eureka: false` + `fetch-registry: false`.** A Eureka server is *also* a Eureka client by default — that's how servers replicate to each other in a cluster (peer awareness). We run a **single standalone node** with no peers, so we tell it not to register with, or pull a registry from, itself. Leaving these `true` makes a lone server log connection-refused retries on boot as it hunts for peers that don't exist.
+
+**`enable-self-preservation: false` — the one that bites in dev.** Self-preservation is a safety mechanism: if the server stops receiving the *expected* number of heartbeats (default: it expects renewals from ~85% of registered instances each minute), it assumes the problem is a **network partition on its own side**, not that the instances are actually dead — so it **stops evicting** anything rather than risk wrongly de-registering healthy services it just can't hear. In production that's usually what you want (a flaky network shouldn't empty your registry). In *this lab* it's the wrong default: we **deliberately `docker stop`** services to watch failure handling (Phases 3 & 5), and with self-preservation on, the registry would keep claiming those stopped instances are `UP` for minutes — hiding exactly the behavior we're trying to observe. So we turn it off, accept the red "self preservation is turned off" dashboard banner, and pair it with a tighter `eviction-interval-timer-in-ms` so dead instances disappear promptly.
+
+> Interview-ready phrasing: *"Self-preservation makes Eureka stop evicting instances when heartbeats drop below a threshold, on the assumption it's a network partition rather than mass death — good in prod, but I disable it locally because I deliberately kill services to demo failure handling and want the registry to tell the truth immediately."*
+
 ## Interview lens
 "Instances come and go, so hardcoded URLs break. Client-side discovery: services register with Eureka/Consul; callers fetch the list and load-balance. Server-side discovery: callers hit a stable name and infra routes — which is what a Kubernetes Service gives you for free, so on K8s you typically don't run Eureka at all."

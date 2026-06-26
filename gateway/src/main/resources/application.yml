@@ -1,0 +1,59 @@
+# =============================================================================
+#  gateway — Spring Cloud Gateway (web-mvc), the single public front door
+#  BUILD_PLAN 1.3 · concept: docs/concepts/api-gateway-and-bff.md
+#  Routing only at this milestone; edge auth + rate limiting land in Phase 7.
+#  Localhost-friendly; Compose (1.4) injects container-DNS overrides via env.
+# =============================================================================
+
+server:
+  # The conventional public HTTP port. Backend services sit on 8081–8084 and are
+  # NOT meant to be hit directly — clients only ever talk to 8080.
+  port: 8080
+
+spring:
+  application:
+    # Registry id + log-line name. The gateway registers itself too (handy in the
+    # Eureka dashboard), though nothing routes *to* it.
+    name: gateway
+
+  cloud:
+    gateway:
+      server:
+        webmvc:
+          # Each route = a predicate (which requests match) + a uri (where they go) + filters
+          # (how the request is transformed on the way). lb://name resolves through Eureka and
+          # load-balances across that service's healthy instances — so a service is reachable as
+          # soon as it registers, with no gateway edit. See concepts/service-discovery.md.
+          routes:
+            - id: catalog
+              uri: lb://catalog
+              predicates:
+                - Path=/api/movies/**
+              filters:
+                # StripPrefix=1 drops the leading /api segment: /api/movies/7 -> /movies/7.
+                # The /api namespace is an EDGE concern only; services keep bare paths. (Option A.)
+                - StripPrefix=1
+            - id: booking
+              uri: lb://booking
+              predicates:
+                - Path=/api/bookings/**
+              filters:
+                - StripPrefix=1
+            - id: payment
+              uri: lb://payment
+              predicates:
+                - Path=/api/payments/**
+              filters:
+                # /api/payments -> /payments, matching PaymentController's @RequestMapping("/payments").
+                - StripPrefix=1
+
+# A Eureka CLIENT: registers with the discovery server and reads the registry so lb:// resolves.
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_SERVICE_URL:http://localhost:8761/eureka/}
+
+# Shared structured log pattern with a trace-id slot (empty until Phase 6 wires tracing).
+logging:
+  pattern:
+    level: "%5p [${spring.application.name},%X{traceId:-},%X{spanId:-}]"

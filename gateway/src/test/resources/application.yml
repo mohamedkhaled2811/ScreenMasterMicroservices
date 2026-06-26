@@ -1,0 +1,6 @@
+# Test-only config — keeps the contextLoads smoke test hermetic (no Eureka registry needed).
+# The gateway owns no DB, so there is nothing else to stub out; the real routes from the main
+# application.yml still load and are parsed (that's part of what this test guards).
+eureka:
+  client:
+    enabled: false

@@ -14,12 +14,25 @@
 	<description>Notification service — consumes BookingConfirmed, "sends" the email.</description>
 
 	<!--
-	  A pure event consumer: it listens for BookingConfirmed off RabbitMQ and "sends"
-	  an email (a log line). It dedupes via a processed_events table, so it gets JPA
-	  + Postgres in Phase 4 (4.3). For now it only needs to register with Eureka; AMQP
-	  + the idempotent-consumer wiring arrive in Phase 4.
+	  Ultimately a pure event consumer: it will listen for BookingConfirmed off RabbitMQ and "send"
+	  an email (a log line), deduping via a processed_events table — AMQP + JPA + Postgres arrive in
+	  Phase 4 (4.3).
+
+	  Why web-mvc now (1.2), before any HTTP API exists? A Eureka client still needs a port to
+	  advertise, and 1.2 asks every service to expose a /health endpoint. Neither the eureka-client
+	  starter nor actuator brings a servlet container, so without web-mvc this service couldn't serve
+	  /actuator/health at all. So we add web-mvc purely for the health surface + advertised port; the
+	  consumer wiring layers on top later, unaffected.
 	-->
 	<dependencies>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webmvc</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-actuator</artifactId>
+		</dependency>
 		<dependency>
 			<groupId>org.springframework.cloud</groupId>
 			<artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
@@ -39,8 +52,16 @@
 	</dependencies>
 
 	<!--
-	  No spring-boot-maven-plugin yet: no @SpringBootApplication exists, so repackage would
-	  fail. The plugin + boot app arrive in Phase 1; for now this builds as a plain jar.
+	  Repackages the module into a runnable jar (Lombok-exclude config inherited from the
+	  parent's pluginManagement). Safe now that NotificationApplication exists.
 	-->
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+		</plugins>
+	</build>
 
 </project>

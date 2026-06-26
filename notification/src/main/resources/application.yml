@@ -1,0 +1,17 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: notification
+
+# A Eureka CLIENT: registers with the discovery server on startup. (No register/fetch overrides —
+# those are server-only.) See docs/concepts/service-discovery.md.
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_SERVICE_URL:http://localhost:8761/eureka/}
+
+logging:
+  pattern:
+    level: "%5p [${spring.application.name},%X{traceId:-},%X{spanId:-}]"

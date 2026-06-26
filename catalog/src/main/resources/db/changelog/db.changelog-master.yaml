@@ -1,0 +1,6 @@
+# Liquibase master changelog for the catalog service (catalog-db).
+#
+# Empty for now: it wires Liquibase (which creates its DATABASECHANGELOG / DATABASECHANGELOGLOCK
+# tracking tables) so the tool is proven before any real schema exists. The movies/genres tables
+# arrive in Phase 2 (2.1) as the first `include`d changeset file. See docs/concepts/liquibase.md.
+databaseChangeLog: []

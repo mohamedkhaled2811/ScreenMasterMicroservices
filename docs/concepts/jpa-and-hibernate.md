@@ -79,7 +79,7 @@ public class BookingService {
 Each microservice owns its tables and its own `DataSource` → its own Hibernate. **No cross-service joins, no cross-service FKs** (see [database-per-service.md](database-per-service.md)). The FK columns that today cross future boundaries (`Showtime → Movie`, `Booking → User`, `BookingSeat → Seat`) become plain `id` columns + API/event lookups.
 
 ## Gotchas / interview lens
-- **`ddl-auto`**: the monolith uses `update` (Hibernate edits the schema live). That's unsafe across many service instances. We switch to **Flyway** migrations + `ddl-auto=validate`.
+- **`ddl-auto`**: the monolith uses `update` (Hibernate edits the schema live). That's unsafe across many service instances. We switch to **[Liquibase](liquibase.md) migrations + `ddl-auto=validate`**.
 - **Ordinal enums are a data-corruption bug waiting to happen** — reorder the enum and old rows now mean something else. Always `@Enumerated(EnumType.STRING)`. The schema doc flags `BookingStatus`, `Booking.paymentStatus`, and `ScreenType` as ordinal; fix during extraction.
 - **N+1 queries**: lazy associations loaded in a loop fire one query per row. Use `JOIN FETCH` or an `@EntityGraph`.
 - **LAZY needs an open session** — accessing a lazy field after the transaction closes throws `LazyInitializationException`. Map to a DTO inside the transaction.

@@ -1,0 +1,48 @@
+# Changeset 001 — the payments table.
+#
+# One row per distinct idempotency key. The UNIQUE constraint on idempotency_key is the real
+# double-charge guard (see Payment.java / PaymentService.java): even two concurrent first-time
+# requests with the same key can only insert one row. ddl-auto=validate means the Payment entity
+# must match this table exactly at startup, or the app refuses to boot.
+databaseChangeLog:
+  - changeSet:
+      id: 001-create-payments
+      author: mohamed
+      changes:
+        - createTable:
+            tableName: payments
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: idempotency_key
+                  type: VARCHAR(120)
+                  constraints:
+                    nullable: false
+                    unique: true
+                    uniqueConstraintName: uq_payments_idempotency_key
+              - column:
+                  name: status
+                  type: VARCHAR(20)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: provider_reference
+                  type: VARCHAR(80)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: amount
+                  type: NUMERIC(14, 2)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  constraints:
+                    nullable: false

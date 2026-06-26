@@ -1,0 +1,6 @@
+# Liquibase master changelog for the booking service (booking-db).
+#
+# Empty for now: it wires Liquibase (which creates its DATABASECHANGELOG / DATABASECHANGELOGLOCK
+# tracking tables) so the tool is proven before any real schema exists. The bookings/seats/showtime
+# tables arrive in Phase 3 as the first `include`d changeset file. See docs/concepts/liquibase.md.
+databaseChangeLog: []

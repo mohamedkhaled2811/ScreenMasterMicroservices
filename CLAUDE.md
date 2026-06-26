@@ -40,6 +40,7 @@ Gateway → { **Catalog**, **Booking** (absorbs Theater + Scheduling), **Payment
 ## Conventions
 - **Module layout:** multi-module Maven — a parent `pom.xml` with one child module per service (`gateway`, `discovery`, `catalog`, `booking`, `payment`, `notification`). The current single-module pom becomes the parent.
 - **Each service:** its own `@SpringBootApplication`, its own `application.yml`, its own database, its own runnable jar.
+- **Package-by-layer inside a service:** don't leave classes flat in the service root package — group them into folders by responsibility under `com.gr74.<service>`: `model/` (JPA entities + their enums), `repository/` (Spring Data repositories), `service/` (business logic), `controller/` (REST controllers), `dto/` (wire types), `exception/` (error codes + domain exceptions + the advice), `config/` (`@ConfigurationProperties` and other config). Domain-specific clusters (e.g. payment's `provider/`) get their own folder. Only the `@SpringBootApplication` class stays in the root package. `payment/` is the reference implementation.
 - **DI:** constructor injection via Lombok `@RequiredArgsConstructor` + `final` fields. No field `@Autowired`.
 - **Logging:** `@Slf4j`, structured, with the trace id in the log pattern. Never `System.out.println` (a flagged monolith gap).
 - **Enums:** always `@Enumerated(EnumType.STRING)` (the monolith has fragile ordinal enums — don't repeat that).
@@ -47,6 +48,7 @@ Gateway → { **Catalog**, **Booking** (absorbs Theater + Scheduling), **Payment
 - **Cross-service references:** ids + API/event lookups, never cross-service FKs or JOINs. Snapshot immutable facts into the consumer (Booking already snapshots seat price / total).
 - **Secrets:** env vars / `.env` for local, never committed. No hard-coded JWT secret.
 - **DTOs cross the wire, not entities.**
+- **Errors carry a machine-readable code.** Each service has an `exception/` package with a `<Service>ErrorCode` enum (the stable contract sibling services branch on), domain exceptions extending a base `<Service>Exception` that carries an error code, and one `@RestControllerAdvice` (`GlobalExceptionHandler` extending `ResponseEntityExceptionHandler`) that renders every error — ours and the framework's (validation, missing headers) — as an RFC 9457 `ProblemDetail` (`application/problem+json`) with a custom `code` property. Throw a coded exception; never let a raw exception escape as an opaque 500, and never `return` an error from a controller. See [docs/concepts/error-handling-problemdetail.md](docs/concepts/error-handling-problemdetail.md); `payment/` is the reference implementation.
 
 ## Working agreements
 - **Never commit, push, or create branches on your own.** Do not run `git commit`, `git push`, `git branch`, or `git checkout -b` unless I explicitly ask you to in that message. When I do ask you to commit, stage and commit exactly what I requested — nothing more.

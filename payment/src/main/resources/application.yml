@@ -1,0 +1,39 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: payment
+
+  # Owns payment-db. Credentials come from env vars (never hard-coded — project convention),
+  # with local-dev defaults after the ':'. Compose (1.4) overrides the URL/host via env.
+  datasource:
+    url: ${PAYMENT_DB_URL:jdbc:postgresql://localhost:5432/payment}
+    username: ${PAYMENT_DB_USER:postgres}
+    password: ${PAYMENT_DB_PASSWORD:postgres}
+
+  # Liquibase owns the schema; Hibernate only VALIDATEs the entities against it on boot.
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false   # no lazy loading in the view layer; keep the tx boundary in the service
+
+# A Eureka CLIENT: it registers with the discovery server on startup. We do NOT set
+# register-with-eureka/fetch-registry to false — those are server-only (the discovery node sets
+# them because it has no peers). See docs/concepts/service-discovery.md.
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_SERVICE_URL:http://localhost:8761/eureka/}
+
+# The fake provider's controllable knobs. FAIL_RATE wires straight to the env var (0.0 = always
+# approve); latency simulates a real provider round-trip.
+payment:
+  fail-rate: ${FAIL_RATE:0.0}
+  latency-millis: ${PAYMENT_LATENCY_MILLIS:300}
+
+logging:
+  pattern:
+    level: "%5p [${spring.application.name},%X{traceId:-},%X{spanId:-}]"

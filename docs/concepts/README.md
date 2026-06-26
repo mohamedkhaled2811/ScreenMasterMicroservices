@@ -20,6 +20,7 @@ Each concept file follows the same shape so they're predictable:
 | [spring-boot-annotations.md](spring-boot-annotations.md) | `@SpringBootApplication`, auto-configuration, starters, `@ConfigurationProperties`, profiles |
 | [spring-web-annotations.md](spring-web-annotations.md) | `@RestController`, `@RequestMapping`, `@GetMapping`, `@RequestBody`, `@PathVariable`, `ResponseEntity`, `RestClient`/`WebClient` |
 | [jpa-and-hibernate.md](jpa-and-hibernate.md) | `@Entity`, `@Id`, `@GeneratedValue`, relationships, `@Enumerated`, repositories, `@Transactional`, fetch types |
+| [liquibase.md](liquibase.md) | Versioned schema migrations, changesets, `DATABASECHANGELOG`, `ddl-auto=validate`, Liquibase vs Flyway |
 | [lombok.md](lombok.md) | `@Getter`/`@Setter`, `@Data`, `@Builder`, `@RequiredArgsConstructor`, `@Slf4j` |
 | [maven-multi-module.md](maven-multi-module.md) | Parent POM, the reactor, `dependencyManagement` vs `dependencies`, `-pl`/`-am`, one module per service |
 

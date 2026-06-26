@@ -1,0 +1,31 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: catalog
+
+  # Owns catalog-db. Credentials come from env vars (never hard-coded), with local-dev defaults
+  # after the ':'. Compose (1.4) overrides the URL/host via env.
+  datasource:
+    url: ${CATALOG_DB_URL:jdbc:postgresql://localhost:5432/catalog}
+    username: ${CATALOG_DB_USER:postgres}
+    password: ${CATALOG_DB_PASSWORD:postgres}
+
+  # Liquibase owns the schema; Hibernate only VALIDATEs entities against it on boot.
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+# A Eureka CLIENT: registers with the discovery server on startup.
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_SERVICE_URL:http://localhost:8761/eureka/}
+
+logging:
+  pattern:
+    level: "%5p [${spring.application.name},%X{traceId:-},%X{spanId:-}]"

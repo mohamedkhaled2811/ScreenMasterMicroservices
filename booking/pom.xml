@@ -14,10 +14,11 @@
 	<description>Booking service — showtimes, seats, bookings; the core saga (owns booking-db).</description>
 
 	<!--
-	  The core service (absorbs Theater + Scheduling). Owns booking-db. Serves REST
-	  (web-mvc), persists with JPA, and calls Payment / Catalog synchronously via
-	  RestClient. The saga, outbox, and resilience wiring land in Phases 3-5; AMQP
-	  for the outbox relay is added in Phase 4.
+	  The core service (absorbs Theater + Scheduling). Owns booking-db. Serves REST (web-mvc),
+	  persists with JPA (schema owned by Liquibase, ddl-auto=validate), and calls Payment / Catalog
+	  synchronously via RestClient. The saga, outbox, and resilience wiring land in Phases 3-5; AMQP
+	  for the outbox relay is added in Phase 4. Real tables + endpoints arrive in Phase 3 — for now
+	  the Liquibase changelog is empty (just wires the tool) and the app boots against an empty schema.
 	-->
 	<dependencies>
 		<dependency>
@@ -30,6 +31,10 @@
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-actuator</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-restclient</artifactId>
 		</dependency>
 		<dependency>
@@ -37,6 +42,10 @@
 			<artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
 		</dependency>
 
+		<dependency>
+			<groupId>org.liquibase</groupId>
+			<artifactId>liquibase-core</artifactId>
+		</dependency>
 		<dependency>
 			<groupId>org.postgresql</groupId>
 			<artifactId>postgresql</artifactId>
@@ -53,11 +62,25 @@
 			<artifactId>spring-boot-starter-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+		<!-- TEST SCOPE ONLY: in-memory DB so the contextLoads test needs no running Postgres. -->
+		<dependency>
+			<groupId>com.h2database</groupId>
+			<artifactId>h2</artifactId>
+			<scope>test</scope>
+		</dependency>
 	</dependencies>
 
 	<!--
-	  No spring-boot-maven-plugin yet: no @SpringBootApplication exists, so repackage would
-	  fail. The plugin + boot app arrive in Phase 1; for now this builds as a plain jar.
+	  Repackages the module into a runnable jar (Lombok-exclude config inherited from the
+	  parent's pluginManagement). Safe now that BookingApplication exists.
 	-->
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+		</plugins>
+	</build>
 
 </project>

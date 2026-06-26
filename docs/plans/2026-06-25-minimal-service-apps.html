@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<!--
+  Feature plan: BUILD_PLAN 1.2 — minimal Spring Boot apps for catalog, booking,
+  payment, notification. Decisions already chosen with Mohamed (see §4); this file
+  records what changes, the options weighed, and the verification path.
+-->
+<title>Plan: Minimal service apps (1.2) — ScreenMaster</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel-2: #1d212b; --border: #2a2f3a;
+    --text: #e6e8ee; --muted: #9aa3b2; --accent: #6ea8fe; --accent-2: #7ee787;
+    --warn: #f0b429; --bad: #f47174; --good: #4ec9a4;
+    --chip: #232838;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 32px 20px 80px; }
+  header.page { border-bottom: 1px solid var(--border); padding-bottom: 18px; margin-bottom: 28px; }
+  h1 { font-size: 26px; margin: 0 0 6px; }
+  h2 { font-size: 19px; margin: 36px 0 12px; padding-top: 6px; }
+  .meta { color: var(--muted); font-size: 14px; display: flex; gap: 16px; flex-wrap: wrap; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 0; }
+  .chip {
+    background: var(--chip); border: 1px solid var(--border); color: var(--muted);
+    border-radius: 999px; padding: 3px 11px; font-size: 12.5px;
+  }
+  .status { font-weight: 600; }
+  .status.draft { color: var(--warn); }
+  .status.approved { color: var(--good); }
+  p, li { color: var(--text); }
+  .muted { color: var(--muted); }
+  section { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin: 14px 0; }
+  ul.tight { margin: 6px 0; padding-left: 20px; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13.5px; }
+  code { background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; }
+  pre { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow-x: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+
+  .options { display: grid; gap: 16px; grid-template-columns: 1fr; }
+  @media (min-width: 760px) { .options { grid-template-columns: 1fr 1fr; } }
+  .option { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; position: relative; }
+  .option.recommended { border-color: var(--accent-2); box-shadow: 0 0 0 1px var(--accent-2) inset; }
+  .option h3 { margin: 0 0 4px; font-size: 17px; }
+  .badge {
+    position: absolute; top: -10px; right: 14px; background: var(--accent-2); color: #0c1a10;
+    font-size: 11.5px; font-weight: 700; border-radius: 999px; padding: 2px 10px;
+  }
+  .badge.chosen { background: var(--good); }
+  .pros, .cons { margin: 8px 0; padding-left: 18px; }
+  .pros li { color: var(--good); }
+  .cons li { color: var(--bad); }
+  .pros li span, .cons li span { color: var(--text); }
+
+  table { width: 100%; border-collapse: collapse; margin: 6px 0; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+  td.kind { white-space: nowrap; }
+  .tag { font-size: 11.5px; border-radius: 5px; padding: 1px 7px; border: 1px solid var(--border); }
+  .tag.new { color: var(--accent-2); }
+  .tag.edit { color: var(--warn); }
+  .tag.del { color: var(--bad); }
+
+  .callout { border-left: 3px solid var(--accent); background: var(--panel-2); padding: 10px 14px; border-radius: 0 8px 8px 0; }
+  .open-q { border-left-color: var(--good); }
+  footer { margin-top: 40px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); padding-top: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page">
+    <h1>Plan: <em>Minimal service apps — catalog, booking, payment, notification</em></h1>
+    <div class="meta">
+      <span>Date: <strong>2026-06-25</strong></span>
+      <span>Author: Claude Code + Mohamed</span>
+      <span class="status approved">Status: APPROVED — implemented &amp; verified (full reactor build green)</span>
+    </div>
+    <div class="chips">
+      <span class="chip">Milestone: M1</span>
+      <span class="chip">BUILD_PLAN: 1.2</span>
+      <span class="chip">Services: catalog · booking · payment · notification</span>
+      <span class="chip">Schema §: 8 (decomposition)</span>
+    </div>
+  </header>
+
+  <h2>1. Summary</h2>
+  <section>
+    <p>Turn the four scaffolded modules into <strong>runnable Spring Boot apps</strong>. Each one boots,
+    <strong>registers with the Eureka server</strong> (the standalone <code>discovery</code> service on 8761), and exposes a
+    health endpoint at <code>/actuator/health</code>. <code>catalog</code>, <code>booking</code>, <strong>and <code>payment</code></strong> each own a
+    real Postgres database (managed by <strong>Liquibase</strong>). <code>payment</code> ships a working <strong>fake provider</strong>
+    (<code>POST /payments</code>, ~300&nbsp;ms latency, <code>FAIL_RATE</code> env var) behind a <code>PaymentProvider</code> interface
+    so a real provider is an add-only swap later; it <strong>persists every charge and is idempotent</strong>
+    (a repeated <code>Idempotency-Key</code> replays the original result, no double-charge). <code>notification</code> is a
+    future event consumer that gets a minimal health surface now. This is the "every service is up and
+    discoverable" slice of milestone M1 — it teaches service discovery, externalized config, actuator health,
+    database-per-service, and request idempotency. Gateway routing (1.3) and the full Compose file (1.4) come next.</p>
+  </section>
+
+  <h2>2. Milestone &amp; schema link</h2>
+  <section>
+    <ul class="tight">
+      <li><strong>Field-guide milestone:</strong> M1 — five services + gateway + discovery up, talking through the front door; no business logic yet.</li>
+      <li><strong>Schema doc:</strong> ARCHITECTURE_AND_SCHEMA.md §8 — the proposed decomposition; database-per-service (separate Postgres per owning service: <code>catalog</code>, <code>booking</code>).</li>
+      <li><strong>Build plan step:</strong> completes <strong>1.2</strong>. Teed up: 1.3 (gateway <code>lb://</code> routing) and 1.4 (Compose).</li>
+      <li><strong>Concepts:</strong> spring-boot-annotations.md, spring-web-annotations.md, service-discovery.md; <strong>new</strong> liquibase.md.</li>
+    </ul>
+  </section>
+
+  <h2>3. What changes</h2>
+  <section>
+    <p class="muted">Per-service: a <code>*Application</code> main class, an <code>application.yml</code>, a hermetic <code>contextLoads</code>
+    test, <code>spring-boot-maven-plugin</code> + actuator in the pom. DB-owning services also get a Liquibase master
+    changelog. Ports: catalog <code>8081</code>, booking <code>8082</code>, payment <code>8083</code>, notification <code>8084</code>
+    (discovery stays 8761).</p>
+    <table>
+      <thead><tr><th>Kind</th><th>Where</th><th>What</th></tr></thead>
+      <tbody>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>{catalog,booking,payment,notification}/src/main/java/com/gr74/&lt;svc&gt;/&lt;Svc&gt;Application.java</code></td><td><code>@SpringBootApplication</code> main class. No <code>@EnableEurekaClient</code> — the starter auto-registers.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>&lt;svc&gt;/src/main/resources/application.yml</code></td><td>Port, <code>spring.application.name</code>, eureka client <code>defaultZone</code>, shared logging pattern.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>&lt;svc&gt;/src/test/java/.../&lt;Svc&gt;ApplicationTests.java</code></td><td><code>@SpringBootTest(RANDOM_PORT)</code> + empty <code>contextLoads()</code>.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>&lt;svc&gt;/src/test/resources/application.yml</code></td><td><code>eureka.client.enabled: false</code> (hermetic); catalog/booking also exclude datasource/JPA/Liquibase auto-config.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>&lt;svc&gt;/pom.xml</code> ×4</td><td>Add <code>spring-boot-starter-actuator</code> + the <code>spring-boot-maven-plugin</code> build block.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>payment/.../PaymentProps.java</code>, <code>provider/PaymentProvider.java</code>, <code>provider/FakePaymentProvider.java</code></td><td>Typed <code>FAIL_RATE</code> binding + the <strong>swap-point interface</strong>; <code>FakePaymentProvider @Profile("!real")</code> sleeps ~300 ms → approved/declined by <code>FAIL_RATE</code>. Real provider = add-only sibling later.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>payment/.../Payment.java</code>, <code>PaymentRepository.java</code>, <code>PaymentService.java</code>, <code>PaymentController.java</code></td><td>JPA entity (<code>idempotency_key</code> UNIQUE, <code>status</code> STRING, amount, createdAt) + idempotent service (look up key → replay or charge+persist; catch UNIQUE race) + <code>POST /payments</code> taking an <code>Idempotency-Key</code> → 200/402.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>payment/.../db/changelog/db.changelog-master.yaml</code></td><td><strong>Real changeset</strong>: create the <code>payments</code> table.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>payment/pom.xml</code></td><td>Add JPA + <code>postgresql</code> + <code>liquibase-core</code> (payment was the no-DB module) + actuator + plugin.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>notification/pom.xml</code></td><td>Also add <code>spring-boot-starter-web</code> — a pure consumer can't serve health without a web server (documented).</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>{catalog,booking}/.../db/changelog/db.changelog-master.yaml</code></td><td>Empty master changelog (<code>databaseChangeLog: []</code>); real tables become changesets in 2.1 / 3.x.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>{catalog,booking}/pom.xml</code></td><td>Add <code>org.liquibase:liquibase-core</code>; <code>application.yml</code> gets datasource + <code>ddl-auto: validate</code>.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>docs/concepts/liquibase.md</code> + README row</td><td>New tool → new concept file (CLAUDE.md rule).</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>docs/concepts/idempotent-consumer.md</code></td><td>Add the <strong>request-idempotency-key</strong> twin (sync <code>POST</code> dedupe) with payment as the worked example — reuse the file, don't add a new one.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>BUILD_PLAN.md</code>, <code>jpa-and-hibernate.md</code>, <code>plans/_template.html</code></td><td>Fix stray "Flyway" → "Liquibase"; flip 1.2 checkbox to done.</td></tr>
+        <tr><td class="kind"><span class="tag del">DEL</span></td><td><code>&lt;svc&gt;/src/**/.gitkeep</code></td><td>Redundant placeholders once real files land.</td></tr>
+      </tbody>
+    </table>
+    <p class="muted"><strong>Prerequisite (user runs once):</strong></p>
+    <pre>CREATE DATABASE catalog;   -- catalog-db
+CREATE DATABASE booking;   -- booking-db
+CREATE DATABASE payment;   -- payment-db (payment is now stateful)</pre>
+  </section>
+
+  <h2>4. Options — decisions chosen with Mohamed</h2>
+  <p class="muted">These forks were resolved before writing the plan. The chosen path is marked; the alternative
+  is kept so the reasoning is reviewable.</p>
+
+  <h3 style="font-size:15px;margin-top:18px;">4a. catalog/booking database in 1.2</h3>
+  <div class="options">
+    <div class="option recommended">
+      <span class="badge chosen">Chosen</span>
+      <h3>Real Postgres now + Liquibase</h3>
+      <p>Stand up <code>catalog</code> and <code>booking</code> Postgres DBs (user creates them manually); empty Liquibase master changelog; <code>ddl-auto: validate</code>.</p>
+      <ul class="pros"><li><span>Matches the database-per-service + Liquibase conventions from day one.</span></li><li><span>Liquibase is wired and proven before any real table exists.</span></li></ul>
+      <ul class="cons"><li><span>catalog/booking won't boot unless their Postgres DB is up.</span></li></ul>
+      <p class="muted">Best when: you want the real shape early and don't mind a running Postgres.</p>
+    </div>
+    <div class="option">
+      <h3>Exclude DataSource autoconfig (shim)</h3>
+      <p>Two yml lines exclude JPA/datasource so catalog/booking boot with no DB; real datasource lands in 2.1/3.x.</p>
+      <ul class="pros"><li><span>No Postgres needed in 1.2.</span></li></ul>
+      <ul class="cons"><li><span>Temporary config to delete later.</span></li><li><span>Defers the database-per-service lesson.</span></li></ul>
+      <p class="muted">Best when: you want the fewest moving parts now. (Not chosen.)</p>
+    </div>
+  </div>
+
+  <h3 style="font-size:15px;margin-top:18px;">4b. Fake payment — scope, swappability, state</h3>
+  <div class="options">
+    <div class="option recommended">
+      <span class="badge chosen">Chosen</span>
+      <h3>Build it now: interface + DB + idempotency</h3>
+      <p>Working <code>POST /payments</code> (sleep ~300 ms → 200/402 by <code>FAIL_RATE</code>) behind a <code>PaymentProvider</code> interface; <code>payment</code> persists each charge to its own DB; an <code>Idempotency-Key</code> + <code>UNIQUE</code> constraint replays the original result on retry.</p>
+      <ul class="pros"><li><span>1.2's text <em>is</em> this behavior; no rewrite in Phase 3.2.</span></li><li><span>Real provider later = add a <code>StripePaymentProvider @Profile("real")</code>, no edits to working code.</span></li><li><span>Idempotency designed in, not retrofitted — the canonical payment-safety pattern.</span></li></ul>
+      <ul class="cons"><li><span>More scope than a stateless skeleton (entity, repo, service, changeset, payment DB).</span></li></ul>
+      <p class="muted">Best when: you intend a real provider later and want the seams right from the start. (Chosen.)</p>
+    </div>
+    <div class="option">
+      <h3>Stateless fake, defer DB &amp; interface</h3>
+      <p>Inline fake logic in the controller, no DB, no interface; extract everything when a real provider lands.</p>
+      <ul class="pros"><li><span>Least code in 1.2; matches the field guide's "fake provider is stateless".</span></li></ul>
+      <ul class="cons"><li><span>Retrofitting the interface, a DB, and idempotency later means editing working code + a migration.</span></li></ul>
+      <p class="muted">Best when: payment will only ever be the curriculum's fake. (Not chosen — a real provider is planned.)</p>
+    </div>
+  </div>
+
+  <h3 style="font-size:15px;margin-top:18px;">4c. Settled defaults (no fork)</h3>
+  <section>
+    <ul class="tight">
+      <li><strong>Health:</strong> actuator <code>/actuator/health</code> (not a hand-rolled controller) — production standard, reused by Compose/observability later.</li>
+      <li><strong>notification web server:</strong> add <code>spring-boot-starter-web</code> so the consumer can serve health + advertise a port. Documented deviation from "pure consumer".</li>
+      <li><strong>Eureka client:</strong> starter only, no enable-annotation; clients must <em>not</em> disable register/fetch (those are server-only, set in <code>discovery</code>).</li>
+      <li><strong>Hermetic tests:</strong> <code>eureka.client.enabled: false</code> + (catalog/booking) datasource auto-config excluded in <code>src/test/resources</code>.</li>
+    </ul>
+  </section>
+
+  <h2>5. Risks / microservices cost felt</h2>
+  <section>
+    <div class="callout">
+      <p><strong>Database-per-service, first contact.</strong> catalog, booking, and payment each own a private Postgres —
+      no shared schema, no cross-service JOIN. Standing up three databases (vs. the monolith's single
+      <code>screenmaster</code> DB) is the first concrete cost: more infrastructure per service. The production-grade
+      answer here is <strong>Liquibase migrations + <code>ddl-auto: validate</code></strong> (not <code>ddl-auto=update</code>), so each
+      service's schema is versioned and reproducible from the start — fixing a flagged monolith gap.</p>
+      <p><strong>Duplicate delivery / double-charge, previewed.</strong> Persisting charges raises the at-least-once
+      problem early: a retried <code>POST /payments</code> must not charge twice. The answer is a client-supplied
+      <strong>idempotency key + a <code>UNIQUE</code> constraint as the source of truth</strong> (catch the violation, replay the
+      stored result). This is the synchronous twin of the Phase-4 idempotent <em>consumer</em> — same lesson, different
+      trigger — so the concept compounds rather than repeats.</p>
+      <p><strong>Partial failure, previewed.</strong> The fake <code>payment</code> provider with <code>FAIL_RATE</code> is the deliberate
+      fault injector the saga (Phase 3) and resilience (Phase 5) phases lean on. Building it now means later phases
+      <em>observe</em> failure rather than scramble to create it. The <code>PaymentProvider</code> interface keeps the real-provider
+      door open without pulling that (out-of-curriculum) work forward.</p>
+    </div>
+  </section>
+
+  <h2>6. Verification</h2>
+  <section>
+    <pre>./mvnw -q package        # six modules build; four new contextLoads tests pass (hermetic)
+
+# run discovery first, then the four (each in its own terminal / background):
+./mvnw -q -pl discovery     spring-boot:run   # 8761
+./mvnw -q -pl catalog       spring-boot:run   # 8081 (needs Postgres `catalog`)
+./mvnw -q -pl booking       spring-boot:run   # 8082 (needs Postgres `booking`)
+./mvnw -q -pl payment       spring-boot:run   # 8083 (needs Postgres `payment`)
+./mvnw -q -pl notification  spring-boot:run   # 8084
+
+# all four UP in the registry:
+open http://localhost:8761          # CATALOG / BOOKING / PAYMENT / NOTIFICATION → UP
+
+# health (catalog/booking/payment UP also proves Liquibase ran + validate passed):
+curl -s localhost:8081/actuator/health   # {"status":"UP"}  (… 8082, 8083, 8084)
+
+# fake payment: latency + FAIL_RATE + persistence + idempotency
+time curl -s -X POST localhost:8083/payments -H 'Idempotency-Key: demo-1' \
+  -H 'Content-Type: application/json' -d '{"amount":42.00}' \
+  -o /dev/null -w '%{http_code}\n'                 # 200, ~0.3s, writes one row
+curl -s -X POST localhost:8083/payments -H 'Idempotency-Key: demo-1' \
+  -H 'Content-Type: application/json' -d '{"amount":42.00}' \
+  -o /dev/null -w '%{http_code}\n'                 # 200, replays stored result, NO 2nd row
+FAIL_RATE=1.0 ./mvnw -q -pl payment spring-boot:run
+curl -s -X POST localhost:8083/payments -H 'Idempotency-Key: demo-2' \
+  -H 'Content-Type: application/json' -d '{"amount":42.00}' \
+  -o /dev/null -w '%{http_code}\n'                 # 402</pre>
+    <p class="muted"><strong>Done when:</strong> <code>package</code> green · all four <code>UP</code> on the 8761 dashboard ·
+    all four <code>/actuator/health</code> return <code>{"status":"UP"}</code> · payment honors ~300 ms + <code>FAIL_RATE</code>,
+    persists each charge, and a repeated <code>Idempotency-Key</code> replays the original result with no second row.</p>
+  </section>
+
+  <h2>7. Open questions</h2>
+  <section>
+    <div class="callout open-q">
+      <p>None blocking — the two forks (§4a database approach, §4b payment scope) are decided. Ready to implement on approval.</p>
+    </div>
+  </section>
+
+  <footer>
+    ScreenMaster Microservices — feature plan for BUILD_PLAN 1.2. Review in a browser, then we implement.
+  </footer>
+
+</div>
+</body>
+</html>

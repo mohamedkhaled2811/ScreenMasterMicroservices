@@ -14,9 +14,11 @@
 	<description>Catalog service — movies, genres (owns catalog-db).</description>
 
 	<!--
-	  Owns the movie catalogue and its own Postgres (catalog-db). It serves REST
-	  (web-mvc) and persists with JPA. Registers with Eureka so the gateway and
-	  Booking can find it. Real tables + endpoints arrive in Phase 2 (2.1).
+	  Owns the movie catalogue and its own Postgres (catalog-db). It serves REST (web-mvc) and
+	  persists with JPA; the schema is owned by Liquibase (ddl-auto=validate), not Hibernate.
+	  Registers with Eureka so the gateway and Booking can find it. Real tables + endpoints arrive
+	  in Phase 2 (2.1) — for now the Liquibase changelog is empty (just wires the tool) and the app
+	  boots against an empty schema.
 	-->
 	<dependencies>
 		<dependency>
@@ -28,10 +30,18 @@
 			<artifactId>spring-boot-starter-data-jpa</artifactId>
 		</dependency>
 		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-actuator</artifactId>
+		</dependency>
+		<dependency>
 			<groupId>org.springframework.cloud</groupId>
 			<artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
 		</dependency>
 
+		<dependency>
+			<groupId>org.liquibase</groupId>
+			<artifactId>liquibase-core</artifactId>
+		</dependency>
 		<dependency>
 			<groupId>org.postgresql</groupId>
 			<artifactId>postgresql</artifactId>
@@ -48,11 +58,25 @@
 			<artifactId>spring-boot-starter-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+		<!-- TEST SCOPE ONLY: in-memory DB so the contextLoads test needs no running Postgres. -->
+		<dependency>
+			<groupId>com.h2database</groupId>
+			<artifactId>h2</artifactId>
+			<scope>test</scope>
+		</dependency>
 	</dependencies>
 
 	<!--
-	  No spring-boot-maven-plugin yet: no @SpringBootApplication exists, so repackage would
-	  fail. The plugin + boot app arrive in Phase 1; for now this builds as a plain jar.
+	  Repackages the module into a runnable jar (Lombok-exclude config inherited from the
+	  parent's pluginManagement). Safe now that CatalogApplication exists.
 	-->
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+		</plugins>
+	</build>
 
 </project>

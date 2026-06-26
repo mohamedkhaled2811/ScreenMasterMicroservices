@@ -27,8 +27,25 @@ Sometimes the operation is idempotent by design and you need no dedupe table:
 
 Prefer natural idempotency when the data model allows it; fall back to the `processed_events` table when it doesn't.
 
-## How we use it here (field guide M4)
-Notification dedupes `BookingConfirmed` via a `processed_events` table before "sending" the email. We prove it by forcing redelivery (kill/restart the relay) and by scaling notification to 2 instances — exactly one email-log per booking either way.
+## The synchronous twin: request idempotency keys
+The same problem shows up on **synchronous HTTP**, not just message consumers. A client (or a [saga](saga-pattern.md)) retries a `POST` after a timeout — but the first call may have *succeeded* and the response just got lost. Without a guard, the retry does the work twice (a double charge).
+
+The fix is the same shape, with a **client-supplied key** instead of a broker's event id:
+- The caller sends an `Idempotency-Key` header (a UUID it reuses across retries of the *same* logical request).
+- The server stores results keyed by it, with a **`UNIQUE` constraint** on the key column.
+- A repeat key **replays the stored result** instead of redoing the work.
+
+```text
+read by key → found?  → return the stored result (no re-charge)
+            → not found → do the work, INSERT the row
+                          → UNIQUE violation? a concurrent twin won; re-read & return its row
+```
+The `UNIQUE` constraint — not the pre-read — is the real guard: two concurrent first-time requests both miss the read, both do the work, but only one row inserts; the loser catches the violation and returns the winner's result. (This is the "natural idempotency via a unique constraint" case above, applied to a request.)
+
+## How we use it here (field guide M4 + 1.2)
+**Payment (1.2)** is the synchronous twin: `POST /payments` takes an `Idempotency-Key`, and `payments.idempotency_key` is `UNIQUE`, so a retried charge replays the original outcome (approved/declined) and never charges twice. The service pre-reads the key, then relies on the constraint to settle the concurrent-duplicate race — see `payment/.../PaymentService.java`.
+
+**Notification (M4)** is the asynchronous case: it dedupes `BookingConfirmed` via a `processed_events` table before "sending" the email. We prove it by forcing redelivery (kill/restart the relay) and by scaling notification to 2 instances — exactly one email-log per booking either way.
 
 The schema doc also flags two existing spots that **must** become idempotent once split: the **PayPal webhook** (dedupe by `transactionId`) and any **RabbitMQ consumer** (dedupe by message id).
 

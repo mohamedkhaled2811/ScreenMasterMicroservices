@@ -1,0 +1,4 @@
+# Test-only config — keeps the contextLoads smoke test hermetic (no Eureka needed).
+eureka:
+  client:
+    enabled: false

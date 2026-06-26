@@ -44,9 +44,17 @@
 			<artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
 		</dependency>
 
+		<!--
+		  Spring Boot 4 moved each integration's auto-configuration out of the umbrella
+		  spring-boot-autoconfigure jar into its own module. spring-boot-liquibase carries
+		  LiquibaseAutoConfiguration (the bean that runs the changelog on startup) and pulls in
+		  liquibase-core transitively. Without it, liquibase-core is on the classpath but never
+		  runs — the schema is never created and Hibernate's ddl-auto=validate fails with
+		  "missing table [payments]". See docs/concepts/liquibase.md.
+		-->
 		<dependency>
-			<groupId>org.liquibase</groupId>
-			<artifactId>liquibase-core</artifactId>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-liquibase</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.postgresql</groupId>

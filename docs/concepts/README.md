@@ -19,6 +19,7 @@ Each concept file follows the same shape so they're predictable:
 | [spring-core-and-beans.md](spring-core-and-beans.md) | IoC container, beans, dependency injection, `@Component`/`@Service`/`@Configuration`, `@Bean`, `@Autowired` |
 | [spring-boot-annotations.md](spring-boot-annotations.md) | `@SpringBootApplication`, auto-configuration, starters, `@ConfigurationProperties`, profiles |
 | [spring-web-annotations.md](spring-web-annotations.md) | `@RestController`, `@RequestMapping`, `@GetMapping`, `@RequestBody`, `@PathVariable`, `ResponseEntity`, `RestClient`/`WebClient` |
+| [error-handling-problemdetail.md](error-handling-problemdetail.md) | `@RestControllerAdvice`, `ResponseEntityExceptionHandler`, RFC 9457 `ProblemDetail`, error-code enums, domain exceptions, the error contract between services |
 | [jpa-and-hibernate.md](jpa-and-hibernate.md) | `@Entity`, `@Id`, `@GeneratedValue`, relationships, `@Enumerated`, repositories, `@Transactional`, fetch types |
 | [liquibase.md](liquibase.md) | Versioned schema migrations, changesets, `DATABASECHANGELOG`, `ddl-auto=validate`, Liquibase vs Flyway |
 | [lombok.md](lombok.md) | `@Getter`/`@Setter`, `@Data`, `@Builder`, `@RequiredArgsConstructor`, `@Slf4j` |

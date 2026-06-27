@@ -10,9 +10,9 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * needed) so the gateway and Booking can discover it. Schema is managed by Liquibase with
  * {@code ddl-auto=validate} — see {@code docs/concepts/liquibase.md}.
  *
- * <p>Real {@code movies}/{@code genres} tables and the {@code GET /api/movies/{id}} endpoint arrive
- * in Phase 2 (2.1); right now the app boots against an empty (Liquibase-tracked) schema and exposes
- * only {@code /actuator/health}.
+ * <p>Owns the {@code movies}/{@code genres} tables and serves {@code GET /movies/{id}} (reached as
+ * {@code /api/movies/{id}} through the gateway). The tables ship empty; the TMDB sync step loads rows
+ * in the next phase.
  */
 @SpringBootApplication
 public class CatalogApplication {

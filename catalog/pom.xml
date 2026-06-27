@@ -29,6 +29,16 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-data-jpa</artifactId>
 		</dependency>
+		<!--
+		  Bean Validation (Jakarta + Hibernate Validator). Consistent with payment; powers the
+		  @Valid/@NotNull constraints on the (future) write paths and the validation branch of
+		  GlobalExceptionHandler. No constraint is enforced on the read endpoint yet, but the advice
+		  that renders validation failures as ProblemDetail lives here.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-validation</artifactId>
+		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-actuator</artifactId>
@@ -66,7 +76,23 @@
 			<artifactId>spring-boot-starter-test</artifactId>
 			<scope>test</scope>
 		</dependency>
-		<!-- TEST SCOPE ONLY: in-memory DB so the contextLoads test needs no running Postgres. -->
+		<!--
+		  Spring Boot 4 split the test slices out of spring-boot-test-autoconfigure into per-technology
+		  modules. spring-boot-webmvc-test carries @WebMvcTest (the MovieController slice);
+		  spring-boot-data-jpa-test carries @DataJpaTest and pulls in TestEntityManager (the
+		  MovieRepository slice). Without them the slice annotations aren't on the classpath.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-webmvc-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-data-jpa-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!-- TEST SCOPE ONLY: in-memory DB so the slice/contextLoads tests need no running Postgres. -->
 		<dependency>
 			<groupId>com.h2database</groupId>
 			<artifactId>h2</artifactId>

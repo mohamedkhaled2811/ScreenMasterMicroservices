@@ -1,9 +1,218 @@
+# =============================================================================
+#  ScreenMaster — the whole system on one machine.  BUILD_PLAN 1.4 (field guide M1).
+#  Concepts: docs/concepts/containers-and-compose.md (the multi-service file)
+#            docs/concepts/docker-fundamentals.md     (images/layers/volumes/networks)
+#
+#  Topology: gateway (front door) -> { catalog, booking, payment, notification },
+#  all registering with the discovery (Eureka) server; database-per-service made
+#  PHYSICAL as three separate Postgres containers; RabbitMQ + Zipkin run from day
+#  one (services don't wire to them until Phase 4 / Phase 6).
+#
+#  Key ideas you can see here:
+#   - SERVICE NAME = DNS NAME on the Compose network. `catalog` reaches its database
+#     at `catalog-db:5432` and the registry at `discovery:8761` — no IPs.
+#   - Only the EDGE is published to the host: gateway (8080), the Eureka dashboard
+#     (8761), and the RabbitMQ/Zipkin consoles. Backend services stay internal.
+#   - NO application.yml edits: every service already reads ${VAR:default} env hooks,
+#     so we only inject values here.
+#   - The EUREKA_INSTANCE_PREFER_IP_ADDRESS=true flag makes each client register its
+#     routable Compose-network IP, so `lb://catalog` resolves to something other
+#     containers can actually reach (the Eureka-on-Compose gotcha).
+#
+#  Run:   docker compose up --build         (build images + start everything)
+#  Stop:  docker compose down               (keep db volumes)  /  down -v (wipe them)
+# =============================================================================
+
 services:
-  postgres:
-    image: 'postgres:latest'
-    environment:
-      - 'POSTGRES_DB=mydatabase'
-      - 'POSTGRES_PASSWORD=secret'
-      - 'POSTGRES_USER=myuser'
+
+  # ---------------------------------------------------------------------------
+  #  Discovery — the Eureka registry. Everything else registers with it.
+  # ---------------------------------------------------------------------------
+  discovery:
+    build:
+      # context = repo root so the Maven reactor (parent pom + sibling modules) is
+      # visible to the build stage; dockerfile points at this module. (docker-fundamentals.md §6)
+      context: .
+      dockerfile: discovery/Dockerfile
+    image: screenmaster/discovery
     ports:
-      - '5432'
+      - "8761:8761"          # publish the dashboard so you can open http://localhost:8761
+    networks: [screenmaster]
+
+  # ---------------------------------------------------------------------------
+  #  Gateway — the single public front door (the only app port on the host).
+  # ---------------------------------------------------------------------------
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    image: screenmaster/gateway
+    ports:
+      - "8080:8080"          # the ONLY public app entrypoint; clients only ever hit 8080
+    environment:
+      EUREKA_SERVICE_URL: http://discovery:8761/eureka/   # resolve the registry by service name
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"           # register a routable Compose-network IP
+    depends_on:
+      - discovery            # start after the registry process is up (clients retry anyway)
+    networks: [screenmaster]
+
+  # ---------------------------------------------------------------------------
+  #  Catalog — owns catalog-db. No host port; reached only through the gateway.
+  # ---------------------------------------------------------------------------
+  catalog:
+    build:
+      context: .
+      dockerfile: catalog/Dockerfile
+    image: screenmaster/catalog
+    environment:
+      # Point the datasource at the catalog-db CONTAINER (service name = DNS name).
+      CATALOG_DB_URL: jdbc:postgresql://catalog-db:5432/catalog
+      CATALOG_DB_USER: postgres
+      CATALOG_DB_PASSWORD: postgres
+      EUREKA_SERVICE_URL: http://discovery:8761/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+    depends_on:
+      catalog-db:
+        condition: service_healthy   # don't boot until Postgres answers pg_isready (no race)
+      discovery:
+        condition: service_started
+    networks: [screenmaster]
+
+  # ---------------------------------------------------------------------------
+  #  Booking — owns booking-db. The core service (absorbs Theater + Scheduling).
+  # ---------------------------------------------------------------------------
+  booking:
+    build:
+      context: .
+      dockerfile: booking/Dockerfile
+    image: screenmaster/booking
+    environment:
+      BOOKING_DB_URL: jdbc:postgresql://booking-db:5432/booking
+      BOOKING_DB_USER: postgres
+      BOOKING_DB_PASSWORD: postgres
+      EUREKA_SERVICE_URL: http://discovery:8761/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+    depends_on:
+      booking-db:
+        condition: service_healthy
+      discovery:
+        condition: service_started
+    networks: [screenmaster]
+
+  # ---------------------------------------------------------------------------
+  #  Payment — fake provider; owns payment-db. FAIL_RATE=0 -> always approve (M1).
+  # ---------------------------------------------------------------------------
+  payment:
+    build:
+      context: .
+      dockerfile: payment/Dockerfile
+    image: screenmaster/payment
+    environment:
+      PAYMENT_DB_URL: jdbc:postgresql://payment-db:5432/payment
+      PAYMENT_DB_USER: postgres
+      PAYMENT_DB_PASSWORD: postgres
+      FAIL_RATE: "0.0"       # the provider's controllable knob; 0 = always approve until Phase 3
+      EUREKA_SERVICE_URL: http://discovery:8761/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+    depends_on:
+      payment-db:
+        condition: service_healthy
+      discovery:
+        condition: service_started
+    networks: [screenmaster]
+
+  # ---------------------------------------------------------------------------
+  #  Notification — event consumer. No db yet; consumer wiring lands in Phase 4.
+  # ---------------------------------------------------------------------------
+  notification:
+    build:
+      context: .
+      dockerfile: notification/Dockerfile
+    image: screenmaster/notification
+    environment:
+      EUREKA_SERVICE_URL: http://discovery:8761/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+    depends_on:
+      - discovery
+    networks: [screenmaster]
+
+  # ===========================================================================
+  #  Datastores — database-per-service made physical: one Postgres per owner.
+  #  pg_isready ships inside the postgres image, so it's a dependency-free
+  #  healthcheck that app services gate on (condition: service_healthy above).
+  # ===========================================================================
+  catalog-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: catalog
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - catalog-db-data:/var/lib/postgresql/data   # named volume: data survives `down` (not `down -v`)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d catalog"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [screenmaster]
+
+  booking-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: booking
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - booking-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d booking"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [screenmaster]
+
+  payment-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: payment
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - payment-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d payment"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [screenmaster]
+
+  # ===========================================================================
+  #  Broker + tracing — run now, WIRED LATER. RabbitMQ is consumed in Phase 4;
+  #  Zipkin receives traces in Phase 6. Present here so the topology is complete
+  #  and later phases just connect to containers that already exist.
+  # ===========================================================================
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"          # AMQP (producers/consumers) — used from Phase 4
+      - "15672:15672"        # management console -> http://localhost:15672 (guest/guest)
+    networks: [screenmaster]
+
+  zipkin:
+    image: openzipkin/zipkin
+    ports:
+      - "9411:9411"          # trace UI + collector -> http://localhost:9411 (used from Phase 6)
+    networks: [screenmaster]
+
+# A dedicated network so service names resolve as DNS and the stack is isolated
+# from anything else running on the host's default bridge.
+networks:
+  screenmaster:
+    driver: bridge
+
+# Named volumes keep each database's files outside the container's throwaway
+# writable layer (docker-fundamentals.md §3c) — `down` preserves them, `down -v` wipes.
+volumes:
+  catalog-db-data:
+  booking-db-data:
+  payment-db-data:

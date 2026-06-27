@@ -61,6 +61,7 @@ Each concept file follows the same shape so they're predictable:
 ### Ops
 | File | Covers |
 |---|---|
+| [docker-fundamentals.md](docker-fundamentals.md) | Images/containers/registry, the layer + cache model, Dockerfile instructions, multi-stage builds, volumes/networks/ports, command reference |
 | [containers-and-compose.md](containers-and-compose.md) | Docker, Compose, images vs containers, the multi-service compose file |
 | [kubernetes-vocabulary.md](kubernetes-vocabulary.md) | Pod/Deployment/Service/Ingress/ConfigMap, liveness vs readiness (reference only — not built in this project) |
 

@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<!--
+  ScreenMaster feature plan — BUILD_PLAN 1.4: Docker Compose for the whole system.
+  Generated from docs/plans/_template.html. Review in a browser, pick an option, then implement.
+-->
+<title>Plan: Compose full stack (1.4) — ScreenMaster</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel-2: #1d212b; --border: #2a2f3a;
+    --text: #e6e8ee; --muted: #9aa3b2; --accent: #6ea8fe; --accent-2: #7ee787;
+    --warn: #f0b429; --bad: #f47174; --good: #4ec9a4;
+    --chip: #232838;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 32px 20px 80px; }
+  header.page { border-bottom: 1px solid var(--border); padding-bottom: 18px; margin-bottom: 28px; }
+  h1 { font-size: 26px; margin: 0 0 6px; }
+  h2 { font-size: 19px; margin: 36px 0 12px; padding-top: 6px; }
+  .meta { color: var(--muted); font-size: 14px; display: flex; gap: 16px; flex-wrap: wrap; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 0; }
+  .chip {
+    background: var(--chip); border: 1px solid var(--border); color: var(--muted);
+    border-radius: 999px; padding: 3px 11px; font-size: 12.5px;
+  }
+  .status { font-weight: 600; }
+  .status.draft { color: var(--warn); }
+  .status.approved { color: var(--good); }
+  p, li { color: var(--text); }
+  .muted { color: var(--muted); }
+  section { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin: 14px 0; }
+  ul.tight { margin: 6px 0; padding-left: 20px; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13.5px; }
+  code { background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; }
+  pre { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow-x: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+
+  /* Option cards */
+  .options { display: grid; gap: 16px; grid-template-columns: 1fr; }
+  @media (min-width: 760px) { .options { grid-template-columns: 1fr 1fr; } }
+  .option { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; position: relative; }
+  .option.recommended { border-color: var(--accent-2); box-shadow: 0 0 0 1px var(--accent-2) inset; }
+  .option h3 { margin: 0 0 4px; font-size: 17px; }
+  .badge {
+    position: absolute; top: -10px; right: 14px; background: var(--accent-2); color: #0c1a10;
+    font-size: 11.5px; font-weight: 700; border-radius: 999px; padding: 2px 10px;
+  }
+  .pros, .cons { margin: 8px 0; padding-left: 18px; }
+  .pros li { color: var(--good); }
+  .cons li { color: var(--bad); }
+  .pros li span, .cons li span { color: var(--text); }
+
+  /* What-changes table */
+  table { width: 100%; border-collapse: collapse; margin: 6px 0; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+  td.kind { white-space: nowrap; }
+  .tag { font-size: 11.5px; border-radius: 5px; padding: 1px 7px; border: 1px solid var(--border); }
+  .tag.new { color: var(--accent-2); }
+  .tag.edit { color: var(--warn); }
+  .tag.del { color: var(--bad); }
+
+  .callout { border-left: 3px solid var(--accent); background: var(--panel-2); padding: 10px 14px; border-radius: 0 8px 8px 0; }
+  .open-q { border-left-color: var(--warn); }
+
+  /* Implementation tasks — ordered breakdown, one card per task */
+  ol.tasks { list-style: none; counter-reset: task; margin: 0; padding: 0; display: grid; gap: 12px; }
+  ol.tasks > li.task {
+    counter-increment: task; position: relative;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 16px 14px 52px;
+  }
+  ol.tasks > li.task::before {
+    content: counter(task); position: absolute; left: 14px; top: 14px;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--chip); border: 1px solid var(--accent); color: var(--accent);
+    font: 600 13px/26px ui-monospace, monospace; text-align: center;
+  }
+  li.task h3 { margin: 0 0 4px; font-size: 16px; }
+  li.task .goal, li.task .done { margin: 4px 0; font-size: 14.5px; }
+  li.task .label { color: var(--muted); font-weight: 600; }
+  li.task .done .label { color: var(--good); }
+  li.task .depends { color: var(--muted); font-size: 13px; margin-top: 6px; }
+
+  /* Verification — command / expected checklist */
+  table.verify td.cmd { white-space: nowrap; }
+  table.verify td.cmd code { display: inline-block; }
+  table.verify .ok { color: var(--good); }
+
+  footer { margin-top: 40px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); padding-top: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page">
+    <h1>Plan: <em>Compose full stack — every service + 3 Postgres + RabbitMQ + Zipkin</em></h1>
+    <div class="meta">
+      <span>Date: <strong>2026-06-27</strong></span>
+      <span>Author: Claude Code + Mohamed</span>
+      <span class="status draft">Status: DRAFT — awaiting review</span>
+    </div>
+    <div class="chips">
+      <span class="chip">Milestone: M1</span>
+      <span class="chip">BUILD_PLAN: 1.4</span>
+      <span class="chip">Services: all six + infra</span>
+      <span class="chip">Concept: containers-and-compose.md</span>
+    </div>
+  </header>
+
+  <h2>1. Summary</h2>
+  <section>
+    <p>This is the <strong>final step of Phase 1 (field guide M1)</strong>. Steps 1.1–1.3 built the
+    six services (discovery/Eureka, gateway, catalog, booking, payment, notification) and verified
+    each boots and that the gateway routes through <code>lb://</code> — but only by running pieces
+    by hand against <code>localhost</code>. <strong>1.4 brings the whole topology up with one
+    command</strong> (<code>docker compose up --build</code>): every service containerised,
+    <em>database-per-service made physical</em> (each owning service gets its own Postgres
+    container), and <strong>service name = DNS name</strong> on the Compose network. The current
+    <code>compose.yaml</code> is a leftover single-Postgres monolith stub and is replaced entirely.
+    This is the lesson that the talk-track <em>"I run a multi-service system locally with isolated
+    databases — here's the compose file"</em> comes from.</p>
+  </section>
+
+  <h2>2. Milestone &amp; schema link</h2>
+  <section>
+    <ul class="tight">
+      <li><strong>Field-guide milestone:</strong> M1 — skeleton &amp; infrastructure up on Compose, talking through the front door.</li>
+      <li><strong>Build plan step:</strong> completes <code>BUILD_PLAN.md</code> <strong>1.4</strong> — the last unchecked box in Phase 1.</li>
+      <li><strong>Schema doc:</strong> ARCHITECTURE_AND_SCHEMA.md §8 — database-per-service decomposition made physical (separate Postgres per owning service).</li>
+      <li><strong>Concept:</strong> <code>docs/concepts/containers-and-compose.md</code> (the example in it is updated by this work — see §3).</li>
+    </ul>
+  </section>
+
+  <h2>3. What changes</h2>
+  <section>
+    <p class="muted">Concrete surface area. <strong>No <code>application.yml</code> edits</strong> —
+    every service already reads its config through <code>${VAR:default}</code> relaxed-binding env
+    hooks, so Compose only injects values.</p>
+    <table>
+      <thead><tr><th>Kind</th><th>Where</th><th>What</th></tr></thead>
+      <tbody>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>&lt;service&gt;/Dockerfile</code> ×6</td><td>Multi-stage image per service (Maven build stage → JRE runtime stage). One each for discovery, gateway, catalog, booking, payment, notification.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>.dockerignore</code></td><td>Keep <code>target/</code>, <code>.git/</code>, <code>.idea/</code>, wrapper jars out of the build context.</td></tr>
+        <tr><td class="kind"><span class="tag edit">REWRITE</span></td><td><code>compose.yaml</code></td><td>Replace the single-Postgres stub with 11 services: 6 app + 3 Postgres (catalog-db, booking-db, payment-db) + rabbitmq + zipkin.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>docs/BUILD_PLAN.md</code></td><td>Mark 1.4 <code>[x]</code> with a verified note; correct "two Postgres" → "three" (drift explained below).</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>docs/concepts/containers-and-compose.md</code></td><td>Update the example to 3 Postgres, multi-stage Dockerfile + root build-context, and a short "Eureka + Compose" note.</td></tr>
+      </tbody>
+    </table>
+
+    <h3 style="font-size:16px;margin:18px 0 6px;">The "two Postgres → three" drift (decided with Mohamed)</h3>
+    <p>BUILD_PLAN 1.4 and the concept doc both say <em>"two Postgres (catalog-db, booking-db)"</em> —
+    they were written when <code>payment</code> was planned to be DB-less. But the <code>payment</code>
+    service as built in 1.2 ships a real <code>payments</code> table via Liquibase with
+    <code>ddl-auto=validate</code>, so it <strong>needs its own database to boot</strong>. We follow
+    the code (truest to database-per-service) and add <code>payment-db</code> — three Postgres total —
+    and fix the stale docs.</p>
+
+    <h3 style="font-size:16px;margin:18px 0 6px;">The multi-stage Dockerfile (built from repo root)</h3>
+    <pre># ---- build stage: compile this module (+ its deps) inside the image ----
+FROM maven:3.9-eclipse-temurin-21 AS build
+WORKDIR /src
+COPY . .
+# -pl &lt;module&gt; -am = build the module and the modules it depends on
+RUN ./mvnw -q -pl &lt;module&gt; -am clean package -DskipTests
+
+# ---- runtime stage: slim JRE + the repackaged jar ----
+FROM eclipse-temurin:21-jre
+WORKDIR /app
+COPY --from=build /src/&lt;module&gt;/target/&lt;module&gt;-*.jar app.jar
+EXPOSE &lt;port&gt;
+ENTRYPOINT ["java","-jar","/app.jar"]</pre>
+    <p class="muted"><strong>Root build context.</strong> Because each Dockerfile needs the parent
+    pom and the <code>mvnw</code> wrapper, Compose uses
+    <code>build: { context: ., dockerfile: &lt;svc&gt;/Dockerfile }</code> (context = repo root), <em>not</em>
+    the concept doc's <code>build: ./booking</code> shorthand (which assumes a self-contained module).
+    <code>-DskipTests</code> in the image: the reactor build already gates tests; the image stage is
+    for packaging, not re-running the suite.</p>
+
+    <h3 style="font-size:16px;margin:18px 0 6px;">The Eureka-under-Compose fix (env-only, no code change)</h3>
+    <p>Clients currently set no <code>eureka.instance.hostname</code>, so each registers under its
+    <strong>container hostname</strong> (a random hash) that other containers can't resolve —
+    <code>lb://catalog</code> would hand the gateway an unreachable address. Fix per app service via
+    an injected env var (Spring relaxed binding, no YAML edit):</p>
+    <pre>EUREKA_INSTANCE_PREFER_IP_ADDRESS=true   # register the container's Compose-network IP</pre>
+    <p class="muted">This makes <code>lb://</code> resolve to a routable <code>172.x</code> address on
+    the Compose bridge network. (Alternative <code>EUREKA_INSTANCE_HOSTNAME=&lt;service-name&gt;</code> is
+    noted in Option C.)</p>
+
+    <h3 style="font-size:16px;margin:18px 0 6px;">Out of scope (later phases)</h3>
+    <p class="muted">No RabbitMQ/Zipkin <em>wiring</em> in services (Phase 4 / Phase 6 — the containers
+    run but nothing connects yet), no Keycloak/identity (Phase 7), no edge auth or rate-limiting
+    (Phase 7).</p>
+  </section>
+
+  <h2>4. Options</h2>
+  <p class="muted">Three axes had a real choice. Axis 1 (payment DB) and axis 2 (image build) were
+  decided with Mohamed and are baked into the recommended path; axis 3 (Eureka identity) is shown
+  for completeness.</p>
+  <div class="options">
+
+    <div class="option recommended">
+      <span class="badge">Recommended</span>
+      <h3>Option A — 3 Postgres · multi-stage Dockerfiles · rabbit+zipkin now</h3>
+      <p>Each owning service gets its own Postgres; images build inside Docker; the broker and tracing
+      containers run from day one (unused until Phases 4/6).</p>
+      <ul class="pros">
+        <li><span>Truest to <strong>database-per-service</strong> — payment's <code>payments</code> table boots against its own DB.</span></li>
+        <li><span><code>docker compose up --build</code> is fully self-contained — no host <code>./mvnw</code> step, no host-JDK dependency.</span></li>
+        <li><span>Topology is <strong>complete</strong> — later phases just wire to containers that already exist.</span></li>
+      </ul>
+      <ul class="cons">
+        <li><span>Three Postgres + rabbit + zipkin idle = more memory than a minimal stack.</span></li>
+        <li><span>First image build is slow (Maven resolves deps inside each build stage).</span></li>
+      </ul>
+      <p class="muted">Best when: you want the real M1 system and faithful service boundaries — our case.</p>
+    </div>
+
+    <div class="option">
+      <h3>Option B — shared Postgres · pre-built jars · defer rabbit/zipkin</h3>
+      <p>One Postgres with three logical databases; slim <code>FROM jre, COPY target/*.jar</code>
+      Dockerfiles needing a host <code>./mvnw package</code> first; add broker/tracing only in their phases.</p>
+      <ul class="pros">
+        <li><span>Leanest stack — fewest containers, fastest <code>up</code>.</span></li>
+        <li><span>Tiny Dockerfiles, fast image builds.</span></li>
+      </ul>
+      <ul class="cons">
+        <li><span>Shared Postgres weakens the database-per-service lesson (shared blast radius).</span></li>
+        <li><span>Two-step build (host package, then compose) — depends on host JDK 21.</span></li>
+        <li><span>Diverges from the 1.4 line (which names rabbit + zipkin).</span></li>
+      </ul>
+      <p class="muted">Best when: optimising for a fast inner loop over fidelity — not our goal here.</p>
+    </div>
+
+    <div class="option">
+      <h3>Option C — register by hostname instead of IP</h3>
+      <p>Same as A, but the Eureka fix uses <code>EUREKA_INSTANCE_HOSTNAME=&lt;service-name&gt;</code>
+      instead of <code>PREFER_IP_ADDRESS=true</code>.</p>
+      <ul class="pros">
+        <li><span>Registry shows friendly DNS names (<code>catalog</code>) instead of <code>172.x</code> IPs.</span></li>
+      </ul>
+      <ul class="cons">
+        <li><span>Must set a distinct hostname per service (more env wiring, easy to mismatch).</span></li>
+        <li><span>Relies on Compose DNS for service-to-service hops; IP is more robust on a single bridge network.</span></li>
+      </ul>
+      <p class="muted">Best when: readable registry entries matter more than minimal config. We pick IP (A).</p>
+    </div>
+
+  </div>
+
+  <h2>5. Implementation tasks</h2>
+  <section>
+    <p class="muted">Option A, ordered. Each task states its <strong>goal</strong> and
+    <strong>done-when</strong>.</p>
+    <ol class="tasks">
+
+      <li class="task">
+        <h3>Add <code>.dockerignore</code> at the repo root</h3>
+        <p class="goal"><span class="label">Goal:</span> keep <code>target/</code>, <code>.git/</code>, <code>.idea/</code>, and wrapper jars out of the <code>COPY . .</code> build context so image builds are fast and don't ship host artifacts.</p>
+        <p class="done"><span class="label">Done when:</span> the file exists and <code>docker build</code> context size is small (no <code>target/</code> in the sent context).</p>
+        <p class="depends">Depends on: —</p>
+      </li>
+
+      <li class="task">
+        <h3>Write the six multi-stage Dockerfiles</h3>
+        <p class="goal"><span class="label">Goal:</span> one self-contained image per service — Maven build stage (<code>-pl &lt;module&gt; -am</code>) → JRE runtime stage copying the repackaged jar.</p>
+        <p class="done"><span class="label">Done when:</span> <code>docker build -f &lt;svc&gt;/Dockerfile .</code> (root context) produces a runnable image for each of the six services.</p>
+        <p class="depends">Depends on: Task 1</p>
+      </li>
+
+      <li class="task">
+        <h3>Rewrite <code>compose.yaml</code> — infra services</h3>
+        <p class="goal"><span class="label">Goal:</span> define the 3 Postgres (catalog-db, booking-db, payment-db) with <code>POSTGRES_*</code> env + named volumes + <code>pg_isready</code> healthchecks, plus rabbitmq (15672) and zipkin (9411).</p>
+        <p class="done"><span class="label">Done when:</span> <code>docker compose up catalog-db booking-db payment-db rabbitmq zipkin</code> brings all five up healthy.</p>
+        <p class="depends">Depends on: —</p>
+      </li>
+
+      <li class="task">
+        <h3>Rewrite <code>compose.yaml</code> — app services + wiring</h3>
+        <p class="goal"><span class="label">Goal:</span> add discovery, gateway, catalog, booking, payment, notification with <code>build: {context: ., dockerfile: …}</code>, injected env (<code>*_DB_URL=jdbc:postgresql://&lt;svc&gt;-db:5432/…</code>, <code>EUREKA_SERVICE_URL=http://discovery:8761/eureka/</code>, <code>EUREKA_INSTANCE_PREFER_IP_ADDRESS=true</code>, payment <code>FAIL_RATE=0</code>), <code>depends_on</code> (DB healthy + discovery), and host ports only on gateway (8080) + discovery (8761).</p>
+        <p class="done"><span class="label">Done when:</span> <code>docker compose up --build</code> brings all 11 containers up and app services come up <em>after</em> their DB is healthy.</p>
+        <p class="depends">Depends on: Tasks 2, 3</p>
+      </li>
+
+      <li class="task">
+        <h3>Verify the running system (see §7)</h3>
+        <p class="goal"><span class="label">Goal:</span> confirm the M1 done-when — Eureka shows all five registered, the gateway reaches a service, and each DB is isolated.</p>
+        <p class="done"><span class="label">Done when:</span> every row in §7 passes.</p>
+        <p class="depends">Depends on: Task 4</p>
+      </li>
+
+      <li class="task">
+        <h3>Sync the docs</h3>
+        <p class="goal"><span class="label">Goal:</span> mark BUILD_PLAN 1.4 <code>[x]</code> with a verified note and correct "two Postgres" → "three"; update <code>containers-and-compose.md</code> (3 Postgres, multi-stage + root context, Eureka-on-Compose note).</p>
+        <p class="done"><span class="label">Done when:</span> both docs match the code as shipped; no stale "two Postgres" remains.</p>
+        <p class="depends">Depends on: Task 5</p>
+      </li>
+
+    </ol>
+  </section>
+
+  <h2>6. Risks / microservices cost felt</h2>
+  <section>
+    <div class="callout">
+      <p>This step surfaces the <strong>operational cost of distribution</strong>: a request now
+      crosses a container network with independent lifecycles. Two concrete costs we handle the
+      production-grade way:</p>
+      <ul class="tight">
+        <li><strong>Startup ordering / partial readiness</strong> — app services race their database
+        and the registry. We don't <code>sleep</code>; we use <code>healthcheck</code> +
+        <code>depends_on: { condition: service_healthy }</code> so a service starts only once its DB
+        answers <code>pg_isready</code>.</li>
+        <li><strong>Service identity on a virtual network</strong> — discovery's whole job (return a
+        <em>reachable</em> address) breaks if a service registers an unroutable container hostname.
+        The <code>PREFER_IP_ADDRESS</code> fix is the small, real lesson in how discovery and the
+        network layer have to agree. (See <code>service-discovery.md</code>.)</li>
+      </ul>
+      <p>Database-per-service is also made <em>physical</em> here: three Postgres containers, no shared
+      schema — the isolation the whole project argues for, now visible in <code>docker ps</code>.</p>
+    </div>
+  </section>
+
+  <h2>7. Verification</h2>
+  <section>
+    <p class="muted">Run top-to-bottom after Task 4. Each row proves one part of the M1 done-when.</p>
+    <table class="verify">
+      <thead><tr><th>Check</th><th>Command</th><th>Expected</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Whole stack builds &amp; starts</td>
+          <td class="cmd"><code>docker compose up --build -d</code></td>
+          <td><span class="ok">✓</span> 11 containers up; 3 <code>*-db</code> pass <code>pg_isready</code>; app services start after their DB.</td>
+        </tr>
+        <tr>
+          <td>Registry shows everyone (M1 done-when)</td>
+          <td class="cmd"><code>open http://localhost:8761</code></td>
+          <td><span class="ok">✓</span> gateway, catalog, booking, payment, notification all listed as registered.</td>
+        </tr>
+        <tr>
+          <td>Registered with a routable address</td>
+          <td class="cmd"><code>curl -s localhost:8761/eureka/apps</code></td>
+          <td><span class="ok">✓</span> instances show <code>172.x</code> Compose-network IPs, not random hostnames.</td>
+        </tr>
+        <tr>
+          <td>Front door reaches a service</td>
+          <td class="cmd"><code>curl -i localhost:8080/api/payments …</code></td>
+          <td><span class="ok">✓</span> a real payment-service response (not gateway 404 / "no instance") — gateway → <code>lb://</code> → container hop works.</td>
+        </tr>
+        <tr>
+          <td>Database isolation is physical</td>
+          <td class="cmd"><code>docker compose exec payment-db psql -U … -d payment -c '\dt'</code></td>
+          <td><span class="ok">✓</span> payment-db has <code>payments</code>; catalog-db / booking-db empty (until Phase 2) — each in its own container.</td>
+        </tr>
+        <tr>
+          <td>Infra consoles load (sane, if unused)</td>
+          <td class="cmd"><code>open http://localhost:15672</code> · <code>:9411</code></td>
+          <td><span class="ok">✓</span> RabbitMQ + Zipkin UIs respond.</td>
+        </tr>
+        <tr>
+          <td>Clean teardown</td>
+          <td class="cmd"><code>docker compose down -v</code></td>
+          <td><span class="ok">✓</span> containers + volumes removed.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <h2>8. Open questions</h2>
+  <section>
+    <div class="callout open-q">
+      <ul class="tight">
+        <li><strong>Shared Postgres credentials?</strong> Plan is per-DB <code>POSTGRES_USER/PASSWORD</code>
+        in compose env (matching the <code>${..:postgres}</code> defaults). A root <code>.env</code> file
+        (gitignored) could hold them instead — worth doing now, or defer to Phase 7 secrets work?</li>
+        <li><strong>discovery healthcheck:</strong> discovery has no actuator, so its <code>depends_on</code>
+        readiness uses a TCP/dashboard <code>wget</code> check rather than <code>/actuator/health</code>.
+        Acceptable for the lab?</li>
+        <li><strong>Postgres image tag:</strong> <code>postgres:16</code> (concept doc) vs.
+        <code>postgres:latest</code> (current stub). Pin to 16 — agreed?</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    ScreenMaster Microservices — feature plan 2026-06-27 (BUILD_PLAN 1.4). Review in a browser, choose an option, then we implement.
+  </footer>
+
+</div>
+</body>
+</html>

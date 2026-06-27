@@ -1,0 +1,29 @@
+# Keep the Docker build context small and clean (see docs/concepts/docker-fundamentals.md §6).
+# The whole repo root is the build context (multi-module reactor), so exclude everything that
+# isn't needed to compile + package, and anything that would leak host artifacts into the image.
+
+# Build output — the image rebuilds the jar from source inside the Maven stage; we never want
+# host-built jars/classes shipped in (they may be stale or built on a different JDK).
+**/target/
+
+# Version control + IDE/editor cruft — irrelevant to the build, just bloats the context.
+.git/
+.gitignore
+.gitattributes
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# The Maven wrapper jar is downloaded on first use; the build doesn't need a committed copy.
+.mvn/wrapper/maven-wrapper.jar
+
+# Docker + docs + local env — not inputs to the application build.
+.dockerignore
+Dockerfile
+**/Dockerfile
+docs/
+*.md
+.env

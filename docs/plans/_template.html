@@ -69,6 +69,31 @@
 
   .callout { border-left: 3px solid var(--accent); background: var(--panel-2); padding: 10px 14px; border-radius: 0 8px 8px 0; }
   .open-q { border-left-color: var(--warn); }
+
+  /* Implementation tasks — ordered breakdown, one card per task */
+  ol.tasks { list-style: none; counter-reset: task; margin: 0; padding: 0; display: grid; gap: 12px; }
+  ol.tasks > li.task {
+    counter-increment: task; position: relative;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 16px 14px 52px;
+  }
+  ol.tasks > li.task::before {
+    content: counter(task); position: absolute; left: 14px; top: 14px;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--chip); border: 1px solid var(--accent); color: var(--accent);
+    font: 600 13px/26px ui-monospace, monospace; text-align: center;
+  }
+  li.task h3 { margin: 0 0 4px; font-size: 16px; }
+  li.task .goal, li.task .done { margin: 4px 0; font-size: 14.5px; }
+  li.task .label { color: var(--muted); font-weight: 600; }
+  li.task .done .label { color: var(--good); }
+  li.task .depends { color: var(--muted); font-size: 13px; margin-top: 6px; }
+
+  /* Verification — command / expected checklist */
+  table.verify td.cmd { white-space: nowrap; }
+  table.verify td.cmd code { display: inline-block; }
+  table.verify .ok { color: var(--good); }
+
   footer { margin-top: 40px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); padding-top: 14px; }
 </style>
 </head>
@@ -143,7 +168,33 @@
 
   </div>
 
-  <h2>5. Risks / microservices cost felt</h2>
+  <h2>5. Implementation tasks</h2>
+  <section>
+    <p class="muted">The chosen option, broken into ordered steps. Each task states its
+    <strong>goal</strong> (what it accomplishes) and <strong>done-when</strong> (how you know it's
+    finished). This is the execution checklist once the option is approved.</p>
+    <ol class="tasks">
+
+      <li class="task">
+        <h3>Task title — imperative</h3>
+        <p class="goal"><span class="label">Goal:</span> what this step accomplishes and why it's first.</p>
+        <p class="done"><span class="label">Done when:</span> the observable result that proves it's complete.</p>
+        <p class="depends">Depends on: — (or: Task 1)</p>
+      </li>
+
+      <li class="task">
+        <h3>Next task</h3>
+        <p class="goal"><span class="label">Goal:</span> …</p>
+        <p class="done"><span class="label">Done when:</span> …</p>
+        <p class="depends">Depends on: Task 1</p>
+      </li>
+
+      <!-- Add as many tasks as the work needs; keep them ordered and independently checkable. -->
+
+    </ol>
+  </section>
+
+  <h2>6. Risks / microservices cost felt</h2>
   <section>
     <div class="callout">
       <p>Which distributed-systems cost does this feature surface (missing JOIN, distributed
@@ -152,7 +203,28 @@
     </div>
   </section>
 
-  <h2>6. Open questions</h2>
+  <h2>7. Verification</h2>
+  <section>
+    <p class="muted">How we prove the change works end-to-end — each row is a command and the
+    result that confirms success. Run top-to-bottom after implementation.</p>
+    <table class="verify">
+      <thead><tr><th>Check</th><th>Command</th><th>Expected</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>What it proves</td>
+          <td class="cmd"><code>command to run</code></td>
+          <td><span class="ok">✓</span> the observable success result</td>
+        </tr>
+        <tr>
+          <td>…</td>
+          <td class="cmd"><code>…</code></td>
+          <td><span class="ok">✓</span> …</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <h2>8. Open questions</h2>
   <section>
     <div class="callout open-q">
       <ul class="tight">

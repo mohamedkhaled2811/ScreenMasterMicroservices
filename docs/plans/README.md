@@ -33,5 +33,7 @@ compare in a browser than a flat Markdown list. Open the file directly in a brow
 | Milestone & schema link | Ties the feature to the curriculum. |
 | What changes | Concrete list of files/modules/migrations/endpoints. |
 | Options | The heart of the plan — approaches with trade-offs + a recommendation. |
+| Implementation tasks | The chosen option as an ordered breakdown — each task has a goal + done-when. |
 | Risks / costs felt | The microservices cost this exercises (missing JOIN, distributed txn, partial failure…). |
+| Verification | How the change is proven end-to-end — command + expected result per row. |
 | Open questions | Decisions needed before coding. |

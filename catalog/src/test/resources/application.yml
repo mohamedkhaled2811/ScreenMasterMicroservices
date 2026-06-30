@@ -13,3 +13,9 @@ spring:
 eureka:
   client:
     enabled: false
+
+# Keep tests hermetic: no scheduled TMDB calls, but give the props valid (dummy) values so the
+# RestClient bean and TmdbProps still wire up in a full-context test.
+tmdb:
+  enabled: false
+  access-token: test-token

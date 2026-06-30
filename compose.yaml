@@ -71,6 +71,11 @@ services:
       CATALOG_DB_PASSWORD: postgres
       EUREKA_SERVICE_URL: http://discovery:8761/eureka/
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+      # TMDB sync: the v4 Read Access Token comes from the host env / root .env (never committed).
+      # Sync is OFF by default so `docker compose up` works with no token; set TMDB_API_KEY in .env
+      # and TMDB_SYNC_ENABLED=true to fill the catalog. See .env.example.
+      TMDB_API_KEY: ${TMDB_API_KEY:-}
+      TMDB_SYNC_ENABLED: ${TMDB_SYNC_ENABLED:-false}
     depends_on:
       catalog-db:
         condition: service_healthy   # don't boot until Postgres answers pg_isready (no race)

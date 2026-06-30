@@ -4,6 +4,9 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 
+### Secrets — never commit. Copy .env.example to .env and fill in locally.
+.env
+
 ### STS ###
 .apt_generated
 .classpath

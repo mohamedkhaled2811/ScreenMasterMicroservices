@@ -21,6 +21,13 @@ public enum CatalogErrorCode {
     /** No movie exists for the requested id. */
     CATALOG_MOVIE_NOT_FOUND(HttpStatus.NOT_FOUND, "Movie not found"),
 
+    /**
+     * The TMDB upstream call failed (network error, non-2xx, or unparseable body). Maps to 502 —
+     * <em>we</em> didn't fail, our dependency did. Surfaces only on the (future) sync-status endpoint
+     * or in logs; the scheduled sync catches it and records FAILED for a later resume.
+     */
+    CATALOG_TMDB_SYNC_ERROR(HttpStatus.BAD_GATEWAY, "TMDB sync failed"),
+
     /** A fallback for anything we did not anticipate — never leak internals to the caller. */
     CATALOG_INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Internal error");
 

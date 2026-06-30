@@ -112,4 +112,48 @@ public class Movie {
     public void addGenre(Genre genre) {
         this.genres.add(genre);
     }
+
+    /** Replace this movie's genre links wholesale — used by the sync upsert when re-hydrating. */
+    public void setGenres(Set<Genre> genres) {
+        this.genres = new LinkedHashSet<>(genres);
+    }
+
+    /**
+     * Apply the mutable TMDB-sourced detail fields in one place. The id and title are set via the
+     * constructor; everything else flows through here so there is a single, intention-revealing
+     * mutation path shared by the TMDB upsert and tests — no scattered setters, no public no-arg
+     * construction. The {@link Details} carrier keeps the call site readable
+     * ({@code movie.applyDetails(b -> b.runtime(139).voteAverage(...))}).
+     */
+    public void applyDetails(java.util.function.Consumer<Details> mutator) {
+        Details d = new Details(this);
+        mutator.accept(d);
+    }
+
+    /**
+     * Fluent setter facade over a {@link Movie}'s detail fields. Lives inside {@code Movie} so it can
+     * write the private fields directly while keeping them otherwise read-only to the outside world.
+     */
+    public static final class Details {
+        private final Movie m;
+
+        private Details(Movie m) {
+            this.m = m;
+        }
+
+        public Details title(String v) { m.title = v; return this; }
+        public Details originalTitle(String v) { m.originalTitle = v; return this; }
+        public Details overview(String v) { m.overview = v; return this; }
+        public Details tagline(String v) { m.tagline = v; return this; }
+        public Details releaseDate(LocalDate v) { m.releaseDate = v; return this; }
+        public Details runtime(Integer v) { m.runtime = v; return this; }
+        public Details status(String v) { m.status = v; return this; }
+        public Details originalLanguage(String v) { m.originalLanguage = v; return this; }
+        public Details popularity(BigDecimal v) { m.popularity = v; return this; }
+        public Details voteAverage(BigDecimal v) { m.voteAverage = v; return this; }
+        public Details voteCount(Integer v) { m.voteCount = v; return this; }
+        public Details posterPath(String v) { m.posterPath = v; return this; }
+        public Details backdropPath(String v) { m.backdropPath = v; return this; }
+        public Details adult(boolean v) { m.adult = v; return this; }
+    }
 }

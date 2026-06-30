@@ -1,7 +1,9 @@
 # Liquibase master changelog for the catalog service (catalog-db).
 #
-# An INDEX of changeset files, applied in order. 001 creates the movies/genres schema (the tables
-# ship empty; the TMDB sync step loads rows next phase). See docs/concepts/liquibase.md.
+# An INDEX of changeset files, applied in order. 001 creates the movies/genres schema; 002 adds the
+# sync_status bookkeeping table the resumable TMDB sync uses. See docs/concepts/liquibase.md.
 databaseChangeLog:
   - include:
       file: db/changelog/changes/001-create-movies-genres.yaml
+  - include:
+      file: db/changelog/changes/002-create-sync-status.yaml

@@ -1,0 +1,63 @@
+# Changeset 002 — the TMDB sync bookkeeping table.
+#
+# One row per SyncType (POPULAR / TOP_RATED / NOW_PLAYING). The resumable @Scheduled sync reads this
+# row to know where it left off (last_page) and how far there is to go (total_pages), so a crash or a
+# rate-limit pause RESUMES the walk instead of restarting it — the production-shaped half of the
+# Catalog-owns-its-ingestion lesson. Catalog owns this table outright (database-per-service); it lives
+# in catalog-db alongside movies/genres.
+#
+# state and sync_type are stored as STRINGs (VARCHAR), never ordinals — the entity persists the enum
+# NAME, so reordering/adding a constant can't silently corrupt existing rows. ddl-auto=validate means
+# the SyncStatus entity must match this table exactly at startup or the app refuses to boot.
+databaseChangeLog:
+  - changeSet:
+      id: 002-create-sync-status
+      author: mohamed
+      changes:
+        - createTable:
+            tableName: sync_status
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    primaryKeyName: pk_sync_status
+                    nullable: false
+              # The TMDB list this row tracks. Unique: exactly one bookkeeping row per type.
+              - column:
+                  name: sync_type
+                  type: VARCHAR(40)
+                  constraints:
+                    nullable: false
+                    unique: true
+                    uniqueConstraintName: uq_sync_status_sync_type
+              # Last list page successfully synced (0 = nothing yet; resume from last_page + 1).
+              - column:
+                  name: last_page
+                  type: INT
+                  defaultValueNumeric: 0
+                  constraints:
+                    nullable: false
+              # Total pages TMDB reported for this list (learned from the first page; 0 until known).
+              - column:
+                  name: total_pages
+                  type: INT
+                  defaultValueNumeric: 0
+                  constraints:
+                    nullable: false
+              # RUNNING / COMPLETED / FAILED — the lifecycle of the most recent run for this type.
+              - column:
+                  name: state
+                  type: VARCHAR(20)
+                  constraints:
+                    nullable: false
+              # Populated when state=FAILED so the failure is visible without digging through logs.
+              - column:
+                  name: error_message
+                  type: VARCHAR(1000)
+              # When the last run touched this row (for "is the catalog fresh?" observability).
+              - column:
+                  name: last_synced_at
+                  type: TIMESTAMP WITH TIME ZONE

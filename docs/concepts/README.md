@@ -20,7 +20,7 @@ Each concept file follows the same shape so they're predictable:
 | [spring-boot-annotations.md](spring-boot-annotations.md) | `@SpringBootApplication`, auto-configuration, starters, `@ConfigurationProperties`, profiles |
 | [spring-web-annotations.md](spring-web-annotations.md) | `@RestController`, `@RequestMapping`, `@GetMapping`, `@RequestBody`, `@PathVariable`, `ResponseEntity`, `RestClient`/`WebClient` |
 | [error-handling-problemdetail.md](error-handling-problemdetail.md) | `@RestControllerAdvice`, `ResponseEntityExceptionHandler`, RFC 9457 `ProblemDetail`, error-code enums, domain exceptions, the error contract between services |
-| [jpa-and-hibernate.md](jpa-and-hibernate.md) | `@Entity`, `@Id`, `@GeneratedValue`, relationships, `@Enumerated`, repositories, `@Transactional`, fetch types |
+| [jpa-and-hibernate.md](jpa-and-hibernate.md) | `@Entity`, `@Id`, `@GeneratedValue`, relationships, `@Enumerated`, repositories, **Specifications / dynamic queries**, `@Transactional`, fetch types |
 | [liquibase.md](liquibase.md) | Versioned schema migrations, changesets, `DATABASECHANGELOG`, `ddl-auto=validate`, Liquibase vs Flyway |
 | [lombok.md](lombok.md) | `@Getter`/`@Setter`, `@Data`, `@Builder`, `@RequiredArgsConstructor`, `@Slf4j` |
 | [maven-multi-module.md](maven-multi-module.md) | Parent POM, the reactor, `dependencyManagement` vs `dependencies`, `-pl`/`-am`, one module per service |
@@ -42,6 +42,7 @@ Each concept file follows the same shape so they're predictable:
 |---|---|
 | [sync-vs-async-comms.md](sync-vs-async-comms.md) | The first fork, REST vs gRPC, command vs event |
 | [rabbitmq.md](rabbitmq.md) | Exchange/queue/routing key, producer/consumer, the ScreenMaster email + booking queues |
+| [scheduled-resumable-sync.md](scheduled-resumable-sync.md) | `@Scheduled` trigger + cursor table, per-page transactions, bounded runs, idempotent upsert — the Catalog↔TMDB sync |
 
 ### Resilience
 | File | Covers |

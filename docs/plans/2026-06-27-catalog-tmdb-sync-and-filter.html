@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<!--
+  ScreenMaster feature plan: Catalog data ingestion — TMDB sync + dynamic filter/list endpoint.
+  Two features bundled because they're two halves of the same job: the sync FILLS the movies/genres
+  tables (which ship empty from 2.1), and the filter endpoint READS them. API composition (2.2,
+  Booking→Catalog over HTTP) is deliberately OUT of scope here — it moves to its own later branch.
+-->
+<title>Plan: Catalog TMDB sync + dynamic filter — ScreenMaster</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel-2: #1d212b; --border: #2a2f3a;
+    --text: #e6e8ee; --muted: #9aa3b2; --accent: #6ea8fe; --accent-2: #7ee787;
+    --warn: #f0b429; --bad: #f47174; --good: #4ec9a4;
+    --chip: #232838;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 32px 20px 80px; }
+  header.page { border-bottom: 1px solid var(--border); padding-bottom: 18px; margin-bottom: 28px; }
+  h1 { font-size: 26px; margin: 0 0 6px; }
+  h2 { font-size: 19px; margin: 36px 0 12px; padding-top: 6px; }
+  .meta { color: var(--muted); font-size: 14px; display: flex; gap: 16px; flex-wrap: wrap; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 0; }
+  .chip {
+    background: var(--chip); border: 1px solid var(--border); color: var(--muted);
+    border-radius: 999px; padding: 3px 11px; font-size: 12.5px;
+  }
+  .status { font-weight: 600; }
+  .status.draft { color: var(--warn); }
+  .status.approved { color: var(--good); }
+  p, li { color: var(--text); }
+  .muted { color: var(--muted); }
+  section { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin: 14px 0; }
+  ul.tight { margin: 6px 0; padding-left: 20px; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13.5px; }
+  code { background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; }
+
+  .options { display: grid; gap: 16px; grid-template-columns: 1fr; }
+  @media (min-width: 760px) { .options { grid-template-columns: 1fr 1fr; } }
+  .option { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; position: relative; }
+  .option.recommended { border-color: var(--accent-2); box-shadow: 0 0 0 1px var(--accent-2) inset; }
+  .option h3 { margin: 0 0 4px; font-size: 17px; }
+  .badge {
+    position: absolute; top: -10px; right: 14px; background: var(--accent-2); color: #0c1a10;
+    font-size: 11.5px; font-weight: 700; border-radius: 999px; padding: 2px 10px;
+  }
+  .pros, .cons { margin: 8px 0; padding-left: 18px; }
+  .pros li { color: var(--good); }
+  .cons li { color: var(--bad); }
+  .pros li span, .cons li span { color: var(--text); }
+
+  table { width: 100%; border-collapse: collapse; margin: 6px 0; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+  td.kind { white-space: nowrap; }
+  .tag { font-size: 11.5px; border-radius: 5px; padding: 1px 7px; border: 1px solid var(--border); }
+  .tag.new { color: var(--accent-2); }
+  .tag.edit { color: var(--warn); }
+  .tag.del { color: var(--bad); }
+
+  .callout { border-left: 3px solid var(--accent); background: var(--panel-2); padding: 10px 14px; border-radius: 0 8px 8px 0; }
+  .open-q { border-left-color: var(--warn); }
+  .scope-out { border-left-color: var(--bad); }
+
+  ol.tasks { list-style: none; counter-reset: task; margin: 0; padding: 0; display: grid; gap: 12px; }
+  ol.tasks > li.task {
+    counter-increment: task; position: relative;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 16px 14px 52px;
+  }
+  ol.tasks > li.task::before {
+    content: counter(task); position: absolute; left: 14px; top: 14px;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--chip); border: 1px solid var(--accent); color: var(--accent);
+    font: 600 13px/26px ui-monospace, monospace; text-align: center;
+  }
+  li.task h3 { margin: 0 0 4px; font-size: 16px; }
+  li.task .goal, li.task .done { margin: 4px 0; font-size: 14.5px; }
+  li.task .label { color: var(--muted); font-weight: 600; }
+  li.task .done .label { color: var(--good); }
+  li.task .depends { color: var(--muted); font-size: 13px; margin-top: 6px; }
+
+  table.verify td.cmd { white-space: nowrap; }
+  table.verify td.cmd code { display: inline-block; }
+  table.verify .ok { color: var(--good); }
+
+  footer { margin-top: 40px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); padding-top: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page">
+    <h1>Plan: <em>Catalog — TMDB sync &amp; dynamic movie filter</em></h1>
+    <div class="meta">
+      <span>Date: <strong>2026-06-27</strong></span>
+      <span>Author: Claude Code + Mohamed</span>
+      <span class="status draft">Status: DRAFT — awaiting review</span>
+    </div>
+    <div class="chips">
+      <span class="chip">Milestone: M2 (Catalog)</span>
+      <span class="chip">Service: catalog</span>
+      <span class="chip">Schema §: 6 (TMDB) · §8.1 (Catalog) · §1 (MovieSpecification)</span>
+      <span class="chip">Build plan: pre-2.2 data load</span>
+    </div>
+  </header>
+
+  <h2>1. Summary</h2>
+  <section>
+    <p>Catalog's tables (<code>movies</code>, <code>genres</code>, <code>movie_genres</code>) shipped
+    <strong>empty</strong> in step 2.1 — the schema was deliberately built to mirror TMDB's
+    <code>GET /movie/{id}</code> so a sync job could fill it with no further migration. This plan does
+    exactly that, in two halves of one job:</p>
+    <ul class="tight">
+      <li><strong>TMDB sync (write side):</strong> a <code>@Scheduled</code> background job that pages
+      through TMDB's discover/list endpoints, hydrates each movie via <code>GET /movie/{id}</code>
+      (full details + genres), and upserts into catalog-db. Progress is tracked in a new
+      <code>sync_status</code> table so a crash or rate-limit pause <em>resumes</em> instead of
+      restarting.</li>
+      <li><strong>Dynamic filter (read side):</strong> a new <code>GET /movies</code> endpoint that
+      builds a <strong>JPA Specification</strong> from whatever query params the caller sends
+      (title, genre, language, year, min rating…), sorts, and returns a paged
+      <code>Page&lt;MovieSummaryDto&gt;</code>. This is the monolith's <code>MovieSpecification</code>
+      pattern (schema §1), rebuilt clean.</li>
+    </ul>
+    <p>Together they make Catalog a real, queryable service: the sync gives it data; the filter gives
+    callers a way to find it. This is the prerequisite for everything downstream (a Booking "my
+    bookings" page needs real movies to point at).</p>
+    <div class="callout scope-out" style="margin-top:14px">
+      <p><strong>Explicitly out of scope (moved to a later branch):</strong> build-plan step
+      <strong>2.2 "My bookings" — API composition</strong> (Booking calling Catalog over
+      <code>RestClient</code> and merging titles). We are <em>only</em> getting data into Catalog and
+      making it queryable here. No <code>booking</code> module changes in this plan.</p>
+    </div>
+  </section>
+
+  <h2>2. Milestone &amp; schema link</h2>
+  <section>
+    <ul class="tight">
+      <li><strong>Field-guide milestone:</strong> M2 — Catalog (movies, genres, TMDB). This completes
+      the "Catalog owns its data and its sync" half of M2.</li>
+      <li><strong>Schema doc:</strong> ARCHITECTURE_AND_SCHEMA.md <strong>§6 (TMDB integration)</strong>
+      — <code>TMDBApiService</code>, <code>TMDBSyncService</code>, <code>TMDBScheduledTasks</code>,
+      <code>SyncStatus</code>; <strong>§8.1</strong> (Catalog owns <code>sync_status</code>);
+      <strong>§1 / §3</strong> (<code>MovieSpecification</code>, <code>POST /movies/filter</code>).</li>
+      <li><strong>Build plan step:</strong> the TMDB-sync data-load that 2.1 names as "next", plus the
+      filter/search capability §8.1 assigns to Catalog. It is the <em>data prerequisite</em> for 2.2,
+      which now follows on its own branch.</li>
+    </ul>
+  </section>
+
+  <h2>3. What changes</h2>
+  <section>
+    <p class="muted">All changes are inside the <code>catalog</code> module. No other service is touched.</p>
+    <table>
+      <thead><tr><th>Kind</th><th>Where</th><th>What</th></tr></thead>
+      <tbody>
+        <tr><td colspan="3" class="muted" style="padding-top:12px"><strong>TMDB sync — write side</strong></td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>db/changelog/changes/002-create-sync-status.yaml</code></td><td>Liquibase changeset: <code>sync_status</code> table (one row per sync type — last page, total pages, status, error, timestamps).</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>db/changelog/db.changelog-master.yaml</code></td><td>Include changeset 002.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>model/SyncStatus.java</code> · <code>model/SyncType.java</code> · <code>model/SyncState.java</code></td><td>Entity + two STRING-persisted enums (<code>POPULAR</code>/<code>TOP_RATED</code>/<code>NOW_PLAYING</code>; <code>RUNNING</code>/<code>COMPLETED</code>/<code>FAILED</code>).</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>repository/SyncStatusRepository.java</code></td><td><code>findBySyncType(...)</code> bookkeeping lookup.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>config/TmdbProps.java</code></td><td><code>@ConfigurationProperties(prefix="tmdb")</code> record — API key, base URL, image base, page size, enabled flag, schedule cron (mirrors payment's <code>PaymentProps</code>).</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>config/TmdbWebClientConfig.java</code></td><td>A <code>WebClient</code> (or <code>RestClient</code>) bean pre-baked with TMDB base URL + bearer auth.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>sync/dto/Tmdb*.java</code></td><td>Inbound TMDB wire records: <code>TmdbMovieDetails</code>, <code>TmdbListPage</code>, <code>TmdbGenre</code> (Jackson-mapped to TMDB's snake_case).</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>sync/TmdbApiClient.java</code></td><td>Thin TMDB HTTP wrapper: <code>genres()</code>, <code>listPage(type, page)</code>, <code>movieDetails(id)</code>. Maps TMDB → entities.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>service/TmdbSyncService.java</code></td><td>The resumable engine: read <code>sync_status</code> → fetch next page → hydrate &amp; upsert movies+genres → advance <code>last_page</code> → mark COMPLETED/FAILED.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>sync/TmdbScheduledTasks.java</code></td><td><code>@Scheduled(cron=...)</code> trigger that calls the sync service (guarded by <code>tmdb.enabled</code>).</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>service/GenreUpsert</code> + <code>MovieRepository</code> / new <code>GenreRepository</code></td><td>Save/merge by assigned id (upsert), so re-syncing the same movie updates rather than duplicates.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>CatalogApplication.java</code></td><td>Add <code>@EnableScheduling</code> + <code>@ConfigurationPropertiesScan</code> (or <code>@EnableConfigurationProperties</code>).</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>catalog/pom.xml</code></td><td>Add <code>spring-boot-starter-webflux</code> (for <code>WebClient</code>) — or reuse <code>spring-boot-starter-restclient</code> as booking does.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>application.yml</code> · <code>.env</code></td><td><code>tmdb.*</code> keys; <code>TMDB_API_KEY</code> from env (never committed). Sane local defaults; <code>tmdb.enabled=false</code> in test profile.</td></tr>
+        <tr><td colspan="3" class="muted" style="padding-top:12px"><strong>Dynamic filter — read side</strong></td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>controller/dto/MovieFilter.java</code></td><td>Bound query params (title, genreId/genre, language, year/releasedAfter, minRating, adult…). Validated.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>repository/spec/MovieSpecifications.java</code></td><td>Composable <code>Specification&lt;Movie&gt;</code> fragments — one predicate per filter, <code>.and()</code>-combined only when present.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>dto/MovieSummaryDto.java</code></td><td>Lean list-row DTO (id, title, posterPath, releaseDate, voteAverage, genres) — not the full <code>MovieDto</code>.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>repository/MovieRepository.java</code></td><td>Extend <code>JpaSpecificationExecutor&lt;Movie&gt;</code> for <code>findAll(spec, pageable)</code>.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>service/MovieService.java</code></td><td>Add <code>search(MovieFilter, Pageable)</code> → builds spec, returns <code>Page&lt;Movie&gt;</code>.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>controller/MovieController.java</code></td><td>Add <code>GET /movies</code> (paged filter). Keep existing <code>GET /movies/{id}</code>.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td>tests under <code>catalog/src/test/...</code></td><td><code>@DataJpaTest</code> spec round-trips, <code>@WebMvcTest</code> param-binding/paging shape, a sync-service slice test with a mocked TMDB client.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <h2>4. Options</h2>
+  <p class="muted">Three decision points. The first two (sync cadence, sync scope, filter impl) were
+  chosen up front and are recorded here as the picked options; the genuinely open trade-offs are
+  the HTTP client and the upsert strategy.</p>
+
+  <h3 style="font-size:16px;margin-top:18px">4a — Sync cadence &amp; scope <span class="muted">(decided)</span></h3>
+  <div class="options">
+    <div class="option recommended">
+      <span class="badge">Chosen</span>
+      <h3>A — <code>@Scheduled</code> + paged, resumable</h3>
+      <p>A cron-driven background job pages through TMDB's list endpoints; <code>sync_status</code>
+      stores <code>last_page</code>/<code>total_pages</code> per type so a crash or rate-limit pause
+      resumes mid-walk. Each movie hydrated via <code>GET /movie/{id}</code> for full details+genres.</p>
+      <ul class="pros">
+        <li><span>Production-shaped: this is how a real catalog stays fresh.</span></li>
+        <li><span>Resumability is the interesting lesson — mirrors the monolith's <code>SyncStatus</code>.</span></li>
+        <li><span>Respects TMDB rate limits by walking a bounded number of pages per tick.</span></li>
+      </ul>
+      <ul class="cons"><li><span>Most code; needs careful idempotent upsert so re-runs don't duplicate.</span></li></ul>
+      <p class="muted">Per your call: <strong>@Scheduled only</strong> (no manual trigger endpoint), <strong>discover paged + resumable</strong>.</p>
+    </div>
+    <div class="option">
+      <h3>B — Manual endpoint / small fixed set</h3>
+      <p>A <code>POST /admin/sync</code> you fire by hand, or sync just genres + a handful of movie ids.</p>
+      <ul class="pros"><li><span>Far less code; fully deterministic for demos.</span></li></ul>
+      <ul class="cons">
+        <li><span>Skips the resumability/paging lesson that makes the sync worth building.</span></li>
+        <li><span>Not how a real catalog ingests — less to narrate in an interview.</span></li>
+      </ul>
+      <p class="muted">Not chosen. (We can still toggle <code>tmdb.enabled=false</code> + run a tiny page range for a quick demo.)</p>
+    </div>
+  </div>
+
+  <h3 style="font-size:16px;margin-top:22px">4b — HTTP client for TMDB <span class="warn">(open)</span></h3>
+  <div class="options">
+    <div class="option recommended">
+      <span class="badge">Recommended</span>
+      <h3>A — <code>RestClient</code> (blocking)</h3>
+      <p>Use Spring's synchronous <code>RestClient</code>, same starter Booking already pulls in
+      (<code>spring-boot-starter-restclient</code>).</p>
+      <ul class="pros">
+        <li><span>The sync runs on a <code>@Scheduled</code> thread — blocking is fine, no reactive glue.</span></li>
+        <li><span>One HTTP-client story across services (Booking → Payment/Catalog also uses it).</span></li>
+        <li><span>Simpler error handling; pairs naturally with the resumable loop.</span></li>
+      </ul>
+      <ul class="cons"><li><span>No built-in backpressure — fine here, we bound pages per tick ourselves.</span></li></ul>
+    </div>
+    <div class="option">
+      <h3>B — <code>WebClient</code> (reactive)</h3>
+      <p>The monolith used <code>WebClient</code>. Pull in <code>spring-boot-starter-webflux</code>.</p>
+      <ul class="pros"><li><span>Matches the monolith; easy parallel page fetches if ever needed.</span></li></ul>
+      <ul class="cons">
+        <li><span>Adds WebFlux to an MVC service for no real gain on a scheduled batch.</span></li>
+        <li><span>We'd <code>.block()</code> anyway inside the scheduled job — reactive benefits unused.</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <h3 style="font-size:16px;margin-top:22px">4c — Upsert strategy <span class="warn">(open)</span></h3>
+  <div class="options">
+    <div class="option recommended">
+      <span class="badge">Recommended</span>
+      <h3>A — JPA <code>save()</code> merge on assigned id</h3>
+      <p>Because PKs are assigned TMDB ids, <code>repository.save(movie)</code> on an existing id is an
+      UPDATE. Re-fetch genres, re-link <code>movie_genres</code>, save. Genres upserted first (parents
+      before the join).</p>
+      <ul class="pros">
+        <li><span>Idempotent by construction — re-syncing the same page updates, never duplicates.</span></li>
+        <li><span>Pure JPA, portable, easy to unit-test with <code>@DataJpaTest</code>.</span></li>
+      </ul>
+      <ul class="cons"><li><span>A read-then-write per movie (acceptable at sync batch sizes).</span></li></ul>
+    </div>
+    <div class="option">
+      <h3>B — Native <code>INSERT … ON CONFLICT</code></h3>
+      <p>Postgres upsert for movies and the join table.</p>
+      <ul class="pros"><li><span>Fewer round-trips; one statement per row.</span></li></ul>
+      <ul class="cons">
+        <li><span>Postgres-specific SQL; harder to test on H2; bypasses JPA auditing/lifecycle.</span></li>
+        <li><span>Premature optimization for a learning-scale catalog.</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <h3 style="font-size:16px;margin-top:22px">4d — Filter implementation <span class="muted">(decided)</span></h3>
+  <div class="options">
+    <div class="option recommended">
+      <span class="badge">Chosen</span>
+      <h3>A — JPA Specifications + <code>Pageable</code></h3>
+      <p><code>GET /movies?title=&amp;genreId=&amp;language=&amp;year=&amp;minRating=&amp;sort=&amp;page=&amp;size=</code>
+      → each present param contributes one <code>Specification</code> predicate, combined with
+      <code>.and()</code>; Spring Data supplies <code>Pageable</code> sort/paging; returns a
+      <code>Page&lt;MovieSummaryDto&gt;</code>.</p>
+      <ul class="pros">
+        <li><span>Composes cleanly: "filter by whatever the user sends" without a method explosion.</span></li>
+        <li><span>Exactly the monolith's <code>MovieSpecification</code> pattern, rebuilt clean.</span></li>
+        <li><span>Paging + sorting come for free and safely (whitelist sortable fields).</span></li>
+      </ul>
+      <ul class="cons"><li><span>Criteria API is more verbose than a JPQL string (offset by composability).</span></li></ul>
+    </div>
+    <div class="option">
+      <h3>B — Derived queries / <code>@Query</code></h3>
+      <p>Hand-written repo methods per filter combination.</p>
+      <ul class="pros"><li><span>Trivial for one or two fixed filters.</span></li></ul>
+      <ul class="cons">
+        <li><span>Combinatorial explosion as filters multiply; doesn't compose.</span></li>
+        <li><span>Wrong fit for "dynamic by what the user sends".</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>5. Implementation tasks</h2>
+  <section>
+    <p class="muted">Chosen path: <strong>4a-A</strong> (@Scheduled, paged, resumable),
+    <strong>4b-A</strong> (RestClient), <strong>4c-A</strong> (JPA save merge),
+    <strong>4d-A</strong> (Specifications + Pageable). Read side and write side are independent — the
+    filter endpoint can be built and tested against seeded rows before the sync exists, and vice
+    versa.</p>
+    <ol class="tasks">
+
+      <li class="task">
+        <h3>Filter DTO + Specifications + repository wiring</h3>
+        <p class="goal"><span class="label">Goal:</span> the read side first — it's lower-risk, needs no TMDB key, and proves the new query surface against a few seeded rows. Add <code>MovieFilter</code>, <code>MovieSpecifications</code>, make <code>MovieRepository</code> a <code>JpaSpecificationExecutor</code>, and a <code>MovieSummaryDto</code>.</p>
+        <p class="done"><span class="label">Done when:</span> a <code>@DataJpaTest</code> persists a handful of movies+genres and asserts each predicate (title contains, genreId, language, year, minRating) filters correctly and composes.</p>
+        <p class="depends">Depends on: — (existing 2.1 entities)</p>
+      </li>
+
+      <li class="task">
+        <h3><code>GET /movies</code> paged filter endpoint</h3>
+        <p class="goal"><span class="label">Goal:</span> expose the filter through the controller as a paged, sortable list. Bind <code>MovieFilter</code> + <code>Pageable</code>, whitelist sortable fields, map to <code>Page&lt;MovieSummaryDto&gt;</code>. Route reaches it as <code>/api/movies</code> through the gateway (StripPrefix already in place).</p>
+        <p class="done"><span class="label">Done when:</span> a <code>@WebMvcTest</code> verifies param binding, the page envelope shape, a bad <code>sort</code> field → <code>CATALOG_VALIDATION_ERROR</code> ProblemDetail, and default paging when no params given.</p>
+        <p class="depends">Depends on: Task 1</p>
+      </li>
+
+      <li class="task">
+        <h3>TMDB config + RestClient + inbound DTOs + API client</h3>
+        <p class="goal"><span class="label">Goal:</span> the plumbing to talk to TMDB. <code>TmdbProps</code> (key/baseUrl/pageSize/enabled/cron), a configured <code>RestClient</code> bean, Jackson DTOs for TMDB's snake_case payloads, and <code>TmdbApiClient</code> with <code>genres()</code> / <code>listPage(type,page)</code> / <code>movieDetails(id)</code> + mapping to entities. Add deps + <code>@ConfigurationPropertiesScan</code>; key from <code>.env</code>.</p>
+        <p class="done"><span class="label">Done when:</span> a slice test deserializes captured TMDB JSON fixtures into the DTOs and maps a <code>movieDetails</code> response to a <code>Movie</code> + <code>Genre</code>s correctly (no live HTTP call in tests).</p>
+        <p class="depends">Depends on: —</p>
+      </li>
+
+      <li class="task">
+        <h3><code>sync_status</code> schema + entity + repository</h3>
+        <p class="goal"><span class="label">Goal:</span> the resumability bookkeeping. Liquibase changeset 002 for <code>sync_status</code> (unique <code>sync_type</code>, <code>last_page</code>, <code>total_pages</code>, <code>state</code>, <code>error_message</code>, timestamps), the <code>SyncStatus</code> entity with STRING enums, repository. Wire into master changelog; entity must pass <code>ddl-auto=validate</code>.</p>
+        <p class="done"><span class="label">Done when:</span> app boots against real catalog-db with changeset 002 applied; a <code>@DataJpaTest</code> persists+reads a <code>SyncStatus</code> row.</p>
+        <p class="depends">Depends on: —</p>
+      </li>
+
+      <li class="task">
+        <h3>Resumable <code>TmdbSyncService</code> (idempotent upsert)</h3>
+        <p class="goal"><span class="label">Goal:</span> the engine. For each sync type: read/create its <code>sync_status</code>, fetch the next page (bounded per tick), upsert genres then movies (<code>save()</code>-merge on assigned id, re-link <code>movie_genres</code>), advance <code>last_page</code>, mark <code>COMPLETED</code> at the end / <code>FAILED</code> + <code>error_message</code> on error so the next tick resumes.</p>
+        <p class="done"><span class="label">Done when:</span> a service test with a <strong>mocked</strong> <code>TmdbApiClient</code> proves: (a) running twice over the same page produces no duplicate movies/genres (idempotent), (b) a thrown error mid-walk leaves <code>state=FAILED</code> at the right <code>last_page</code>, and (c) the next run resumes from there.</p>
+        <p class="depends">Depends on: Tasks 3, 4</p>
+      </li>
+
+      <li class="task">
+        <h3><code>@Scheduled</code> trigger + enablement guard</h3>
+        <p class="goal"><span class="label">Goal:</span> drive the sync on a cron. <code>TmdbScheduledTasks</code> with <code>@Scheduled(cron=${tmdb.cron})</code> calling the sync service, no-op when <code>tmdb.enabled=false</code> (default off in tests so they stay hermetic, on for local/compose). <code>@EnableScheduling</code> on the app.</p>
+        <p class="done"><span class="label">Done when:</span> with a real <code>TMDB_API_KEY</code>, booting catalog triggers a sync that populates rows; <code>GET /api/movies?title=...</code> returns real TMDB movies; tests remain green with scheduling disabled.</p>
+        <p class="depends">Depends on: Task 5</p>
+      </li>
+
+      <li class="task">
+        <h3>Docs: concept note + build-plan + .env.example</h3>
+        <p class="goal"><span class="label">Goal:</span> keep the learning trail. Add/extend a concepts note for the <strong>scheduled-resumable-sync</strong> pattern (and a line on JPA Specifications) linked from <code>concepts/README.md</code>; note the new <code>TMDB_API_KEY</code> in <code>.env.example</code>; update <code>BUILD_PLAN.md</code> (Catalog data-load done; 2.2 API-composition still open on its branch).</p>
+        <p class="done"><span class="label">Done when:</span> concepts README links the new note; BUILD_PLAN reflects reality; a fresh clone knows which env var to set.</p>
+        <p class="depends">Depends on: Tasks 1–6</p>
+      </li>
+
+    </ol>
+  </section>
+
+  <h2>6. Risks / microservices cost felt</h2>
+  <section>
+    <div class="callout">
+      <p><strong>Owning your data means owning its ingestion.</strong> In the monolith, movies were
+      just rows other code JOINed to. As a service, Catalog must <em>independently</em> keep its own
+      database fresh from an external system — and do it <strong>resiliently</strong>: TMDB rate-limits,
+      times out, and returns partial pages. The <code>sync_status</code> table is the concrete cost —
+      a service that survives a crash mid-sync needs durable, resumable progress, not a fire-and-forget
+      loop. This is the same eventual-consistency / partial-failure muscle the sagas and outbox exercise
+      later, in a read-only, low-stakes setting.</p>
+    </div>
+    <ul class="tight" style="margin-top:10px">
+      <li><strong>Idempotency:</strong> a re-run must not duplicate rows — guaranteed here by assigned PKs + <code>save()</code>-merge. (Same lesson as the idempotent consumer in Phase 4.)</li>
+      <li><strong>Secret handling:</strong> <code>TMDB_API_KEY</code> via <code>.env</code>/env var, never committed — a stated convention, enforced here.</li>
+      <li><strong>Safe dynamic queries:</strong> the filter must whitelist sortable/filterable fields so a caller can't sort by an arbitrary column or inject — Specifications keep this typed and bounded.</li>
+      <li><strong>Test hermeticity:</strong> no live TMDB call in CI — the API client is mocked and the scheduler is disabled under test.</li>
+    </ul>
+  </section>
+
+  <h2>7. Verification</h2>
+  <section>
+    <p class="muted">Run after implementation. Sync rows assume a valid <code>TMDB_API_KEY</code> in <code>.env</code>.</p>
+    <table class="verify">
+      <thead><tr><th>Check</th><th>Command</th><th>Expected</th></tr></thead>
+      <tbody>
+        <tr><td>Reactor build green (JDK 21)</td><td class="cmd"><code>./mvnw -pl catalog -am package</code></td><td><span class="ok">✓</span> all catalog tests pass (filter spec, web slice, sync-service, sync_status persist)</td></tr>
+        <tr><td>Schema validates</td><td class="cmd"><code>docker compose up catalog catalog-db</code></td><td><span class="ok">✓</span> Liquibase applies 002; <code>ddl-auto=validate</code> passes; boot clean</td></tr>
+        <tr><td>Sync populates rows</td><td class="cmd"><code>docker compose logs -f catalog</code></td><td><span class="ok">✓</span> log shows pages synced; <code>SELECT count(*) FROM movies</code> &gt; 0; <code>sync_status.state=COMPLETED</code></td></tr>
+        <tr><td>Filter by title</td><td class="cmd"><code>curl 'localhost:8080/api/movies?title=matrix&amp;size=5'</code></td><td><span class="ok">✓</span> paged <code>MovieSummaryDto</code> list, only matching titles</td></tr>
+        <tr><td>Filter compose + sort</td><td class="cmd"><code>curl 'localhost:8080/api/movies?genreId=28&amp;minRating=7&amp;sort=voteAverage,desc'</code></td><td><span class="ok">✓</span> action movies, rating ≥ 7, sorted descending</td></tr>
+        <tr><td>Bad sort field rejected</td><td class="cmd"><code>curl 'localhost:8080/api/movies?sort=evil'</code></td><td><span class="ok">✓</span> 400 <code>CATALOG_VALIDATION_ERROR</code> ProblemDetail</td></tr>
+        <tr><td>Single-movie path still works</td><td class="cmd"><code>curl localhost:8080/api/movies/550</code></td><td><span class="ok">✓</span> full <code>MovieDto</code> with genres (2.1 endpoint unbroken)</td></tr>
+        <tr><td>Resume after crash</td><td class="cmd">stop catalog mid-sync → restart</td><td><span class="ok">✓</span> resumes from <code>sync_status.last_page</code>, no duplicate movies</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <h2>8. Open questions</h2>
+  <section>
+    <div class="callout open-q">
+      <ul class="tight">
+        <li><strong>HTTP client (4b):</strong> confirm <code>RestClient</code> (recommended, matches Booking) vs <code>WebClient</code> (matches monolith).</li>
+        <li><strong>Upsert (4c):</strong> confirm JPA <code>save()</code>-merge (recommended) vs native <code>ON CONFLICT</code>.</li>
+        <li><strong>Which TMDB list types</strong> to sync, and the cron + pages-per-tick bound? Default suggestion: <code>POPULAR</code> + <code>TOP_RATED</code> + <code>NOW_PLAYING</code>, every 6h, ~3 pages/tick (≈60 movies) to stay well under rate limits.</li>
+        <li><strong>TMDB auth style:</strong> v3 API key as query param, or v4 bearer token in the <code>Authorization</code> header? (Bearer is the modern default.)</li>
+        <li><strong>Filter param surface:</strong> is title/genre/language/year/minRating/adult the right v1 set, or do you want more (runtime range, status)?</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    ScreenMaster Microservices — feature plan. Review in a browser, pick the open options (4b, 4c) and answer §8, then we implement. API composition (2.2) tracked separately on its own branch.
+  </footer>
+
+</div>
+</body>
+</html>

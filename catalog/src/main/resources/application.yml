@@ -20,6 +20,18 @@ spring:
       ddl-auto: validate
     open-in-view: false
 
+# TMDB sync config (bound to TmdbProps). The access token is TMDB's v4 "API Read Access Token",
+# sent as a Bearer header — supplied via the TMDB_API_KEY env var / .env, never committed. The sync
+# walks all three movie lists, up to 10 pages per hourly tick (our own back-pressure vs TMDB's rate
+# limit); enabled by default for local/compose, disabled in the test profile so tests stay hermetic.
+tmdb:
+  access-token: ${TMDB_API_KEY:}
+  base-url: ${TMDB_BASE_URL:https://api.themoviedb.org/3}
+  image-base-url: ${TMDB_IMAGE_BASE_URL:https://image.tmdb.org/t/p}
+  enabled: ${TMDB_SYNC_ENABLED:true}
+  cron: ${TMDB_SYNC_CRON:0 */20 * * * *}
+  max-pages-per-run: ${TMDB_MAX_PAGES_PER_RUN:10}
+
 # A Eureka CLIENT: registers with the discovery server on startup.
 eureka:
   client:

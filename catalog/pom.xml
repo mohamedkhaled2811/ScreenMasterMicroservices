@@ -43,6 +43,16 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-actuator</artifactId>
 		</dependency>
+		<!--
+		  Synchronous HTTP client for calling TMDB from the @Scheduled sync job. RestClient (not
+		  WebClient): the sync runs on a scheduler thread where blocking is fine, and it keeps one
+		  HTTP-client story across services (Booking → Payment/Catalog also uses RestClient). See
+		  docs/concepts/sync-vs-async-comms.md.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-restclient</artifactId>
+		</dependency>
 		<dependency>
 			<groupId>org.springframework.cloud</groupId>
 			<artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>

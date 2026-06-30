@@ -62,6 +62,27 @@ public interface BookingRepository extends JpaRepository<Booking, Integer> {
 ```
 Spring generates the implementation. Method-name parsing covers simple queries; `@Query` (JPQL or native SQL) covers the rest.
 
+## Dynamic queries with Specifications
+Derived methods and `@Query` are fixed at compile time — fine for one or two filters, but "filter by **whatever** the caller sends" (title? genre? year? rating? any combination?) would need a method per combination. That's a combinatorial explosion. The answer is the **JPA Criteria API** wrapped in Spring Data's `Specification`:
+
+```java
+public interface MovieRepository
+        extends JpaRepository<Movie, Long>, JpaSpecificationExecutor<Movie> { }
+
+// one composable predicate fragment per filter; absent fields contribute a no-op (always-true)
+static Specification<Movie> titleContains(String t) {
+    if (t == null || t.isBlank()) return (root, q, cb) -> cb.conjunction();   // no restriction
+    return (root, q, cb) -> cb.like(cb.lower(root.get("title")), "%" + t.toLowerCase() + "%");
+}
+
+Specification<Movie> spec = Specification.allOf(titleContains(f.title()), hasGenre(f.genreId()), ...);
+Page<Movie> page = repo.findAll(spec, pageable);   // AND-combined, with paging + sorting
+```
+
+Each present filter adds one predicate; the rest no-op. It's **type-safe and injection-proof** (no string concatenation) and composes cleanly with `Pageable`. This rebuilds the monolith's `MovieSpecification` (schema doc §1) inside the Catalog service — see `catalog/.../repository/spec/MovieSpecifications.java`.
+
+> **Paging + a to-many fetch don't mix in one query.** If you `@EntityGraph`-fetch a `@ManyToMany` *and* page, Hibernate can't apply `LIMIT` in SQL (each parent spans multiple child rows) and paginates **in memory** — the "firstResult/maxResults specified with collection fetch; applying in memory" warning. The fix is the **two-query pattern**: page the *ids* first (no collection fetch → SQL `LIMIT` is correct), then fetch exactly those ids *with* the collection. Catalog's `findMoviePage` does this; whitelist sortable fields so a caller can't sort by an arbitrary column.
+
 ## Transactions
 
 ```java

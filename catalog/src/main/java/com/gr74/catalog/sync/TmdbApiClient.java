@@ -1,6 +1,7 @@
 package com.gr74.catalog.sync;
 
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -14,6 +15,7 @@ import com.gr74.catalog.exception.TmdbSyncException;
 import com.gr74.catalog.model.Genre;
 import com.gr74.catalog.model.Movie;
 import com.gr74.catalog.model.SyncType;
+import com.gr74.catalog.sync.dto.TmdbChangesPage;
 import com.gr74.catalog.sync.dto.TmdbGenre;
 import com.gr74.catalog.sync.dto.TmdbGenreList;
 import com.gr74.catalog.sync.dto.TmdbListPage;
@@ -37,6 +39,9 @@ import lombok.extern.slf4j.Slf4j;
 public class TmdbApiClient {
 
     private final RestClient tmdbRestClient;
+
+    /** TMDB's change feed expects ISO {@code yyyy-MM-dd} (UTC) for {@code start_date}/{@code end_date}. */
+    private static final DateTimeFormatter TMDB_DATE = DateTimeFormatter.ISO_LOCAL_DATE;
 
     /** Fetch the full movie-genre vocabulary ({@code GET /genre/movie/list}). */
     public List<TmdbGenre> genres() {
@@ -64,6 +69,33 @@ public class TmdbApiClient {
             return body;
         } catch (RestClientException e) {
             throw new TmdbSyncException("Failed to fetch TMDB " + type + " page " + page, e);
+        }
+    }
+
+    /**
+     * Fetch one page of the change feed ({@code GET /movie/changes?start_date=&end_date=&page=}) — the
+     * ids of movies TMDB edited inside the {@code [start, end]} UTC window. The dates are inclusive on
+     * TMDB's side; the caller walks one narrow window at a time so the cursor stays resumable. Both
+     * bounds are formatted {@code yyyy-MM-dd}. An empty body yields no ids rather than failing.
+     */
+    public TmdbChangesPage changedMovieIds(LocalDate start, LocalDate end, int page) {
+        try {
+            TmdbChangesPage body = tmdbRestClient.get()
+                    .uri(uri -> uri.path("/movie/changes")
+                            .queryParam("start_date", TMDB_DATE.format(start))
+                            .queryParam("end_date", TMDB_DATE.format(end))
+                            .queryParam("page", page)
+                            .build())
+                    .retrieve()
+                    .body(TmdbChangesPage.class);
+            if (body == null) {
+                throw new TmdbSyncException(
+                        "TMDB returned an empty body for changes " + start + ".." + end + " page " + page);
+            }
+            return body;
+        } catch (RestClientException e) {
+            throw new TmdbSyncException(
+                    "Failed to fetch TMDB changes " + start + ".." + end + " page " + page, e);
         }
     }
 

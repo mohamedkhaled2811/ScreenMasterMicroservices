@@ -30,14 +30,29 @@ NOW_PLAYING        | 12        | 40          | FAILED        | "503 on p.13" | .
 ## Idempotency makes re-runs safe
 A resumable sync re-touches rows (a healed retry, a periodic refresh). That's only safe if writes are **idempotent**. Catalog gets this for free: movie/genre PKs are **assigned TMDB ids**, so `repository.save(movie)` on an existing id is an UPDATE, not a duplicate INSERT. Re-syncing the same page converges to the same rows. (Same lesson as the [idempotent-consumer](idempotent-consumer.md), here via assigned-key UPSERT instead of a dedupe table.)
 
+## Backfill is not freshness — the incremental refresh
+The page-walk above is a **one-time backfill**: it fills the catalog, then each `COMPLETED` type is skipped forever. That's the right shape for *getting* the data, but it leaves the replica **frozen** — a movie's rating, popularity, overview or poster can change on TMDB and we'd never see it. Re-walking the ranked lists doesn't fix this: `popular`/`top_rated` re-rank constantly, so a movie whose details changed may have moved off the page we'd re-read, and most edits happen to movies on no list at all.
+
+The production answer is a **change feed**, not a re-scan. TMDB exposes `GET /movie/changes?start_date=&end_date=` — the ids of movies edited in a UTC date window. So once backfill is complete, each tick:
+
+1. asks TMDB *"which movie ids changed since we last caught up?"* (one narrow day window at a time),
+2. **intersects with the ids we already store** (`MovieRepository.findExistingIds`) — we never re-fetch TMDB's millions of untracked movies, only our own,
+3. re-hydrates just those via the same idempotent upsert, and
+4. advances a **date cursor** — `last_changes_synced_date` on a dedicated `CHANGES` `sync_status` row — one day at a time, so a crash mid-window resumes from the last good day.
+
+This reuses every mechanism the backfill already had (per-batch transaction, assigned-key idempotent upsert, per-run cap), swapping the *page* cursor for a *date* cursor. Two costs are inherent and worth naming:
+
+- **Bounded history.** TMDB serves only ~14 days of changes (`changes-lookback-days`, clamped). If the service is down longer than that, the cursor can't close the gap from the feed alone — a known limitation; a periodic full re-walk would be the backstop (out of scope here).
+- **At-least-once, not exactly-once.** Overlapping or retried day windows can re-fetch an id. Harmless, because the upsert keys on the TMDB id → UPDATE, never duplicate.
+
 ## How we use it here (Catalog data load)
 - `TmdbScheduledTasks` — the `@Scheduled(cron = "${tmdb.cron}")` trigger, guarded by `@ConditionalOnProperty("tmdb.enabled")` so it doesn't exist (and never calls TMDB) in tests or when no token is configured.
-- `TmdbSyncService.syncAll()` — refreshes genres, then walks each `SyncType` up to `maxPagesPerRun` pages, isolating per-type failures.
-- `CatalogUpserter` — the `@Transactional` per-page writer (movies + cursor in one commit).
-- `TmdbApiClient` — the thin RestClient wrapper that talks to TMDB and maps wire DTOs → entities; the only thing tests mock, so the sync is unit-testable with no network. See [spring-web-annotations.md](spring-web-annotations.md) (`RestClient`).
-- `SyncStatus` / `sync_status` — the bookkeeping entity + Liquibase changeset 002. Enums persisted as `STRING` (never ordinal).
+- `TmdbSyncService.syncAll()` — refreshes genres, walks each *backfill* `SyncType` up to `maxPagesPerRun` pages (isolating per-type failures), then — once all backfill lists are `COMPLETED` and `changes-enabled` — runs `syncChanges()` (the incremental refresh).
+- `CatalogUpserter` — the `@Transactional` writer: `upsertPage` (backfill, movies + page cursor in one commit) and `refreshMovies` (incremental, refreshed movies + date cursor in one commit).
+- `TmdbApiClient` — the thin RestClient wrapper that talks to TMDB and maps wire DTOs → entities (`listPage`, `movieDetails`, `changedMovieIds`); the only thing tests mock, so the sync is unit-testable with no network. See [spring-web-annotations.md](spring-web-annotations.md) (`RestClient`).
+- `SyncStatus` / `sync_status` — the bookkeeping entity. The three list rows use the page cursor (`last_page`/`total_pages`); the `CHANGES` row uses the date cursor (`last_changes_synced_date`). Liquibase changeset 002 (table) + 003 (date-cursor column). Enums persisted as `STRING` (never ordinal).
 
-The monolith had this shape already (`TMDBSyncService`, `TMDBScheduledTasks`, `SyncStatus`); we rebuilt it clean inside the Catalog boundary.
+The monolith had the backfill shape already (`TMDBSyncService`, `TMDBScheduledTasks`, `SyncStatus`); we rebuilt it clean inside the Catalog boundary and added the change-feed refresh it lacked.
 
 ## Interview lens
-"For an external sync I make it resumable: persist a cursor per work stream, commit each page's data *and* its cursor in one transaction, and bound how much each scheduled run does. A crash resumes from the last committed page instead of restarting — and because my upserts key on the external id, re-running is idempotent, so retries and refreshes can't duplicate data. The one trap is Spring's self-invocation: the per-transaction unit has to sit on a separate bean or the proxy never applies it."
+"For an external sync I make it resumable: persist a cursor per work stream, commit each page's data *and* its cursor in one transaction, and bound how much each scheduled run does. A crash resumes from the last committed page instead of restarting — and because my upserts key on the external id, re-running is idempotent, so retries and refreshes can't duplicate data. The one trap is Spring's self-invocation: the per-transaction unit has to sit on a separate bean or the proxy never applies it. But backfill isn't freshness — once it's done, the replica is frozen. So I add an incremental refresh on the upstream's change feed: pull the ids that changed in a window, intersect with what I actually store, re-hydrate only those, and advance a date cursor. It's at-least-once, which is fine because the upsert is idempotent; the real constraint is the feed's bounded history, so I clamp the lookback and accept that a longer outage needs a full re-walk to fully close the gap."

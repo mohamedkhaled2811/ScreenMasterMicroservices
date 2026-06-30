@@ -110,6 +110,32 @@ class TmdbApiClientTest {
     }
 
     @Test
+    void changedMovieIdsSendsDateWindowAndExtractsIds() {
+        server.expect(requestTo(BASE + "/movie/changes?start_date=2026-06-29&end_date=2026-06-30&page=1"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header("Authorization", "Bearer test-token"))
+                .andRespond(withSuccess(CHANGES_PAGE_JSON, MediaType.APPLICATION_JSON));
+
+        var page = client.changedMovieIds(LocalDate.of(2026, 6, 29), LocalDate.of(2026, 6, 30), 1);
+
+        assertThat(page.totalPages()).isEqualTo(3);
+        assertThat(page.movieIds()).containsExactly(603L, 550L);
+        server.verify();
+    }
+
+    @Test
+    void changesUpstreamErrorBecomesCodedSyncException() {
+        LocalDate day = LocalDate.of(2026, 6, 30);
+        server.expect(requestTo(BASE + "/movie/changes?start_date=2026-06-30&end_date=2026-06-30&page=1"))
+                .andRespond(withServerError());
+
+        assertThatThrownBy(() -> client.changedMovieIds(day, day, 1))
+                .isInstanceOf(TmdbSyncException.class)
+                .extracting("errorCode")
+                .isEqualTo(CatalogErrorCode.CATALOG_TMDB_SYNC_ERROR);
+    }
+
+    @Test
     void upstreamErrorBecomesCodedSyncException() {
         server.expect(requestTo(BASE + "/movie/603")).andRespond(withServerError());
 
@@ -152,6 +178,18 @@ class TmdbApiClientTest {
               "results": [
                 {"id": 603, "title": "The Matrix"},
                 {"id": 550, "title": "Fight Club"}
+              ]
+            }
+            """;
+
+    private static final String CHANGES_PAGE_JSON = """
+            {
+              "page": 1,
+              "total_pages": 3,
+              "total_results": 6,
+              "results": [
+                {"id": 603, "adult": false},
+                {"id": 550, "adult": false}
               ]
             }
             """;

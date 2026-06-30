@@ -1,5 +1,6 @@
 package com.gr74.catalog.service;
 
+import java.time.LocalDate;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -10,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.gr74.catalog.model.Genre;
 import com.gr74.catalog.model.Movie;
 import com.gr74.catalog.model.SyncStatus;
+import com.gr74.catalog.model.SyncType;
 import com.gr74.catalog.repository.GenreRepository;
 import com.gr74.catalog.repository.MovieRepository;
 import com.gr74.catalog.repository.SyncStatusRepository;
@@ -63,15 +65,10 @@ public class CatalogUpserter {
     public int upsertPage(SyncStatus status, List<Long> movieIds, int page, int totalPages) {
         int upserted = 0;
         for (Long movieId : movieIds) {
-            try {
-                TmdbMovieDetails details = tmdb.movieDetails(movieId);
-                Set<Genre> resolved = resolveGenres(details);
-                movieRepository.save(tmdb.toMovie(details, resolved));
+            // Skip a single unfetchable movie rather than failing the whole page — the page cursor still
+            // advances, and the missing movie is picked up on the next full pass.
+            if (hydrateOne(movieId, "%s page %d".formatted(status.getSyncType(), page))) {
                 upserted++;
-            } catch (RuntimeException e) {
-                // Skip a single unfetchable movie rather than failing the whole page — the page cursor
-                // still advances, and the missing movie is picked up on the next full pass.
-                log.warn("Skipping movie {} on {} page {}: {}", movieId, status.getSyncType(), page, e.getMessage());
             }
         }
         // Re-attach the status to this transaction and advance its cursor in the same commit as the rows.
@@ -80,6 +77,52 @@ public class CatalogUpserter {
         syncStatusRepository.save(managed);
         log.info("Synced {} page {}/{}: {} movies", status.getSyncType(), page, totalPages, upserted);
         return upserted;
+    }
+
+    /**
+     * Re-hydrate a batch of already-known movies from TMDB and advance the incremental-refresh cursor —
+     * all in one transaction. This is the freshness counterpart to {@link #upsertPage}: the caller has
+     * already filtered the change feed down to ids we store (see
+     * {@code MovieRepository.findExistingIds}), so every fetch here updates an existing row (the upsert
+     * is an UPDATE because the PK is the TMDB id). A single unfetchable movie is skipped so one bad id
+     * doesn't sink the batch; the cursor still advances, since at-least-once + idempotent upserts make a
+     * later re-pass of the same day harmless.
+     *
+     * @param status   the managed {@link SyncType#CHANGES} bookkeeping row
+     * @param movieIds the stored ids that changed on {@code through}
+     * @param through  the UTC day this batch refreshed — the cursor advances to it on commit
+     * @return the number of movies refreshed
+     */
+    @Transactional
+    public int refreshMovies(SyncStatus status, List<Long> movieIds, LocalDate through) {
+        int refreshed = 0;
+        for (Long movieId : movieIds) {
+            if (hydrateOne(movieId, "changes " + through)) {
+                refreshed++;
+            }
+        }
+        SyncStatus managed = syncStatusRepository.findById(status.getId()).orElse(status);
+        managed.recordChangesSynced(through);
+        syncStatusRepository.save(managed);
+        log.info("Refreshed {} changed movie(s) for {}", refreshed, through);
+        return refreshed;
+    }
+
+    /**
+     * Fetch one movie's full details and upsert it (an UPDATE when the id already exists, since the PK
+     * is the TMDB id). Returns {@code true} on success; logs and returns {@code false} for a single
+     * unfetchable movie so the caller can keep going. {@code context} is just for the warn log.
+     */
+    private boolean hydrateOne(Long movieId, String context) {
+        try {
+            TmdbMovieDetails details = tmdb.movieDetails(movieId);
+            Set<Genre> resolved = resolveGenres(details);
+            movieRepository.save(tmdb.toMovie(details, resolved));
+            return true;
+        } catch (RuntimeException e) {
+            log.warn("Skipping movie {} on {}: {}", movieId, context, e.getMessage());
+            return false;
+        }
     }
 
     /** Resolve a movie's TMDB genres to persisted {@link Genre} entities; unknown ids are dropped. */

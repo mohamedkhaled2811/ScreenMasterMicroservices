@@ -46,7 +46,9 @@ class TmdbSyncServiceTest {
         @org.springframework.context.annotation.Bean
         TmdbProps tmdbProps() {
             // base/image/cron defaulted by the compact ctor; 2 pages per tick for the bound test.
-            return new TmdbProps("test-token", null, null, true, null, 2);
+            // changesEnabled=false so the backfill tests don't trip the incremental refresh; the
+            // changes path has its own test that flips it on via a dedicated props instance.
+            return new TmdbProps("test-token", null, null, true, null, 2, false, 14);
         }
     }
 

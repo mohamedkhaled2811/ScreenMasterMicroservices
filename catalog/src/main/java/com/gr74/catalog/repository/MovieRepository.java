@@ -1,5 +1,6 @@
 package com.gr74.catalog.repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -10,6 +11,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import com.gr74.catalog.model.Movie;
@@ -47,6 +49,15 @@ public interface MovieRepository extends JpaRepository<Movie, Long>, JpaSpecific
      */
     @EntityGraph(attributePaths = "genres")
     List<Movie> findWithGenresByIdIn(@Param("ids") List<Long> ids);
+
+    /**
+     * Of the given candidate ids, return only those we actually store. The incremental refresh feeds
+     * TMDB's change feed (potentially thousands of edited ids across all of TMDB) through this to keep
+     * only the movies in <em>our</em> catalog — so a refresh tick only ever issues detail fetches for
+     * movies we own, never TMDB's full firehose. A projection on the id alone: no entities are loaded.
+     */
+    @Query("select m.id from Movie m where m.id in :ids")
+    List<Long> findExistingIds(@Param("ids") Collection<Long> ids);
 
     default Page<Movie> findMoviePage(
             Specification<Movie> spec, Pageable pageable) {

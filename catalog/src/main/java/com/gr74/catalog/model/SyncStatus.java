@@ -1,6 +1,7 @@
 package com.gr74.catalog.model;
 
 import java.time.Instant;
+import java.time.LocalDate;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -60,6 +61,15 @@ public class SyncStatus {
     @Column(name = "last_synced_at")
     private Instant lastSyncedAt;
 
+    /**
+     * The incremental-refresh cursor (UTC day): the catalog is fresh with respect to TMDB's change
+     * feed <em>through</em> this date. Only meaningful on the {@link SyncType#CHANGES} row; null until
+     * the first refresh runs, after which each refreshed day advances it. The page-walk fields above
+     * are unused on that row.
+     */
+    @Column(name = "last_changes_synced_date")
+    private LocalDate lastChangesSyncedDate;
+
     /** Start a fresh bookkeeping row for a type (nothing synced yet, RUNNING). */
     public SyncStatus(SyncType syncType) {
         this.syncType = syncType;
@@ -98,5 +108,15 @@ public class SyncStatus {
     /** True once we know the total and have synced every page. */
     public boolean isComplete() {
         return totalPages > 0 && lastPage >= totalPages;
+    }
+
+    /**
+     * Advance the incremental-refresh cursor to a freshly-refreshed UTC day (see
+     * {@link #lastChangesSyncedDate}). Touches {@code lastSyncedAt} too so the row reflects the most
+     * recent refresh activity. Used only on the {@link SyncType#CHANGES} row.
+     */
+    public void recordChangesSynced(LocalDate through) {
+        this.lastChangesSyncedDate = through;
+        this.lastSyncedAt = Instant.now();
     }
 }

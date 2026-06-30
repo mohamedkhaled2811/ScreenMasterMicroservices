@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<!--
+  ScreenMaster feature plan: TMDB incremental freshness via /movie/changes.
+  Review in a browser, choose an option, then we implement.
+-->
+<title>Plan: TMDB Incremental Sync (/movie/changes) — ScreenMaster</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel-2: #1d212b; --border: #2a2f3a;
+    --text: #e6e8ee; --muted: #9aa3b2; --accent: #6ea8fe; --accent-2: #7ee787;
+    --warn: #f0b429; --bad: #f47174; --good: #4ec9a4;
+    --chip: #232838;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 32px 20px 80px; }
+  header.page { border-bottom: 1px solid var(--border); padding-bottom: 18px; margin-bottom: 28px; }
+  h1 { font-size: 26px; margin: 0 0 6px; }
+  h2 { font-size: 19px; margin: 36px 0 12px; padding-top: 6px; }
+  .meta { color: var(--muted); font-size: 14px; display: flex; gap: 16px; flex-wrap: wrap; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 0; }
+  .chip {
+    background: var(--chip); border: 1px solid var(--border); color: var(--muted);
+    border-radius: 999px; padding: 3px 11px; font-size: 12.5px;
+  }
+  .status { font-weight: 600; }
+  .status.draft { color: var(--warn); }
+  .status.approved { color: var(--good); }
+  p, li { color: var(--text); }
+  .muted { color: var(--muted); }
+  section { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin: 14px 0; }
+  ul.tight { margin: 6px 0; padding-left: 20px; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13.5px; }
+  code { background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; }
+
+  .options { display: grid; gap: 16px; grid-template-columns: 1fr; }
+  @media (min-width: 760px) { .options { grid-template-columns: 1fr 1fr; } }
+  .option { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; position: relative; }
+  .option.recommended { border-color: var(--accent-2); box-shadow: 0 0 0 1px var(--accent-2) inset; }
+  .option h3 { margin: 0 0 4px; font-size: 17px; }
+  .badge {
+    position: absolute; top: -10px; right: 14px; background: var(--accent-2); color: #0c1a10;
+    font-size: 11.5px; font-weight: 700; border-radius: 999px; padding: 2px 10px;
+  }
+  .pros, .cons { margin: 8px 0; padding-left: 18px; }
+  .pros li { color: var(--good); }
+  .cons li { color: var(--bad); }
+  .pros li span, .cons li span { color: var(--text); }
+
+  table { width: 100%; border-collapse: collapse; margin: 6px 0; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+  td.kind { white-space: nowrap; }
+  .tag { font-size: 11.5px; border-radius: 5px; padding: 1px 7px; border: 1px solid var(--border); }
+  .tag.new { color: var(--accent-2); }
+  .tag.edit { color: var(--warn); }
+  .tag.del { color: var(--bad); }
+
+  .callout { border-left: 3px solid var(--accent); background: var(--panel-2); padding: 10px 14px; border-radius: 0 8px 8px 0; }
+  .open-q { border-left-color: var(--warn); }
+
+  ol.tasks { list-style: none; counter-reset: task; margin: 0; padding: 0; display: grid; gap: 12px; }
+  ol.tasks > li.task {
+    counter-increment: task; position: relative;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 16px 14px 52px;
+  }
+  ol.tasks > li.task::before {
+    content: counter(task); position: absolute; left: 14px; top: 14px;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--chip); border: 1px solid var(--accent); color: var(--accent);
+    font: 600 13px/26px ui-monospace, monospace; text-align: center;
+  }
+  li.task h3 { margin: 0 0 4px; font-size: 16px; }
+  li.task .goal, li.task .done { margin: 4px 0; font-size: 14.5px; }
+  li.task .label { color: var(--muted); font-weight: 600; }
+  li.task .done .label { color: var(--good); }
+  li.task .depends { color: var(--muted); font-size: 13px; margin-top: 6px; }
+
+  table.verify td.cmd { white-space: nowrap; }
+  table.verify td.cmd code { display: inline-block; }
+  table.verify .ok { color: var(--good); }
+
+  footer { margin-top: 40px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); padding-top: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page">
+    <h1>Plan: <em>TMDB Incremental Sync — <code>/movie/changes</code></em></h1>
+    <div class="meta">
+      <span>Date: <strong>2026-06-30</strong></span>
+      <span>Author: Claude Code + Mohamed</span>
+      <span class="status approved">Status: APPROVED — Option A implemented (cursor = dedicated CHANGES row; first-run lookback = 14 days; refresh same tick after backfill, capped)</span>
+    </div>
+    <div class="chips">
+      <span class="chip">Milestone: M2 — Catalog service</span>
+      <span class="chip">Service: catalog</span>
+      <span class="chip">Schema §: Catalog (Movie/Genre)</span>
+      <span class="chip">Pattern: incremental / change-data sync</span>
+    </div>
+  </header>
+
+  <h2>1. Summary</h2>
+  <section>
+    <p>The current TMDB sync is a <strong>one-time backfill that goes dormant</strong>. Each
+    <code>SyncType</code> (POPULAR / TOP_RATED / NOW_PLAYING) is paged once; when its
+    <code>SyncStatus</code> reaches <code>lastPage &ge; totalPages</code> it is marked
+    <code>COMPLETED</code> and <code>TmdbSyncService.syncType()</code> <code>return</code>s early on every
+    future tick. So after backfill we never re-fetch a movie: rating, popularity, overview, poster and
+    status changes on TMDB are <em>frozen</em> in our catalog. Only the genre vocabulary stays fresh
+    (it is re-upserted unconditionally each tick).</p>
+    <p>This feature adds an <strong>incremental freshness path</strong> built on TMDB's
+    <code>GET /movie/changes</code> endpoint — a purpose-built change feed that lists the ids of movies
+    edited in a given UTC date window. Instead of blindly re-walking ranked lists (which re-rank
+    constantly and would still miss off-list edits), we ask TMDB "which movie ids changed since we last
+    looked?", then re-hydrate <em>only those ids that we already store</em>. This is the production
+    pattern for keeping a downstream replica current cheaply — and it directly teaches the
+    <strong>change-data-capture / incremental-sync</strong> lesson the field guide raises around data
+    duplication across service boundaries.</p>
+  </section>
+
+  <h2>2. Milestone &amp; schema link</h2>
+  <section>
+    <ul class="tight">
+      <li><strong>Field-guide milestone:</strong> M2 — Catalog service (owns its data, syncs from an
+        upstream source of truth). Extends the existing sync rather than adding a new service.</li>
+      <li><strong>Schema doc:</strong> ARCHITECTURE_AND_SCHEMA.md — Catalog domain (<code>Movie</code>,
+        <code>Genre</code>). No new domain entity; one new bookkeeping concern (a changes cursor).</li>
+      <li><strong>Build plan step:</strong> hardening the Catalog TMDB sync (M2) from "backfill once" to
+        "backfill + stay fresh". Update BUILD_PLAN.md note for the catalog sync item.</li>
+      <li><strong>Concept doc:</strong> extend <code>docs/concepts/scheduled-resumable-sync.md</code> (or
+        add <code>tmdb-changes-incremental-sync.md</code>) — backfill vs. incremental refresh, and why a
+        change feed beats re-walking ranked lists.</li>
+    </ul>
+  </section>
+
+  <h2>3. What changes</h2>
+  <section>
+    <p class="muted">The incremental path reuses the existing hydrate/upsert machinery
+    (<code>CatalogUpserter.upsertPage</code> already idempotently UPDATEs by TMDB id). The new surface is
+    a change-feed client call, a cursor to remember "how far we've caught up", and a refresh pass that
+    runs <em>after</em> backfill is complete.</p>
+    <table>
+      <thead><tr><th>Kind</th><th>Where</th><th>What</th></tr></thead>
+      <tbody>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>sync/dto/TmdbChangesPage.java</code></td><td>Wire record for <code>GET /movie/changes</code>: <code>results[]</code> of <code>{ id, adult }</code> plus <code>page</code> / <code>total_pages</code>.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>sync/TmdbApiClient.java</code></td><td>Add <code>changedMovieIds(LocalDate start, LocalDate end, int page)</code> → calls <code>/movie/changes?start_date=&amp;end_date=&amp;page=</code>, maps to ids. Reuses the same coded-exception translation.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>model/SyncType.java</code></td><td>Add a <code>CHANGES</code> constant (path <code>/movie/changes</code>) so it gets its own <code>SyncStatus</code> row — but it tracks a <em>date cursor</em>, not a page cursor (see open questions). Alternatively keep it out of the enum and store the cursor separately.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>model/SyncStatus.java</code></td><td>Add a <code>lastChangesSyncedDate</code> (UTC <code>LocalDate</code>) field for the changes cursor — "we have caught up through this day". Intention-revealing mutator, like the existing ones.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>db/changelog/changes/003-add-changes-cursor.yaml</code></td><td>Liquibase changeset: add <code>last_changes_synced_date</code> (and any new <code>sync_status</code> row) so the entity still passes <code>ddl-auto=validate</code>.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>db/changelog/db.changelog-master.yaml</code></td><td>Include changeset 003.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>service/TmdbSyncService.java</code></td><td>Add <code>syncChanges()</code>: only runs once all list types are <code>COMPLETED</code>; fetches changed ids for the window <code>(cursor, today]</code>, filters to ids we already store, re-hydrates them via the upserter, advances the date cursor. Called at the end of <code>syncAll()</code>.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>service/CatalogUpserter.java</code></td><td>Add <code>refreshMovies(Collection&lt;Long&gt; ids)</code> (transactional) that re-hydrates a batch of already-known ids and advances the changes cursor in the same commit. Reuses <code>resolveGenres</code> + <code>toMovie</code>.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>repository/MovieRepository.java</code></td><td>Add <code>findExistingIds(Collection&lt;Long&gt; ids)</code> (a <code>SELECT id WHERE id IN ...</code>) so we only re-fetch movies we actually store — never pull TMDB's whole firehose.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>config/TmdbProps.java</code> + <code>application.yml</code></td><td>Add <code>changesEnabled</code> (gate the refresh pass) and <code>changesLookbackDays</code> (max window to backfill on first run / after a long downtime — TMDB only serves ~14 days of changes).</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>docs/concepts/scheduled-resumable-sync.md</code> + <code>docs/BUILD_PLAN.md</code></td><td>Document backfill→incremental transition; tick the BUILD_PLAN note.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <h2>4. Options</h2>
+  <p class="muted">All three keep the existing backfill untouched; they differ in <em>how the cursor is
+  modeled and when the refresh runs</em>. The TMDB endpoint is the same in each.</p>
+  <div class="options">
+
+    <div class="option recommended">
+      <span class="badge">Recommended</span>
+      <h3>Option A — Date-cursor refresh, gated on backfill-complete</h3>
+      <p>A single global "changes" cursor (last UTC day caught up). Each tick, <em>after</em> all list
+      types are <code>COMPLETED</code>, walk <code>/movie/changes</code> for the window
+      <code>(cursor, today]</code>, intersect with ids we already store, re-hydrate those, advance the
+      cursor by one day at a time so a crash resumes mid-window.</p>
+      <ul class="pros">
+        <li><span>Smallest, most honest model: one cursor = "fresh through day X"; resumable like the existing walk.</span></li>
+        <li><span>Cheap — only re-fetches ids we own that actually changed; ignores TMDB's millions of untracked movies.</span></li>
+        <li><span>Backfill stays the priority; refresh only kicks in once the catalog is filled (no contention for the rate budget).</span></li>
+      </ul>
+      <ul class="cons">
+        <li><span>Needs a one-day-granularity loop + lookback clamp (TMDB only serves ~14 days of changes).</span></li>
+      </ul>
+      <p class="muted">Best when: we want true freshness with minimal API cost and a resumable cursor — the production pattern.</p>
+    </div>
+
+    <div class="option">
+      <h3>Option B — Changes as a 4th <code>SyncType</code>, page-cursor reused</h3>
+      <p>Add <code>CHANGES</code> to the enum and shoehorn it into the existing
+      <code>SyncStatus(page,totalPages)</code> walk, re-querying a fixed rolling window (e.g. last 24h)
+      each tick and paging through it like a list.</p>
+      <ul class="pros">
+        <li><span>Maximal code reuse — almost no new control flow; rides the existing per-type loop.</span></li>
+      </ul>
+      <ul class="cons">
+        <li><span>Semantic mismatch: a page cursor that "completes" doesn't model "caught up through date X"; needs constant resetting.</span></li>
+        <li><span>Either misses edits (if the window is too short between ticks) or re-does work (if it overlaps) — no clean exactly-once.</span></li>
+        <li><span>Overloads <code>isComplete()</code> meaning; muddies the resumable-walk concept doc.</span></li>
+      </ul>
+      <p class="muted">Best when: we cared only about minimal diff and accepted a fuzzy window. Not recommended.</p>
+    </div>
+
+    <div class="option">
+      <h3>Option C — Webhook / push instead of polling</h3>
+      <p>Skip <code>/movie/changes</code> polling; have TMDB push change events to us.</p>
+      <ul class="pros">
+        <li><span>Near-real-time; no polling cadence to tune.</span></li>
+      </ul>
+      <ul class="cons">
+        <li><span>TMDB offers no general per-movie webhook to arbitrary consumers — not actually available.</span></li>
+        <li><span>Needs a public ingress + signature verification + replay handling — out of scope (no Kubernetes / no public endpoint in this lab).</span></li>
+      </ul>
+      <p class="muted">Best when: a real provider offered webhooks. Listed for completeness; infeasible here.</p>
+    </div>
+
+  </div>
+
+  <h2>5. Implementation tasks</h2>
+  <section>
+    <p class="muted">Chosen option assumed = <strong>A</strong>. Ordered so each step is independently
+    checkable and the build stays green throughout.</p>
+    <ol class="tasks">
+
+      <li class="task">
+        <h3>Add the changes wire DTO + client call</h3>
+        <p class="goal"><span class="label">Goal:</span> Teach <code>TmdbApiClient</code> to fetch changed
+        movie ids for a date window. New <code>TmdbChangesPage</code> record + <code>changedMovieIds(start, end, page)</code>,
+        with the same coded-<code>TmdbSyncException</code> translation as the other calls.</p>
+        <p class="done"><span class="label">Done when:</span> a unit test mocking <code>RestClient</code>
+        parses a sample <code>/movie/changes</code> body into ids; empty/null bodies yield an empty list, errors map to <code>TmdbSyncException</code>.</p>
+        <p class="depends">Depends on: —</p>
+      </li>
+
+      <li class="task">
+        <h3>Add the changes cursor to the model + migration</h3>
+        <p class="goal"><span class="label">Goal:</span> Persist "fresh through UTC day X". Add
+        <code>lastChangesSyncedDate</code> to <code>SyncStatus</code> (with an intention-revealing mutator)
+        and Liquibase changeset 003; decide cursor home (dedicated row vs. new field — see open questions).</p>
+        <p class="done"><span class="label">Done when:</span> app boots with <code>ddl-auto=validate</code>
+        green against the new column; the cursor round-trips through the repository.</p>
+        <p class="depends">Depends on: —</p>
+      </li>
+
+      <li class="task">
+        <h3>Add "which of these ids do we already store" lookup</h3>
+        <p class="goal"><span class="label">Goal:</span> <code>MovieRepository.findExistingIds(ids)</code>
+        so the refresh only ever re-hydrates movies we own — never TMDB's full change firehose.</p>
+        <p class="done"><span class="label">Done when:</span> a repository test confirms it returns only
+        the subset of ids present in <code>movie</code>.</p>
+        <p class="depends">Depends on: —</p>
+      </li>
+
+      <li class="task">
+        <h3>Add the transactional refresh in <code>CatalogUpserter</code></h3>
+        <p class="goal"><span class="label">Goal:</span> <code>refreshMovies(ids)</code> re-hydrates a batch
+        of known ids (reusing <code>movieDetails</code> + <code>resolveGenres</code> + <code>toMovie</code>),
+        skipping individual fetch failures, and advances the date cursor in the <em>same</em> commit.</p>
+        <p class="done"><span class="label">Done when:</span> a test shows an existing movie's fields are
+        UPDATEd from a new details payload and the cursor advances atomically.</p>
+        <p class="depends">Depends on: Task 1, 2, 3</p>
+      </li>
+
+      <li class="task">
+        <h3>Wire <code>syncChanges()</code> into the tick</h3>
+        <p class="goal"><span class="label">Goal:</span> In <code>TmdbSyncService.syncAll()</code>, after the
+        list loop, run <code>syncChanges()</code> only when every list type is <code>COMPLETED</code> and
+        <code>tmdb.changes-enabled=true</code>. Walk the window <code>(cursor, today]</code> one UTC day at a
+        time, clamped to <code>changesLookbackDays</code>; page through each day's changes; intersect → refresh → advance cursor per day.</p>
+        <p class="done"><span class="label">Done when:</span> with backfill marked complete, a tick fetches
+        changes, refreshes only stored ids, and the cursor lands on today; a failure mid-window leaves the cursor on the last good day.</p>
+        <p class="depends">Depends on: Task 4</p>
+      </li>
+
+      <li class="task">
+        <h3>Config + back-pressure</h3>
+        <p class="goal"><span class="label">Goal:</span> Add <code>changes-enabled</code> and
+        <code>changes-lookback-days</code> to <code>TmdbProps</code> + <code>application.yml</code> (with env
+        overrides and sane defaults), and reuse the existing per-run page cap so a busy day can't exhaust the rate budget in one tick.</p>
+        <p class="done"><span class="label">Done when:</span> flipping <code>changes-enabled=false</code>
+        disables only the refresh pass (backfill unaffected); test profile stays hermetic.</p>
+        <p class="depends">Depends on: Task 5</p>
+      </li>
+
+      <li class="task">
+        <h3>Docs + build-plan sync</h3>
+        <p class="goal"><span class="label">Goal:</span> Extend the concept doc (backfill vs. incremental,
+        why a change feed beats re-walking ranked lists), tick the BUILD_PLAN catalog-sync note.</p>
+        <p class="done"><span class="label">Done when:</span> concept doc + BUILD_PLAN reflect the new
+        freshness behavior; README concept list links it if a new file was added.</p>
+        <p class="depends">Depends on: Task 5</p>
+      </li>
+
+    </ol>
+  </section>
+
+  <h2>6. Risks / microservices cost felt</h2>
+  <section>
+    <div class="callout">
+      <p><strong>Data duplication across a boundary → staleness &amp; eventual consistency.</strong> Catalog
+      keeps a <em>replica</em> of TMDB's source-of-truth data. Replicas drift the moment the upstream
+      changes; the cost is keeping them current without re-copying everything. This feature surfaces that
+      cost and answers it the production way — a <strong>change feed + cursor</strong> (incremental,
+      at-least-once, idempotent re-hydration) instead of a full re-scan. Concrete risks to handle:</p>
+      <ul class="tight">
+        <li><strong>Bounded change history:</strong> TMDB only serves ~14 days of <code>/movie/changes</code>. If the service is down longer than the lookback, the cursor can't catch up via changes alone — we clamp the window and accept that gap (a periodic full re-walk could backstop it, out of scope here).</li>
+        <li><strong>At-least-once, not exactly-once:</strong> day-window overlap can re-fetch an id; safe because upserts are idempotent (PK = TMDB id → UPDATE).</li>
+        <li><strong>Partial failure mid-window:</strong> the per-day cursor + per-batch transaction means a crash resumes from the last good day, never restarts the window.</li>
+        <li><strong>Rate-limit back-pressure:</strong> reuse the existing per-run cap so a high-churn day degrades gracefully across ticks instead of hammering TMDB.</li>
+      </ul>
+    </div>
+  </section>
+
+  <h2>7. Verification</h2>
+  <section>
+    <p class="muted">Run after implementation. Assumes a valid <code>TMDB_API_KEY</code> for the live checks.</p>
+    <table class="verify">
+      <thead><tr><th>Check</th><th>Command</th><th>Expected</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Build + tests pass (incl. new client/upserter/repo tests)</td>
+          <td class="cmd"><code>./mvnw -q -pl catalog test</code></td>
+          <td><span class="ok">✓</span> green; changes-DTO parse, existing-ids filter, refresh+cursor tests pass</td>
+        </tr>
+        <tr>
+          <td>Schema validates (changeset 003 applied, entity matches)</td>
+          <td class="cmd"><code>./mvnw -q -pl catalog spring-boot:run</code></td>
+          <td><span class="ok">✓</span> boots with <code>ddl-auto=validate</code>; no Hibernate mismatch on <code>last_changes_synced_date</code></td>
+        </tr>
+        <tr>
+          <td>Refresh only runs after backfill</td>
+          <td class="cmd">tail logs while a list is still backfilling</td>
+          <td><span class="ok">✓</span> no <code>syncChanges</code> work until all types log "complete"</td>
+        </tr>
+        <tr>
+          <td>Changed movie is actually re-fetched &amp; updated</td>
+          <td class="cmd">pick a stored movie id, mutate its row's <code>vote_average</code> locally, wait for a changes tick that includes it</td>
+          <td><span class="ok">✓</span> row is overwritten back to TMDB's current value; log shows it in the refresh batch</td>
+        </tr>
+        <tr>
+          <td>Cursor advances &amp; is resumable</td>
+          <td class="cmd">inspect <code>sync_status</code> after a tick; kill mid-window and restart</td>
+          <td><span class="ok">✓</span> <code>last_changes_synced_date</code> advances to today; restart resumes from last good day, no full restart</td>
+        </tr>
+        <tr>
+          <td>Feature gate works</td>
+          <td class="cmd"><code>TMDB_CHANGES_ENABLED=false ./mvnw ... spring-boot:run</code></td>
+          <td><span class="ok">✓</span> backfill still runs; no <code>/movie/changes</code> calls</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <h2>8. Open questions</h2>
+  <section>
+    <div class="callout open-q">
+      <ul class="tight">
+        <li><strong>Cursor home:</strong> store the changes cursor as a new field on a dedicated
+        <code>SyncStatus</code> row (e.g. a <code>CHANGES</code> <code>SyncType</code>), or as a separate
+        single-row table? A dedicated row reuses the entity but stretches the "page walk" semantics of the
+        other rows. <em>Lean: dedicated <code>CHANGES</code> row, page fields unused / nullable.</em></li>
+        <li><strong>Refresh frequency:</strong> run <code>syncChanges()</code> every tick (currently every
+        minute per <code>application.yml</code> cron <code>0 * * * * *</code>), or on a slower cadence than
+        backfill? <em>Lean: same tick, but only after backfill-complete + capped per run.</em></li>
+        <li><strong>First-run window:</strong> on the very first changes pass (cursor null), how far back do
+        we go? TMDB caps at ~14 days. <em>Lean: default <code>changes-lookback-days = 1</code> (just "since
+        yesterday"); larger only if we want to catch edits made during backfill.</em></li>
+        <li><strong>Adult filter:</strong> <code>/movie/changes</code> includes an <code>adult</code> flag;
+        do we honor the existing adult handling when refreshing, or refresh whatever we already store
+        regardless? <em>Lean: refresh only ids we already store, so the original filter already applied.</em></li>
+        <li><strong>Long-downtime backstop:</strong> do we want a periodic full re-walk (reset list cursors)
+        to cover gaps longer than TMDB's 14-day change history, or accept that as a known limitation for the
+        lab? <em>Lean: out of scope; note it as a limitation.</em></li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    ScreenMaster Microservices — feature plan. Review in a browser, choose an option, then we implement.
+  </footer>
+
+</div>
+</body>
+</html>

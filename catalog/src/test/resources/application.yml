@@ -18,4 +18,5 @@ eureka:
 # RestClient bean and TmdbProps still wire up in a full-context test.
 tmdb:
   enabled: false
+  changes-enabled: false
   access-token: test-token

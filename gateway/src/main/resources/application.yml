@@ -35,8 +35,13 @@ spring:
                 - StripPrefix=1
             - id: booking
               uri: lb://booking
+              # Booking absorbed the monolith's Theater + Scheduling contexts (schema §8.1), so it now
+              # owns the inventory + showtime surface too. One route, several path prefixes: bookings,
+              # the inventory tree (theaters/screens/seats), seat-types, and showtimes. StripPrefix=1
+              # turns each /api/<x> into the bare /<x> the controllers expose (e.g. /api/theaters ->
+              # /theaters). A single Path predicate accepts a comma-separated list of patterns.
               predicates:
-                - Path=/api/bookings/**
+                - Path=/api/bookings/**,/api/theaters/**,/api/screens/**,/api/seat-types/**,/api/showtimes/**
               filters:
                 - StripPrefix=1
             - id: payment

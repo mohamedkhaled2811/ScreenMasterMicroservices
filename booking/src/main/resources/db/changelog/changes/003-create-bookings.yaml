@@ -1,0 +1,137 @@
+# Changeset 003 — bookings + booking_seats: SCHEMA ONLY (no entities, no create logic yet).
+#
+# Why the tables land here but the logic doesn't (plan §8 open-question, resolved): keeping the whole
+# booking-db schema in one cohesive place lets parts 2/3 seed booking rows to read, while the SAGA that
+# actually WRITES them stays in Phase 3 where it belongs. So there is deliberately no Booking/BookingSeat
+# JPA entity in this part — ddl-auto=validate only checks that MAPPED entities have matching tables, not
+# that every table has an entity, so these unmapped tables sit here harmlessly until Phase 3 maps them.
+#
+# The cross-service cuts recorded as plain columns (schema doc §8.2):
+#   - user_id     -> Identity owns users (no FK; comes from the JWT in Phase 7)
+#   - showtime_id -> intra-Booking, but bookings can outlive a showtime row, so kept a plain column here
+#                    and wired as an entity relation in Phase 3 (avoids committing to cascade semantics now)
+# The snapshot columns (total_amount, and per-seat seat_price/seat_type_name) embody "snapshot immutable
+# facts into the consumer" — the price at booking time is frozen so a later seat_type change can't rewrite
+# history. Enum columns (status, payment_status) are VARCHAR — STRING from day one (schema §2.4 fix).
+databaseChangeLog:
+  - changeSet:
+      id: 003-create-bookings
+      author: mohamed
+      changes:
+        - createTable:
+            tableName: bookings
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              # Human-facing handle "BK-XXXXXXXX"; unique so a reference maps to exactly one booking.
+              - column:
+                  name: booking_reference
+                  type: VARCHAR(20)
+                  constraints:
+                    nullable: false
+                    unique: true
+                    uniqueConstraintName: uq_bookings_reference
+              # Cross-service cut: Identity owns users. No FK — the id comes from the JWT (Phase 7).
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              # Intra-Booking reference to a showtime; kept a plain column here (entity relation in Phase 3).
+              - column:
+                  name: showtime_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              # BookingStatus enum as STRING (monolith stored it ORDINAL — schema §2.4/§9 fix).
+              - column:
+                  name: status
+                  type: VARCHAR(20)
+                  constraints:
+                    nullable: false
+              # PaymentStatus enum as STRING (monolith stored it ordinal on Booking — §2.4 fix).
+              - column:
+                  name: payment_status
+                  type: VARCHAR(20)
+                  constraints:
+                    nullable: false
+              # Snapshot of the total at booking time — frozen, never recomputed from live prices.
+              - column:
+                  name: total_amount
+                  type: NUMERIC(12, 2)
+                  constraints:
+                    nullable: false
+              # The 15-min hold deadline; the Phase-3 expiry sweeper frees seats past this.
+              - column:
+                  name: expires_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_date
+                  type: TIMESTAMP WITH TIME ZONE
+                  constraints:
+                    nullable: false
+              - column:
+                  name: last_modified_date
+                  type: TIMESTAMP WITH TIME ZONE
+
+  - changeSet:
+      id: 003-create-booking-seats
+      author: mohamed
+      changes:
+        - createTable:
+            tableName: booking_seats
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: booking_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              # Intra-Booking reference to the reserved seat.
+              - column:
+                  name: seat_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              # Snapshotted facts (schema §8.2): the price and seat-type name AT BOOKING TIME, so a
+              # later seat_type multiplier change never rewrites an existing booking's line item.
+              - column:
+                  name: seat_price
+                  type: NUMERIC(10, 2)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: seat_type_name
+                  type: VARCHAR(60)
+                  constraints:
+                    nullable: false
+        # A seat appears at most once per booking.
+        - addUniqueConstraint:
+            tableName: booking_seats
+            columnNames: booking_id, seat_id
+            constraintName: uq_booking_seats_booking_seat
+        - addForeignKeyConstraint:
+            constraintName: fk_booking_seats_booking
+            baseTableName: booking_seats
+            baseColumnNames: booking_id
+            referencedTableName: bookings
+            referencedColumnNames: id
+        - addForeignKeyConstraint:
+            constraintName: fk_booking_seats_seat
+            baseTableName: booking_seats
+            baseColumnNames: seat_id
+            referencedTableName: seats
+            referencedColumnNames: id

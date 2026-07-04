@@ -9,6 +9,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -39,6 +40,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     /** Custom {@code ProblemDetail} member that holds the {@link BookingErrorCode} name. */
     private static final String CODE_PROPERTY = "code";
+
+    /** Shared log template for every validation-failure path (keeps the log message consistent). */
+    private static final String VALIDATION_FAILED_LOG = "Validation failed: {}";
 
     /**
      * Any error we raised deliberately (not-found, duplicate, movie-not-in-catalog, catalog-down). The
@@ -77,7 +81,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ProblemDetail handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
         String detail = "Parameter '" + ex.getName() + "' has an invalid value: " + ex.getValue();
-        log.warn("Validation failed: {}", detail);
+        log.warn(VALIDATION_FAILED_LOG, detail);
         return problemDetail(BookingErrorCode.BOOKING_VALIDATION_ERROR, detail);
     }
 
@@ -108,7 +112,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
         ProblemDetail body = problemDetail(BookingErrorCode.BOOKING_VALIDATION_ERROR,
                 detail.isBlank() ? "Request validation failed" : detail);
-        log.warn("Validation failed: {}", detail);
+        log.warn(VALIDATION_FAILED_LOG, detail);
         return ResponseEntity.status(body.getStatus()).body(body);
     }
 
@@ -126,7 +130,25 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
         ProblemDetail body = problemDetail(BookingErrorCode.BOOKING_VALIDATION_ERROR,
                 detail.isBlank() ? "Request validation failed" : detail);
-        log.warn("Validation failed: {}", detail);
+        log.warn(VALIDATION_FAILED_LOG, detail);
+        return ResponseEntity.status(body.getStatus()).body(body);
+    }
+
+    /**
+     * A malformed or unreadable request body — most often an <em>unknown enum value</em> (e.g.
+     * {@code screenType: "HOLOGRAM"}) or syntactically broken JSON that Jackson can't deserialize.
+     * Spring raises this before our code runs; the base handler would return a body with no
+     * {@code code}, so we override its hook to attach {@code BOOKING_VALIDATION_ERROR} — same contract
+     * as every other bad-request. We don't echo the parser message (it can leak internals); a stable,
+     * generic detail is enough for the caller to know the body was rejected.
+     */
+    @Override
+    protected ResponseEntity<Object> handleHttpMessageNotReadable(
+            HttpMessageNotReadableException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+
+        ProblemDetail body = problemDetail(BookingErrorCode.BOOKING_VALIDATION_ERROR,
+                "Request body is malformed or contains an invalid value");
+        log.warn("Unreadable request body: {}", ex.getMostSpecificCause().getMessage());
         return ResponseEntity.status(body.getStatus()).body(body);
     }
 

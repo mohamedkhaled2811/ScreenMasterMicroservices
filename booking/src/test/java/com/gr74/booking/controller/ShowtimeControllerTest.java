@@ -1,0 +1,156 @@
+package com.gr74.booking.controller;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.BDDMockito.given;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.ZoneOffset;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Bean;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.test.web.servlet.MockMvc;
+
+import com.gr74.booking.dto.CreateShowtimeRequest;
+import com.gr74.booking.exception.CatalogUnavailableException;
+import com.gr74.booking.exception.MovieNotInCatalogException;
+import com.gr74.booking.exception.ResourceNotFoundException;
+import com.gr74.booking.model.Screen;
+import com.gr74.booking.model.ScreenType;
+import com.gr74.booking.model.Showtime;
+import com.gr74.booking.model.Theater;
+import com.gr74.booking.service.ShowtimeService;
+
+/**
+ * Web-layer slice for {@link ShowtimeController}. Two of these cases are the heart of plan option 5C:
+ * a {@code movieId} Catalog doesn't have surfaces as {@code BOOKING_MOVIE_NOT_FOUND} (404), and a
+ * Catalog outage as {@code BOOKING_CATALOG_UNAVAILABLE} (503) — the two distinct failure modes of
+ * validating the cross-service reference on the write path. The {@link ShowtimeService} is mocked, so
+ * these assert only how the controller + {@code GlobalExceptionHandler} translate those outcomes to HTTP.
+ *
+ * <p>A fixed {@link Clock} is supplied so "upcoming" has a deterministic "today".
+ */
+@WebMvcTest(ShowtimeController.class)
+class ShowtimeControllerTest {
+
+    private static final String VALID_BODY = """
+            {"movieId":603,"screenId":1,"showDate":"2026-07-10","showTime":"19:30","basePrice":12.50}
+            """;
+
+    @TestConfiguration
+    static class FixedClockConfig {
+        @Bean
+        Clock clock() {
+            return Clock.fixed(Instant.parse("2026-07-03T00:00:00Z"), ZoneOffset.UTC);
+        }
+    }
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @MockitoBean
+    private ShowtimeService showtimeService;
+
+    @Test
+    void createReturns201WithMovieIdButNoTitle() throws Exception {
+        given(showtimeService.create(any(CreateShowtimeRequest.class))).willReturn(sampleShowtime());
+
+        mockMvc.perform(post("/showtimes")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_BODY))
+                .andExpect(status().isCreated())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.movieId").value(603))
+                .andExpect(jsonPath("$.screenId").value(1))
+                .andExpect(jsonPath("$.showTime").value("19:30"))
+                .andExpect(jsonPath("$.status").value("SCHEDULED"))
+                // The cut, made visible: the response carries no title — resolving it is parts 2/3.
+                .andExpect(jsonPath("$.title").doesNotExist());
+    }
+
+    @Test
+    void unknownMovieReturns404ProblemDetail() throws Exception {
+        given(showtimeService.create(any(CreateShowtimeRequest.class)))
+                .willThrow(new MovieNotInCatalogException(603L));
+
+        mockMvc.perform(post("/showtimes")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_BODY))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("BOOKING_MOVIE_NOT_FOUND"));
+    }
+
+    @Test
+    void catalogDownReturns503ProblemDetail() throws Exception {
+        given(showtimeService.create(any(CreateShowtimeRequest.class)))
+                .willThrow(new CatalogUnavailableException(603L, new RuntimeException("connection refused")));
+
+        mockMvc.perform(post("/showtimes")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_BODY))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("BOOKING_CATALOG_UNAVAILABLE"));
+    }
+
+    @Test
+    void missingRequiredFieldReturns400ProblemDetail() throws Exception {
+        // No movieId → bean validation fails before the service is touched.
+        mockMvc.perform(post("/showtimes")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"screenId\":1,\"showDate\":\"2026-07-10\",\"showTime\":\"19:30\",\"basePrice\":12.50}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("BOOKING_VALIDATION_ERROR"));
+    }
+
+    @Test
+    void getMissingShowtimeReturns404ProblemDetail() throws Exception {
+        given(showtimeService.getById(anyLong())).willThrow(ResourceNotFoundException.showtime(7L));
+
+        mockMvc.perform(get("/showtimes/{id}", 7L))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("BOOKING_SHOWTIME_NOT_FOUND"));
+    }
+
+    @Test
+    void byMovieReturnsListShape() throws Exception {
+        given(showtimeService.findByMovie(603L)).willReturn(java.util.List.of(sampleShowtime()));
+
+        mockMvc.perform(get("/showtimes/movie/{movieId}", 603L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].movieId").value(603))
+                .andExpect(jsonPath("$[0].basePrice").value(12.50));
+    }
+
+    /**
+     * A persisted-looking showtime. Ids are generated by the DB in production, so here we stamp them
+     * onto the {@code screen}/{@code showtime} via reflection — {@code ShowtimeResponse.from} reads
+     * {@code screen.getId()} to expose the FK, and this avoids needing a real transaction.
+     */
+    private static Showtime sampleShowtime() {
+        Theater theater = new Theater("T", null);
+        Screen screen = new Screen("Screen 1", ScreenType.SCREEN_3D, theater);
+        ReflectionTestUtils.setField(screen, "id", 1L);
+        Showtime showtime = new Showtime(
+                603L, screen, LocalDate.of(2026, 7, 10), LocalTime.of(19, 30), new BigDecimal("12.50"));
+        ReflectionTestUtils.setField(showtime, "id", 100L);
+        return showtime;
+    }
+}

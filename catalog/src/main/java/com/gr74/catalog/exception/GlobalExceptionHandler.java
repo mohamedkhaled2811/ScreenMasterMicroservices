@@ -40,6 +40,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     /** Custom {@code ProblemDetail} member that holds the {@link CatalogErrorCode} name. */
     private static final String CODE_PROPERTY = "code";
 
+    /** Shared log template for every validation-failure path (keeps the log message consistent). */
+    private static final String VALIDATION_FAILED_LOG = "Validation failed: {}";
+
     /**
      * Any error we raised deliberately (e.g. {@link MovieNotFoundException}). The carried
      * {@link CatalogErrorCode} drives both the HTTP status and the {@code code}, so a new failure
@@ -64,7 +67,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ProblemDetail handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
         String detail = "Parameter '" + ex.getName() + "' has an invalid value: " + ex.getValue();
-        log.warn("Validation failed: {}", detail);
+        log.warn(VALIDATION_FAILED_LOG, detail);
         return problemDetail(CatalogErrorCode.CATALOG_VALIDATION_ERROR, detail);
     }
 
@@ -95,7 +98,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
         ProblemDetail body = problemDetail(CatalogErrorCode.CATALOG_VALIDATION_ERROR,
                 detail.isBlank() ? "Request validation failed" : detail);
-        log.warn("Validation failed: {}", detail);
+        log.warn(VALIDATION_FAILED_LOG, detail);
         return ResponseEntity.status(body.getStatus()).body(body);
     }
 
@@ -113,7 +116,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
         ProblemDetail body = problemDetail(CatalogErrorCode.CATALOG_VALIDATION_ERROR,
                 detail.isBlank() ? "Request validation failed" : detail);
-        log.warn("Validation failed: {}", detail);
+        log.warn(VALIDATION_FAILED_LOG, detail);
         return ResponseEntity.status(body.getStatus()).body(body);
     }
 

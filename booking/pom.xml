@@ -80,6 +80,22 @@
 			<artifactId>spring-boot-starter-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+		<!--
+		  Spring Boot 4 split the test slices out of spring-boot-test-autoconfigure into per-technology
+		  modules. spring-boot-webmvc-test carries @WebMvcTest (the controller slices);
+		  spring-boot-data-jpa-test carries @DataJpaTest and pulls in TestEntityManager (the
+		  repository slices). Without them the slice annotations aren't on the classpath. Mirrors catalog.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-webmvc-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-data-jpa-test</artifactId>
+			<scope>test</scope>
+		</dependency>
 		<!-- TEST SCOPE ONLY: in-memory DB so the contextLoads test needs no running Postgres. -->
 		<dependency>
 			<groupId>com.h2database</groupId>

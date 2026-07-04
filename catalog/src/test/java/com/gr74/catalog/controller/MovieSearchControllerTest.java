@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -22,6 +23,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.gr74.catalog.config.WebPagingConfig;
 import com.gr74.catalog.controller.dto.MovieFilter;
 import com.gr74.catalog.exception.CatalogErrorCode;
 import com.gr74.catalog.exception.CatalogException;
@@ -34,8 +36,13 @@ import com.gr74.catalog.service.MovieService;
  * envelope, and that both validation failure modes (bad sort, out-of-range param) render as a
  * {@code CATALOG_VALIDATION_ERROR} ProblemDetail. The {@link MovieService} is mocked, so this is
  * about the HTTP contract, not the query (that's covered by {@code MovieSpecificationsTest}).
+ *
+ * <p>Imports {@link WebPagingConfig} so the slice serializes the page as the stable {@code PagedModel}
+ * envelope ({@code VIA_DTO}) — the same contract the running app uses — hence the assertions read the
+ * nested {@code $.page.*} metadata, not the deprecated flat {@code $.totalElements}.
  */
 @WebMvcTest(MovieController.class)
+@Import(WebPagingConfig.class)
 class MovieSearchControllerTest {
 
     @Autowired
@@ -68,7 +75,8 @@ class MovieSearchControllerTest {
                 .andExpect(jsonPath("$.content[0].genres[0].name").value("Action"))
                 // summary DTO must NOT leak the heavy detail fields
                 .andExpect(jsonPath("$.content[0].overview").doesNotExist())
-                .andExpect(jsonPath("$.totalElements").value(1));
+                // stable PagedModel envelope: metadata lives under $.page (not a flat $.totalElements)
+                .andExpect(jsonPath("$.page.totalElements").value(1));
     }
 
     @Test

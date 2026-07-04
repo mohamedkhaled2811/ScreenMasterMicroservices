@@ -1,6 +1,18 @@
 # Liquibase master changelog for the booking service (booking-db).
 #
-# Empty for now: it wires Liquibase (which creates its DATABASECHANGELOG / DATABASECHANGELOGLOCK
-# tracking tables) so the tool is proven before any real schema exists. The bookings/seats/showtime
-# tables arrive in Phase 3 as the first `include`d changeset file. See docs/concepts/liquibase.md.
-databaseChangeLog: []
+# Booking absorbs the monolith's Theater + Scheduling contexts (schema doc §8.1), so its schema is the
+# inventory tree, showtimes, and its own bookings — all in one private database. Changesets are applied
+# in listed order; each `include`d file is immutable once shipped (new changes go in a NEW file).
+#
+#   001-create-inventory   theaters -> screens -> seats + seat_types (intra-Booking FKs)
+#   002-create-showtimes   showtimes; movie_id is the cross-service CUT (no FK), screen_id is a real FK
+#   003-create-bookings    bookings + booking_seats — SCHEMA ONLY (mapped as entities + written in Phase 3)
+#
+# See docs/concepts/liquibase.md.
+databaseChangeLog:
+  - include:
+      file: db/changelog/changes/001-create-inventory.yaml
+  - include:
+      file: db/changelog/changes/002-create-showtimes.yaml
+  - include:
+      file: db/changelog/changes/003-create-bookings.yaml

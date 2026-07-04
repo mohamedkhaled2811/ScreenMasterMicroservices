@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<!--
+  Booking service — part 1 of 3: the inventory + showtime foundation.
+  This is the WRITE side Booking absorbs from the monolith's Theater + Scheduling
+  contexts. Parts 2 (my-bookings A) and 3 (my-bookings B) build the READ side on top.
+-->
+<title>Plan: Booking — Inventory & Showtime Foundation — ScreenMaster</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel-2: #1d212b; --border: #2a2f3a;
+    --text: #e6e8ee; --muted: #9aa3b2; --accent: #6ea8fe; --accent-2: #7ee787;
+    --warn: #f0b429; --bad: #f47174; --good: #4ec9a4;
+    --chip: #232838;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 32px 20px 80px; }
+  header.page { border-bottom: 1px solid var(--border); padding-bottom: 18px; margin-bottom: 28px; }
+  h1 { font-size: 26px; margin: 0 0 6px; }
+  h2 { font-size: 19px; margin: 36px 0 12px; padding-top: 6px; }
+  h3 { font-size: 16px; }
+  .meta { color: var(--muted); font-size: 14px; display: flex; gap: 16px; flex-wrap: wrap; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 0; }
+  .chip { background: var(--chip); border: 1px solid var(--border); color: var(--muted); border-radius: 999px; padding: 3px 11px; font-size: 12.5px; }
+  .status { font-weight: 600; }
+  .status.draft { color: var(--warn); }
+  p, li { color: var(--text); }
+  .muted { color: var(--muted); }
+  section { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin: 14px 0; }
+  ul.tight { margin: 6px 0; padding-left: 20px; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13.5px; }
+  code { background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; }
+  pre { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow-x: auto; font-size: 13px; }
+
+  .options { display: grid; gap: 16px; grid-template-columns: 1fr; }
+  @media (min-width: 760px) { .options { grid-template-columns: 1fr 1fr; } }
+  .option { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; position: relative; }
+  .option.recommended { border-color: var(--accent-2); box-shadow: 0 0 0 1px var(--accent-2) inset; }
+  .option h3 { margin: 0 0 4px; }
+  .badge { position: absolute; top: -10px; right: 14px; background: var(--accent-2); color: #0c1a10; font-size: 11.5px; font-weight: 700; border-radius: 999px; padding: 2px 10px; }
+  .pros, .cons { margin: 8px 0; padding-left: 18px; }
+  .pros li { color: var(--good); }
+  .cons li { color: var(--bad); }
+  .pros li span, .cons li span { color: var(--text); }
+
+  table { width: 100%; border-collapse: collapse; margin: 6px 0; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+  td.kind { white-space: nowrap; }
+  .tag { font-size: 11.5px; border-radius: 5px; padding: 1px 7px; border: 1px solid var(--border); }
+  .tag.new { color: var(--accent-2); }
+  .tag.edit { color: var(--warn); }
+  .tag.del { color: var(--bad); }
+
+  .callout { border-left: 3px solid var(--accent); background: var(--panel-2); padding: 10px 14px; border-radius: 0 8px 8px 0; }
+  .open-q { border-left-color: var(--warn); }
+  .note { border-left-color: var(--accent-2); }
+
+  ol.tasks { list-style: none; counter-reset: task; margin: 0; padding: 0; display: grid; gap: 12px; }
+  ol.tasks > li.task { counter-increment: task; position: relative; background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px 14px 52px; }
+  ol.tasks > li.task::before { content: counter(task); position: absolute; left: 14px; top: 14px; width: 26px; height: 26px; border-radius: 50%; background: var(--chip); border: 1px solid var(--accent); color: var(--accent); font: 600 13px/26px ui-monospace, monospace; text-align: center; }
+  li.task h3 { margin: 0 0 4px; }
+  li.task .goal, li.task .done { margin: 4px 0; font-size: 14.5px; }
+  li.task .label { color: var(--muted); font-weight: 600; }
+  li.task .done .label { color: var(--good); }
+  li.task .depends { color: var(--muted); font-size: 13px; margin-top: 6px; }
+
+  table.verify td.cmd { white-space: nowrap; }
+  table.verify .ok { color: var(--good); }
+  .seq { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; color: var(--muted); font-size: 13.5px; }
+  .seq .here { color: var(--accent-2); font-weight: 700; border: 1px solid var(--accent-2); border-radius: 6px; padding: 1px 8px; }
+  .seq .other { border: 1px solid var(--border); border-radius: 6px; padding: 1px 8px; }
+
+  footer { margin-top: 40px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); padding-top: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page">
+    <h1>Plan: <em>Booking — Inventory &amp; Showtime Foundation</em></h1>
+    <div class="meta">
+      <span>Date: <strong>2026-07-01</strong></span>
+      <span>Author: Claude Code + Mohamed</span>
+      <span class="status draft">Status: IMPLEMENTED — 5A · 5B · 5C option 2 (sync Catalog check)</span>
+    </div>
+    <div class="chips">
+      <span class="chip">Milestone: M2 (foundation for M3)</span>
+      <span class="chip">Service: booking</span>
+      <span class="chip">Schema §: 2.2, 8.1–8.3</span>
+      <span class="chip">Build plan: pre-2.2 / pre-3.1</span>
+    </div>
+    <div class="seq" style="margin-top:12px">
+      <strong style="color:var(--text)">Feature in 3 parts:</strong>
+      <span class="here">1 · Inventory &amp; showtime foundation (this file)</span>
+      <span class="other">2 · My bookings — way A (API composition)</span>
+      <span class="other">3 · My bookings — way B (CQRS read model)</span>
+    </div>
+  </header>
+
+  <h2>1. Summary</h2>
+  <section>
+    <p>Booking is the <strong>core</strong> service and, per the build plan, it <strong>absorbs the monolith's
+    Theater and Scheduling contexts</strong> (<code>theaters</code>, <code>screens</code>, <code>seats</code>,
+    <code>seat_types</code>, <code>showtimes</code>) on top of its own <code>bookings</code> / <code>booking_seats</code>.
+    This first part builds that <strong>write-side foundation</strong>: the JPA model, the Liquibase schema, and the
+    admin/read CRUD for theaters → screens → seats → seat-types and for showtimes. It is the <em>immutable facts</em>
+    layer the Phase-3 booking saga will read once and snapshot — so it must exist before either "my bookings" endpoint
+    (parts 2 &amp; 3) or the saga (Phase 3) has anything real to work with.</p>
+    <p>The microservices lesson it sets up: <strong>the booking transaction that was one ACID statement in the monolith
+    now spans what would have been three services</strong> (Theater, Scheduling, Booking). We deliberately
+    <strong>collapse Theater + Scheduling into Booking</strong> (build-plan decision) so the seat-uniqueness invariant
+    stays strongly consistent inside one DB — and this part is where that collapsed inventory model is laid down.</p>
+  </section>
+
+  <h2>2. Milestone &amp; schema link</h2>
+  <section>
+    <ul class="tight">
+      <li><strong>Field-guide milestone:</strong> foundational for <strong>M2</strong> ("feel the missing JOIN" needs
+        bookings+showtimes to exist) and <strong>M3</strong> (the saga needs seats/showtimes to reserve and price).</li>
+      <li><strong>Schema doc:</strong> <code>ARCHITECTURE_AND_SCHEMA.md</code> §2.1–2.2 (the Theater/Screen/Seat/SeatType/Showtime
+        entities &amp; relationships), §8.1 (Booking absorbs Theater+Scheduling), §8.2 (the FK cuts → id columns),
+        §8.3 (why seat-reservation state lives inside Booking).</li>
+      <li><strong>Build plan step:</strong> not currently a numbered step — it's the implicit prerequisite the plan
+        references in 2.2 ("the Catalog data it needs now exists") and 3.1. <strong>This plan proposes inserting it as
+        step <code>2.1b-booking</code> / pre-3.1</strong> and updating <code>BUILD_PLAN.md</code> accordingly.</li>
+      <li><strong>Concepts:</strong> <a href="../concepts/service-decomposition-ddd.md">service-decomposition-ddd.md</a>
+        (why collapse), <a href="../concepts/database-per-service.md">database-per-service.md</a> (FK cuts →
+        ids + snapshots), <a href="../concepts/jpa-and-hibernate.md">jpa-and-hibernate.md</a>,
+        <a href="../concepts/liquibase.md">liquibase.md</a>,
+        <a href="../concepts/error-handling-problemdetail.md">error-handling-problemdetail.md</a>.</li>
+    </ul>
+  </section>
+
+  <h2>3. The cross-service cuts this realizes</h2>
+  <section>
+    <p class="muted">What were FK associations in the monolith become id columns the moment these tables move into
+    Booking's private DB. Intra-Booking relations (theater→screen→seat) keep their FKs — the rule is about FKs that
+    cross a <em>service</em> boundary, not these.</p>
+    <table>
+      <thead><tr><th>Monolith association</th><th>In Booking now</th><th>Kind</th></tr></thead>
+      <tbody>
+        <tr><td><code>Theater → Screen → Seat → SeatType</code></td><td>Kept as real FKs (all inside booking-db)</td><td>intra-service FK ✓</td></tr>
+        <tr><td><code>Showtime → Screen</code></td><td>Kept as real FK (both inside booking-db)</td><td>intra-service FK ✓</td></tr>
+        <tr><td><code>Showtime → Movie</code></td><td><code>movie_id</code> column (no FK) — Catalog owns movies</td><td><strong>cross-service cut</strong></td></tr>
+        <tr><td><code>Booking → User</code></td><td><code>user_id</code> column (from JWT later; Identity owns users)</td><td><strong>cross-service cut</strong> (Phase 3/7)</td></tr>
+      </tbody>
+    </table>
+    <div class="callout note" style="margin-top:12px">
+      <p><strong>Scope of THIS part:</strong> the inventory tables + showtimes + their CRUD. The <code>bookings</code> /
+      <code>booking_seats</code> tables and any booking-create logic are <strong>not</strong> in this part — they're the
+      subject of the open decision in §8 (covered fully in part 2 or in Phase 3). This keeps part 1 a clean, testable
+      "inventory service inside Booking" with no saga concerns.</p>
+    </div>
+  </section>
+
+  <h2>4. What changes</h2>
+  <section>
+    <p class="muted">All under <code>booking/</code>. Package-by-layer under <code>com.gr74.booking</code>, mirroring
+    <code>payment/</code> (the reference impl) and <code>catalog/</code>.</p>
+    <table>
+      <thead><tr><th>Kind</th><th>Where</th><th>What</th></tr></thead>
+      <tbody>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>model/Theater.java</code>, <code>Screen.java</code>, <code>Seat.java</code>, <code>SeatType.java</code></td><td>JPA entities; intra-Booking FKs; <code>@GeneratedValue(IDENTITY)</code> PKs; auditing.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>model/Showtime.java</code> + <code>model/ShowtimeStatus.java</code></td><td>Showtime entity holding <code>movieId</code> (no FK), <code>screenId</code> FK, <code>basePrice</code>, date/time; status enum <strong><code>@Enumerated(STRING)</code></strong> (schema §2.4 fix).</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>model/ScreenType.java</code></td><td>Screen-type enum, <code>@Enumerated(STRING)</code> (monolith stored it ordinal — §9 fix).</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>repository/*Repository.java</code> (×5)</td><td>Spring Data repos for each entity; derived queries for the read endpoints.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>service/TheaterService.java</code>, <code>ShowtimeService.java</code></td><td>Business logic: create/list/delete, uniqueness checks, "showtime references a real screen" validation.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>controller/TheaterController.java</code>, <code>ShowtimeController.java</code></td><td>REST; bare paths (<code>/theaters</code>, <code>/showtimes</code>) — gateway strips <code>/api</code>.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>dto/*</code> (request + response records)</td><td>Wire types; DTOs cross the wire, not entities.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>exception/BookingErrorCode.java</code>, <code>BookingException.java</code>, <code>*NotFoundException.java</code>, <code>GlobalExceptionHandler.java</code></td><td>The coded-error contract (RFC 9457 ProblemDetail), mirroring <code>payment/</code>.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>config/JpaAuditingConfig.java</code></td><td><code>@EnableJpaAuditing</code> (catalog has the twin).</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>db/changelog/changes/001-create-inventory.yaml</code></td><td>theaters, screens, seats, seat_types + intra-FKs &amp; unique constraints.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>db/changelog/changes/002-create-showtimes.yaml</code></td><td>showtimes table (<code>movie_id</code>, <code>screen_id</code> FK, <code>base_price</code>, unique <code>(screen_id, movie_id, show_date, show_time)</code>).</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>db/changelog/db.changelog-master.yaml</code></td><td>Include the two new changesets (currently empty).</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>src/test/java/...</code></td><td><code>@DataJpaTest</code> (persist + FK + unique round-trips), <code>@WebMvcTest</code> (200-shape + 404/400 ProblemDetail) per controller.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>docs/BUILD_PLAN.md</code></td><td>Insert this as a numbered prerequisite step; tick when done.</td></tr>
+      </tbody>
+    </table>
+    <p class="muted">No <code>pom.xml</code> change — web-mvc, data-jpa, liquibase, postgres, restclient, eureka are already declared.</p>
+  </section>
+
+  <h2>5. Options</h2>
+  <p class="muted">The decisions specific to this part. (The cross-part decisions — how bookings get created, and the
+  CQRS publisher — live in parts 2/3 and §8 below.)</p>
+
+  <div class="callout note">
+    <p><strong>Decisions made (implemented):</strong> <strong>5A</strong> full inventory + showtimes ·
+    <strong>5B</strong> explicit seats + grid generator · <strong>5C option 2</strong> —
+    <em>validate <code>movieId</code> against Catalog synchronously on showtime-create</em> (Mohamed's choice, the
+    <u>non</u>-recommended option). §8: bookings/booking_seats tables created here (schema only, changeset 003);
+    read endpoints take <code>userId</code> as a path param until Phase 7; <code>priceMultiplier</code> kept on
+    <code>SeatType</code>.</p>
+    <p class="muted">Consequence of 5C-2, recorded honestly: showtime creation now has <strong>temporal coupling</strong>
+    on Catalog (Catalog down ⇒ <code>POST /showtimes</code> returns 503 <code>BOOKING_CATALOG_UNAVAILABLE</code>);
+    a bogus <code>movieId</code> is rejected at create time with 404 <code>BOOKING_MOVIE_NOT_FOUND</code> rather than
+    lingering as an orphan. The "feel the cut at read time" lesson from the recommended path is traded for
+    "reject the bad reference at write time".</p>
+  </div>
+
+  <h3 style="margin-top:22px">5A · How much inventory CRUD?</h3>
+  <div class="options">
+    <div class="option recommended">
+      <span class="badge">Recommended</span>
+      <h3>Full inventory + showtimes</h3>
+      <p>All five entities with create/list/delete + showtime CRUD — the complete Theater+Scheduling foundation.</p>
+      <ul class="pros">
+        <li><span>Matches the locked decision; the saga (Phase 3) and both read endpoints have real, seedable data.</span></li>
+        <li><span>Front-loads the boring schema work once, so Phases 2–3 stay focused on the distributed lessons.</span></li>
+        <li><span>Lets us seed a realistic fixture (1 theater, 2 screens, ~40 seats, a few showtimes) for demos.</span></li>
+      </ul>
+      <ul class="cons"><li><span>Largest of the three parts; ~5 entities × (repo+service+controller+dto+tests).</span></li></ul>
+      <p class="muted">Best when: you want the foundation done properly once (this is the chosen path).</p>
+    </div>
+    <div class="option">
+      <h3>Showtimes + seats only</h3>
+      <p>Skip theater/screen/seat-type admin endpoints; build only what a booking strictly needs to read.</p>
+      <ul class="pros"><li><span>Smaller; faster to "my bookings".</span></li></ul>
+      <ul class="cons">
+        <li><span>Seats need a screen and seat-type to exist — you end up seeding them by hand anyway.</span></li>
+        <li><span>Leaves a half-built inventory model we revisit later; against "build it right the first time".</span></li>
+      </ul>
+      <p class="muted">Best when: time-boxed and willing to seed inventory via SQL. (Not chosen.)</p>
+    </div>
+  </div>
+
+  <h3 style="margin-top:26px">5B · Seat layout — explicit rows or a generator?</h3>
+  <div class="options">
+    <div class="option recommended">
+      <span class="badge">Recommended</span>
+      <h3>Explicit seat rows + a "generate grid" helper</h3>
+      <p>Seats are first-class rows (<code>POST /theaters/screens/{id}/seats</code>); plus one convenience endpoint that
+      bulk-creates an <code>R×C</code> grid for a screen so seeding a demo isn't 40 calls.</p>
+      <ul class="pros">
+        <li><span>Mirrors the monolith (per-seat rows with <code>(screen, row, number)</code> uniqueness) — needed for the per-seat booking guard later.</span></li>
+        <li><span>The generator keeps demos one-command without faking the data model.</span></li>
+      </ul>
+      <ul class="cons"><li><span>Slightly more surface (one extra endpoint).</span></li></ul>
+      <p class="muted">Best when: seats must be individually reservable (they must, for Phase 3).</p>
+    </div>
+    <div class="option">
+      <h3>Seats as a count on the screen</h3>
+      <p>Store <code>seatCount</code>, no per-seat rows.</p>
+      <ul class="pros"><li><span>Tiny schema.</span></li></ul>
+      <ul class="cons">
+        <li><span>Breaks the Phase-3 double-booking guard (you reserve <em>specific</em> seats, not a count).</span></li>
+        <li><span>Diverges from the schema doc; we'd rebuild it for the saga.</span></li>
+      </ul>
+      <p class="muted">Best when: never, for this project. (Not chosen.)</p>
+    </div>
+  </div>
+
+  <h3 style="margin-top:26px">5C · Does Showtime validate <code>movieId</code> against Catalog at create time?</h3>
+  <div class="options">
+    <div class="option recommended">
+      <span class="badge">Recommended</span>
+      <h3>No sync check now — store the id, validate lazily</h3>
+      <p>Accept any <code>movieId</code> on showtime create; trust it's a real Catalog id. The title is resolved later
+      (parts 2/3). This is the honest database-per-service stance.</p>
+      <ul class="pros">
+        <li><span>No temporal coupling: you can create showtimes even if Catalog is down (write path stays available).</span></li>
+        <li><span>Sets up M2 cleanly — the "missing JOIN" only bites when we render titles, exactly where we want to feel it.</span></li>
+      </ul>
+      <ul class="cons"><li><span>A typo'd <code>movieId</code> is only caught at read time (acceptable; surfaces as a known gap).</span></li></ul>
+      <p class="muted">Best when: you want to feel the cut, not paper over it. (Aligns with sync-vs-async heuristic: don't go sync unless you must.)</p>
+    </div>
+    <div class="option">
+      <h3>Validate via a synchronous Catalog call on create</h3>
+      <p><code>RestClient GET /api/movies/{id}</code> before persisting the showtime.</p>
+      <ul class="pros"><li><span>Bad <code>movieId</code> rejected immediately.</span></li></ul>
+      <ul class="cons">
+        <li><span>Introduces temporal coupling on the <em>write</em> path — Catalog down ⇒ can't schedule.</span></li>
+        <li><span>Premature: it's the part-2 composition concern arriving early, in the wrong place.</span></li>
+      </ul>
+      <p class="muted">Best when: you treat the reference as a hard invariant — we don't, by design.</p>
+    </div>
+  </div>
+
+  <h2>6. Implementation tasks (recommended path)</h2>
+  <section>
+    <p class="muted">Build bottom-up: schema → entities (validate against schema on boot) → repos → services → controllers
+    → tests. Each task is independently checkable.</p>
+    <ol class="tasks">
+      <li class="task">
+        <h3>Liquibase changesets for inventory + showtimes</h3>
+        <p class="goal"><span class="label">Goal:</span> own the schema in <code>001-create-inventory.yaml</code> and
+        <code>002-create-showtimes.yaml</code>; wire both into the master changelog. Encode the unique constraints
+        (<code>screens(name, theater_id)</code>, <code>seats(screen_id, row, number)</code>,
+        <code>seat_types(name)</code>, <code>showtimes(screen_id, movie_id, show_date, show_time)</code>) and the
+        intra-Booking FKs. <code>movie_id</code> is a plain indexed column — no FK.</p>
+        <p class="done"><span class="label">Done when:</span> <code>./mvnw -pl booking liquibase:update</code> (or app boot)
+        creates all five tables on a clean Postgres.</p>
+        <p class="depends">Depends on: —</p>
+      </li>
+      <li class="task">
+        <h3>JPA entities + enums (STRING)</h3>
+        <p class="goal"><span class="label">Goal:</span> map the five entities. <code>ScreenType</code> and
+        <code>ShowtimeStatus</code> are <code>@Enumerated(STRING)</code> (the schema doc flags both as fragile ordinals).
+        Lazy <code>@ManyToOne</code>s; <code>open-in-view: false</code> already set, so fetch deliberately (EntityGraph
+        or explicit queries) — no <code>LazyInitializationException</code>.</p>
+        <p class="done"><span class="label">Done when:</span> app boots with <code>ddl-auto=validate</code> green
+        (entities ⇄ schema agree); a <code>@DataJpaTest</code> persists a theater→screen→seat→seat-type graph and a
+        showtime, and the unique constraints reject a duplicate.</p>
+        <p class="depends">Depends on: Task 1</p>
+      </li>
+      <li class="task">
+        <h3>Error contract (BookingErrorCode + handler)</h3>
+        <p class="goal"><span class="label">Goal:</span> stand up the <code>exception/</code> package exactly like
+        <code>payment/</code>: a <code>BookingErrorCode</code> enum (<code>BOOKING_VALIDATION_ERROR</code>,
+        <code>BOOKING_THEATER_NOT_FOUND</code>, <code>BOOKING_SCREEN_NOT_FOUND</code>,
+        <code>BOOKING_SHOWTIME_NOT_FOUND</code>, <code>BOOKING_DUPLICATE</code>, <code>BOOKING_INTERNAL_ERROR</code>),
+        a base <code>BookingException</code> carrying a code, typed not-found exceptions, and one
+        <code>GlobalExceptionHandler</code> rendering RFC 9457 ProblemDetail with a <code>code</code> property.</p>
+        <p class="done"><span class="label">Done when:</span> a deliberate 404 returns
+        <code>application/problem+json</code> with the right <code>code</code> in a <code>@WebMvcTest</code>.</p>
+        <p class="depends">Depends on: — (parallel with 1–2)</p>
+      </li>
+      <li class="task">
+        <h3>Theater / Screen / Seat / SeatType service + controller</h3>
+        <p class="goal"><span class="label">Goal:</span> CRUD for the inventory tree. Endpoints (bare paths;
+        <code>/api</code> stripped at gateway): list/create/delete theaters; list/create/delete screens of a theater;
+        list/create/delete seats of a screen + the bulk grid generator (5B); list/create/delete seat-types. Validate
+        parent existence and uniqueness; throw coded exceptions — never return an error from a controller.</p>
+        <p class="done"><span class="label">Done when:</span> curl through the gateway creates a theater→screen→seats→type
+        and lists them back; duplicates → <code>BOOKING_DUPLICATE</code>; missing parent → the right not-found code.</p>
+        <p class="depends">Depends on: Tasks 2, 3</p>
+      </li>
+      <li class="task">
+        <h3>Showtime service + controller</h3>
+        <p class="goal"><span class="label">Goal:</span> create/get/delete showtimes and read them by movie and by
+        screen (the monolith's <code>/show-time/movie/{id}</code>, <code>/screen/{id}</code>, upcoming-by-movie). Create
+        validates the <code>screenId</code> exists (intra-Booking) but <strong>not</strong> the <code>movieId</code> (5C);
+        enforce the slot-uniqueness constraint.</p>
+        <p class="done"><span class="label">Done when:</span> a showtime is created against a real screen with a
+        <code>movieId</code> + <code>basePrice</code>; <code>GET /showtimes/movie/{id}</code> returns it; a clashing slot
+        → <code>BOOKING_DUPLICATE</code>.</p>
+        <p class="depends">Depends on: Tasks 2, 3, 4</p>
+      </li>
+      <li class="task">
+        <h3>Demo seed + build-plan update</h3>
+        <p class="goal"><span class="label">Goal:</span> a small <em>optional</em> Liquibase seed changeset (gated/labelled
+        so it's clearly demo data, not production) or a documented curl script that creates one theater, two screens, a
+        seat grid, two seat-types, and a few showtimes pointing at real synced Catalog movie ids — so parts 2/3 and
+        Phase 3 have data. Update <code>BUILD_PLAN.md</code> with the new step + tick.</p>
+        <p class="done"><span class="label">Done when:</span> one command stands up a demo cinema; <code>BUILD_PLAN.md</code>
+        reflects the step.</p>
+        <p class="depends">Depends on: Tasks 4, 5</p>
+      </li>
+    </ol>
+  </section>
+
+  <h2>7. Risks / microservices cost felt</h2>
+  <section>
+    <div class="callout">
+      <p><strong>Cost surfaced: the distributed transaction, set up (not yet paid).</strong> By pulling Theater + Scheduling
+      <em>into</em> Booking, the seat-availability invariant stays strongly consistent in one DB — this is the production
+      answer to schema §8.3 option 1 ("keep seat-reservation state inside Booking"). The plan also realizes the first
+      <strong>FK cut</strong>: <code>Showtime → Movie</code> becomes a bare <code>movie_id</code>. We <em>feel</em> nothing
+      yet — that's the point: the cut is dormant until part 2 tries to render titles and discovers the JOIN is gone. We
+      deliberately resist "fixing" it with a sync call at create time (5C), so the lesson lands where it should.</p>
+    </div>
+    <ul class="tight" style="margin-top:10px">
+      <li><strong>Orphan <code>movie_id</code>:</strong> a showtime can point at a non-existent movie. Accepted; becomes
+        visible in part 2 and is a talking point ("referential integrity is now my job, not the DB's").</li>
+      <li><strong>Enum migration debt avoided:</strong> we store STRING from day one, so we never inherit the monolith's
+        ordinal-corruption risk.</li>
+    </ul>
+  </section>
+
+  <h2>8. Open questions — <span style="color:var(--good)">RESOLVED</span></h2>
+  <section>
+    <p class="muted">All three taken as recommended. Bookings tables: created here (changeset 003) as
+    <strong>schema-only, unmapped</strong> tables — no <code>Booking</code>/<code>BookingSeat</code> entity yet, so
+    <code>ddl-auto=validate</code> ignores them; they're mapped and written in Phase 3.
+    Auth: read endpoints take <code>userId</code> as a path param for now (none needed in this part yet — arrives with
+    part 2's "my bookings"). Pricing: <code>priceMultiplier</code> kept on <code>SeatType</code>.</p>
+    <div class="callout open-q">
+      <ul class="tight">
+        <li><strong>Bookings table location.</strong> Do <code>bookings</code>/<code>booking_seats</code> get their schema
+          here (so parts 2/3 can seed/read them) or only in Phase 3? <em>Recommendation:</em> create the
+          <strong>tables</strong> here (changeset 003) but no booking-create logic — that keeps the schema cohesive and lets
+          part 2 seed rows, while the saga that <em>writes</em> them stays in Phase 3. This is the cross-part decision you
+          asked to "decide in the plan"; part 2 elaborates the two paths (minimal-create vs seed).</li>
+        <li><strong>Auth.</strong> <code>userId</code> on a booking comes from the JWT in Phase 7. Until then, do read
+          endpoints take <code>userId</code> as a path param (monolith style) or a header? <em>Recommendation:</em> path
+          param now, swap to the authenticated principal in Phase 7 (flagged as the schema-§9 TODO).</li>
+        <li><strong>Seat-type pricing.</strong> Keep the monolith's <code>priceMultiplier</code> on <code>SeatType</code>
+          (total = <code>basePrice × multiplier</code>)? <em>Recommendation:</em> yes — preserves the documented pricing
+          rule the saga will snapshot.</li>
+      </ul>
+    </div>
+  </section>
+
+  <h2>9. Verification</h2>
+  <section>
+    <table class="verify">
+      <thead><tr><th>Check</th><th>Command</th><th>Expected</th></tr></thead>
+      <tbody>
+        <tr><td>Schema applies</td><td class="cmd"><code>./mvnw -pl booking spring-boot:run</code></td><td><span class="ok">✓</span> Liquibase creates 5 tables; <code>ddl-auto=validate</code> passes</td></tr>
+        <tr><td>Tests green</td><td class="cmd"><code>./mvnw -pl booking test</code></td><td><span class="ok">✓</span> DataJpaTest + WebMvcTest pass (H2, Eureka off)</td></tr>
+        <tr><td>Create inventory</td><td class="cmd"><code>curl -XPOST .../api/theaters …</code></td><td><span class="ok">✓</span> 201 theater → screen → seats via gateway</td></tr>
+        <tr><td>Uniqueness</td><td class="cmd"><code>curl -XPOST … (duplicate screen)</code></td><td><span class="ok">✓</span> 409 ProblemDetail <code>BOOKING_DUPLICATE</code></td></tr>
+        <tr><td>Create showtime</td><td class="cmd"><code>curl -XPOST .../api/showtimes …</code></td><td><span class="ok">✓</span> 201; <code>GET /api/showtimes/movie/{id}</code> returns it</td></tr>
+        <tr><td>Cut is real (5C-2)</td><td class="cmd"><code>curl … movieId=99999999 (bogus)</code></td><td><span class="ok">✓</span> <strong>404</strong> <code>BOOKING_MOVIE_NOT_FOUND</code> — no DB FK rejects it; the <em>synchronous Catalog check</em> does (this is 5C option 2; under the recommended 5C-1 it would be a 201 and only bite at read time)</td></tr>
+        <tr><td>Coupling is real (5C-2)</td><td class="cmd"><code>stop catalog; curl -XPOST …/showtimes</code></td><td><span class="ok">✓</span> <strong>503</strong> <code>BOOKING_CATALOG_UNAVAILABLE</code> — the temporal coupling 5C-2 accepts, made visible</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <footer>
+    ScreenMaster Microservices — Booking part 1 of 3. Review in a browser, choose options (5A/5B/5C) + answer §8, then implement.
+  </footer>
+
+</div>
+</body>
+</html>

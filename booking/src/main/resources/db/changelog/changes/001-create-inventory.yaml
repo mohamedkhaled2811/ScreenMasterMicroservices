@@ -1,0 +1,199 @@
+# Changeset 001 — the inventory tree Booking absorbs from the monolith's Theater context.
+#
+# theaters -> screens -> seats, plus the seat_types lookup. Booking owns this slice outright
+# (database-per-service), so every FK here lives WHOLLY inside booking-db — the "no cross-service FK"
+# rule is about FKs that cross a SERVICE boundary, not these intra-Booking ones (schema doc §8.2:
+# Theater+Scheduling are collapsed into Booking, so seat/screen/seat-type references stay real FKs).
+#
+# PKs are GENERATED (IDENTITY) here — unlike Catalog's assigned TMDB ids — because these rows are
+# minted by us, not sourced from an external system. ddl-auto=validate means the Theater/Screen/Seat/
+# SeatType entities must match these tables exactly at startup, or the app refuses to boot.
+databaseChangeLog:
+  - changeSet:
+      id: 001-create-theaters
+      author: mohamed
+      changes:
+        - createTable:
+            tableName: theaters
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              # A theater's name is its human identity; unique so "Downtown IMAX" can't be created twice.
+              - column:
+                  name: name
+                  type: VARCHAR(150)
+                  constraints:
+                    nullable: false
+                    unique: true
+                    uniqueConstraintName: uq_theaters_name
+              - column:
+                  name: location
+                  type: VARCHAR(255)
+              # Auditing (BaseEntity-style), filled by Spring Data JPA auditing.
+              - column:
+                  name: created_date
+                  type: TIMESTAMP WITH TIME ZONE
+                  constraints:
+                    nullable: false
+              - column:
+                  name: last_modified_date
+                  type: TIMESTAMP WITH TIME ZONE
+
+  - changeSet:
+      id: 001-create-seat-types
+      author: mohamed
+      changes:
+        - createTable:
+            # Lookup table: STANDARD/PREMIUM/VIP with a price multiplier. Referenced by seats; the
+            # booking saga (Phase 3) snapshots the multiplier so a later price change never rewrites
+            # the price of an already-made booking (schema doc §8.2 — snapshot immutable facts).
+            tableName: seat_types
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: name
+                  type: VARCHAR(60)
+                  constraints:
+                    nullable: false
+                    unique: true
+                    uniqueConstraintName: uq_seat_types_name
+              # total = showtime.base_price * price_multiplier (the monolith's documented pricing rule,
+              # §8 open-question: kept). NUMERIC so the multiplier is exact, not a lossy float.
+              - column:
+                  name: price_multiplier
+                  type: NUMERIC(4, 2)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_date
+                  type: TIMESTAMP WITH TIME ZONE
+                  constraints:
+                    nullable: false
+              - column:
+                  name: last_modified_date
+                  type: TIMESTAMP WITH TIME ZONE
+
+  - changeSet:
+      id: 001-create-screens
+      author: mohamed
+      changes:
+        - createTable:
+            tableName: screens
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: name
+                  type: VARCHAR(100)
+                  constraints:
+                    nullable: false
+              # ScreenType enum stored as STRING (schema doc §9 fix — the monolith stored it ordinal,
+              # which silently corrupts on reorder). Free-length VARCHAR sized for the longest constant.
+              - column:
+                  name: screen_type
+                  type: VARCHAR(40)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: theater_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_date
+                  type: TIMESTAMP WITH TIME ZONE
+                  constraints:
+                    nullable: false
+              - column:
+                  name: last_modified_date
+                  type: TIMESTAMP WITH TIME ZONE
+        # A screen name is unique WITHIN a theater (two theaters can both have a "Screen 1").
+        - addUniqueConstraint:
+            tableName: screens
+            columnNames: name, theater_id
+            constraintName: uq_screens_name_theater
+        - addForeignKeyConstraint:
+            constraintName: fk_screens_theater
+            baseTableName: screens
+            baseColumnNames: theater_id
+            referencedTableName: theaters
+            referencedColumnNames: id
+
+  - changeSet:
+      id: 001-create-seats
+      author: mohamed
+      changes:
+        - createTable:
+            tableName: seats
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              # A seat's grid position. seat_row is a label ("A", "B") — VARCHAR, not an int, so
+              # non-numeric row labels work; seat_number is the column within the row.
+              - column:
+                  name: seat_row
+                  type: VARCHAR(8)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: seat_number
+                  type: INT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: screen_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: seat_type_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_date
+                  type: TIMESTAMP WITH TIME ZONE
+                  constraints:
+                    nullable: false
+              - column:
+                  name: last_modified_date
+                  type: TIMESTAMP WITH TIME ZONE
+        # (screen, row, number) is unique — the identity a Phase-3 booking reserves against. This is
+        # what makes a seat individually reservable and underpins the double-booking guard.
+        - addUniqueConstraint:
+            tableName: seats
+            columnNames: screen_id, seat_row, seat_number
+            constraintName: uq_seats_screen_row_number
+        - addForeignKeyConstraint:
+            constraintName: fk_seats_screen
+            baseTableName: seats
+            baseColumnNames: screen_id
+            referencedTableName: screens
+            referencedColumnNames: id
+        - addForeignKeyConstraint:
+            constraintName: fk_seats_seat_type
+            baseTableName: seats
+            baseColumnNames: seat_type_id
+            referencedTableName: seat_types
+            referencedColumnNames: id

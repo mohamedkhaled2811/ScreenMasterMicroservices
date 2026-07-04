@@ -21,6 +21,7 @@ Each concept file follows the same shape so they're predictable:
 | [spring-web-annotations.md](spring-web-annotations.md) | `@RestController`, `@RequestMapping`, `@GetMapping`, `@RequestBody`, `@PathVariable`, `ResponseEntity`, `RestClient`/`WebClient` |
 | [error-handling-problemdetail.md](error-handling-problemdetail.md) | `@RestControllerAdvice`, `ResponseEntityExceptionHandler`, RFC 9457 `ProblemDetail`, error-code enums, domain exceptions, the error contract between services |
 | [jpa-and-hibernate.md](jpa-and-hibernate.md) | `@Entity`, `@Id`, `@GeneratedValue`, relationships, `@Enumerated`, repositories, **Specifications / dynamic queries**, `@Transactional`, fetch types |
+| [pagination-and-filtering.md](pagination-and-filtering.md) | The "listings paginate; they never dump" convention — `Pageable`, `JpaSpecificationExecutor`, filter DTOs, sort whitelists, `max-page-size`, the stable `PagedModel` (`VIA_DTO`) envelope, the two-step lazy fetch |
 | [liquibase.md](liquibase.md) | Versioned schema migrations, changesets, `DATABASECHANGELOG`, `ddl-auto=validate`, Liquibase vs Flyway |
 | [lombok.md](lombok.md) | `@Getter`/`@Setter`, `@Data`, `@Builder`, `@RequiredArgsConstructor`, `@Slf4j` |
 | [maven-multi-module.md](maven-multi-module.md) | Parent POM, the reactor, `dependencyManagement` vs `dependencies`, `-pl`/`-am`, one module per service |

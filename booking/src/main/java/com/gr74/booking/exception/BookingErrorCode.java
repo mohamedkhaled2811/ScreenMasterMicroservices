@@ -1,0 +1,73 @@
+package com.gr74.booking.exception;
+
+import org.springframework.http.HttpStatus;
+
+/**
+ * The machine-readable error contract for the booking service.
+ *
+ * <p>Every error response carries one of these constants as the {@code code} property of an RFC 9457
+ * {@code ProblemDetail} (see {@link GlobalExceptionHandler}). The {@code code} — not the HTTP status,
+ * not the human-readable {@code detail} — is the stable promise a client or a sibling service branches
+ * on. Adding a constant is backwards-compatible; renaming one is a breaking contract change. Mirrors
+ * {@code payment}'s {@code PaymentErrorCode} (the reference implementation).
+ *
+ * <p>Each constant pins the HTTP status it maps to so the status and the code can never drift apart.
+ */
+public enum BookingErrorCode {
+
+    /** The request body, params, or headers failed validation. */
+    BOOKING_VALIDATION_ERROR(HttpStatus.BAD_REQUEST, "Validation failed"),
+
+    /** No theater exists for the requested id. */
+    BOOKING_THEATER_NOT_FOUND(HttpStatus.NOT_FOUND, "Theater not found"),
+
+    /** No screen exists for the requested id (or not under the given theater). */
+    BOOKING_SCREEN_NOT_FOUND(HttpStatus.NOT_FOUND, "Screen not found"),
+
+    /** No seat exists for the requested id. */
+    BOOKING_SEAT_NOT_FOUND(HttpStatus.NOT_FOUND, "Seat not found"),
+
+    /** No seat type exists for the requested id. */
+    BOOKING_SEAT_TYPE_NOT_FOUND(HttpStatus.NOT_FOUND, "Seat type not found"),
+
+    /** No showtime exists for the requested id. */
+    BOOKING_SHOWTIME_NOT_FOUND(HttpStatus.NOT_FOUND, "Showtime not found"),
+
+    /**
+     * A showtime referenced a {@code movieId} that Catalog does not have. This is the cross-service
+     * cut, validated synchronously at showtime-create time (plan option 5C) — the DB can't enforce it,
+     * so the service does.
+     */
+    BOOKING_MOVIE_NOT_FOUND(HttpStatus.NOT_FOUND, "Movie not found in catalog"),
+
+    /**
+     * We could not reach Catalog to validate the {@code movieId} (down, timed out). Distinct from
+     * {@link #BOOKING_MOVIE_NOT_FOUND} ("Catalog answered: no such movie") so the caller can tell
+     * "try again later" apart from "that movie doesn't exist". This is the temporal-coupling cost of
+     * choosing 5C option 2 — validating on the write path ties showtime creation to Catalog's uptime.
+     */
+    BOOKING_CATALOG_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Catalog service unavailable"),
+
+    /** A uniqueness constraint was violated (duplicate name, seat, or showtime slot). */
+    BOOKING_DUPLICATE(HttpStatus.CONFLICT, "Duplicate resource"),
+
+    /** A fallback for anything we did not anticipate — never leak internals to the caller. */
+    BOOKING_INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Internal error");
+
+    private final HttpStatus status;
+    private final String title;
+
+    BookingErrorCode(HttpStatus status, String title) {
+        this.status = status;
+        this.title = title;
+    }
+
+    public HttpStatus status() {
+        return status;
+    }
+
+    /** Short, human-readable summary used as the {@code ProblemDetail} title. */
+    public String title() {
+        return title;
+    }
+}

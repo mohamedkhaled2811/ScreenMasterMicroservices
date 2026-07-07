@@ -34,6 +34,19 @@ payment:
   fail-rate: ${FAIL_RATE:0.0}
   latency-millis: ${PAYMENT_LATENCY_MILLIS:300}
 
+# OpenAPI / Swagger UI (see docs/concepts/openapi-springdoc.md). The spec is served at /v3/api-docs
+# and the UI at /swagger-ui.html; the gateway aggregates all services' specs into one UI at :8080.
+# emit OpenAPI 3.1 (matches the Boot-4 / Jakarta stack). The gateway base for "Try it out" is
+# externalised so Compose can point it at the real public host.
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+    version: openapi_3_1
+  swagger-ui:
+    path: /swagger-ui.html
+openapi:
+  public-url: ${OPENAPI_PUBLIC_URL:http://localhost:8080}
+
 logging:
   pattern:
     level: "%5p [${spring.application.name},%X{traceId:-},%X{spanId:-}]"

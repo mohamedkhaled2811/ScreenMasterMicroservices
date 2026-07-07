@@ -52,6 +52,53 @@ spring:
                 # /api/payments -> /payments, matching PaymentController's @RequestMapping("/payments").
                 - StripPrefix=1
 
+            # ---- OpenAPI docs proxying (see concepts/openapi-springdoc.md) --------------------------
+            # The aggregated Swagger UI (below) fetches each service's spec from the browser, so those
+            # specs must be reachable THROUGH the gateway (same-origin — no CORS). Each route exposes a
+            # service's spec at /<service>/v3/api-docs and StripPrefix=1 turns that into the bare
+            # /v3/api-docs the service actually serves. These are docs-only routes; the real API traffic
+            # still flows through the /api/** routes above.
+            - id: catalog-docs
+              uri: lb://catalog
+              predicates:
+                - Path=/catalog/v3/api-docs/**
+              filters:
+                - StripPrefix=1
+            - id: booking-docs
+              uri: lb://booking
+              predicates:
+                - Path=/booking/v3/api-docs/**
+              filters:
+                - StripPrefix=1
+            - id: payment-docs
+              uri: lb://payment
+              predicates:
+                - Path=/payment/v3/api-docs/**
+              filters:
+                - StripPrefix=1
+
+# OpenAPI / Swagger UI aggregation (see docs/concepts/openapi-springdoc.md). The gateway owns no
+# controllers, so it documents no spec of its own; instead the Swagger UI at :8080/swagger-ui.html is
+# pointed at each backend service's spec (proxied via the *-docs routes above) as a dropdown. The
+# frontend dev opens ONE URL and switches between catalog / booking / payment.
+#
+# IMPORTANT: do NOT set springdoc.api-docs.enabled=false here. The Swagger UI bootstraps by fetching
+# /v3/api-docs/swagger-config (the endpoint that hands the UI its dropdown of spec URLs); that endpoint
+# is part of the api-docs machinery, and disabling api-docs also switches off the /swagger-ui.html
+# welcome/redirect controller — the UI then 404s. The gateway has no @RestControllers, so leaving
+# api-docs enabled produces only an empty own-spec that nothing points at; the `urls` below still drive
+# the dropdown to the backend services only. (See the whitelabel-404 we hit when api-docs was disabled.)
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    urls:
+      - name: catalog
+        url: /catalog/v3/api-docs
+      - name: booking
+        url: /booking/v3/api-docs
+      - name: payment
+        url: /payment/v3/api-docs
+
 # A Eureka CLIENT: registers with the discovery server and reads the registry so lb:// resolves.
 eureka:
   client:

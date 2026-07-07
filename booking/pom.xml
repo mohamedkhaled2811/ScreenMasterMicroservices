@@ -53,6 +53,16 @@
 		</dependency>
 
 		<!--
+		  OpenAPI 3.1 spec + Swagger UI. Introspects the inventory + showtime controllers and their
+		  record DTOs / filter params at runtime; serves /v3/api-docs and /swagger-ui.html. Version
+		  managed in the parent pom. See concepts/openapi-springdoc.md.
+		-->
+		<dependency>
+			<groupId>org.springdoc</groupId>
+			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+		</dependency>
+
+		<!--
 		  Spring Boot 4 moved each integration's auto-configuration out of the umbrella
 		  spring-boot-autoconfigure jar into its own module. spring-boot-liquibase carries
 		  LiquibaseAutoConfiguration (the bean that runs the changelog on startup) and pulls in

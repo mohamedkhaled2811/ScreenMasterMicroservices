@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<!--
+  ScreenMaster feature plan: OpenAPI / Swagger across the services.
+  Reviewable surface for the approach chosen with Mohamed (aggregate at gateway,
+  full contract on all three services, concept file + roadmap update).
+-->
+<title>Plan: OpenAPI / Swagger for the services — ScreenMaster</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel-2: #1d212b; --border: #2a2f3a;
+    --text: #e6e8ee; --muted: #9aa3b2; --accent: #6ea8fe; --accent-2: #7ee787;
+    --warn: #f0b429; --bad: #f47174; --good: #4ec9a4;
+    --chip: #232838;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 32px 20px 80px; }
+  header.page { border-bottom: 1px solid var(--border); padding-bottom: 18px; margin-bottom: 28px; }
+  h1 { font-size: 26px; margin: 0 0 6px; }
+  h2 { font-size: 19px; margin: 36px 0 12px; padding-top: 6px; }
+  .meta { color: var(--muted); font-size: 14px; display: flex; gap: 16px; flex-wrap: wrap; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 0; }
+  .chip {
+    background: var(--chip); border: 1px solid var(--border); color: var(--muted);
+    border-radius: 999px; padding: 3px 11px; font-size: 12.5px;
+  }
+  .status { font-weight: 600; }
+  .status.draft { color: var(--warn); }
+  .status.approved { color: var(--good); }
+  p, li { color: var(--text); }
+  .muted { color: var(--muted); }
+  section { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin: 14px 0; }
+  ul.tight { margin: 6px 0; padding-left: 20px; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13.5px; }
+  code { background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; }
+
+  /* Option cards */
+  .options { display: grid; gap: 16px; grid-template-columns: 1fr; }
+  @media (min-width: 760px) { .options { grid-template-columns: 1fr 1fr; } }
+  .option { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; position: relative; }
+  .option.recommended { border-color: var(--accent-2); box-shadow: 0 0 0 1px var(--accent-2) inset; }
+  .option h3 { margin: 0 0 4px; font-size: 17px; }
+  .badge {
+    position: absolute; top: -10px; right: 14px; background: var(--accent-2); color: #0c1a10;
+    font-size: 11.5px; font-weight: 700; border-radius: 999px; padding: 2px 10px;
+  }
+  .pros, .cons { margin: 8px 0; padding-left: 18px; }
+  .pros li { color: var(--good); }
+  .cons li { color: var(--bad); }
+  .pros li span, .cons li span { color: var(--text); }
+
+  /* What-changes table */
+  table { width: 100%; border-collapse: collapse; margin: 6px 0; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+  td.kind { white-space: nowrap; }
+  .tag { font-size: 11.5px; border-radius: 5px; padding: 1px 7px; border: 1px solid var(--border); }
+  .tag.new { color: var(--accent-2); }
+  .tag.edit { color: var(--warn); }
+  .tag.del { color: var(--bad); }
+
+  .callout { border-left: 3px solid var(--accent); background: var(--panel-2); padding: 10px 14px; border-radius: 0 8px 8px 0; }
+  .open-q { border-left-color: var(--warn); }
+
+  /* Implementation tasks */
+  ol.tasks { list-style: none; counter-reset: task; margin: 0; padding: 0; display: grid; gap: 12px; }
+  ol.tasks > li.task {
+    counter-increment: task; position: relative;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 16px 14px 52px;
+  }
+  ol.tasks > li.task::before {
+    content: counter(task); position: absolute; left: 14px; top: 14px;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--chip); border: 1px solid var(--accent); color: var(--accent);
+    font: 600 13px/26px ui-monospace, monospace; text-align: center;
+  }
+  li.task h3 { margin: 0 0 4px; font-size: 16px; }
+  li.task .goal, li.task .done { margin: 4px 0; font-size: 14.5px; }
+  li.task .label { color: var(--muted); font-weight: 600; }
+  li.task .done .label { color: var(--good); }
+  li.task .depends { color: var(--muted); font-size: 13px; margin-top: 6px; }
+
+  /* Verification */
+  table.verify td.cmd { white-space: nowrap; }
+  table.verify td.cmd code { display: inline-block; }
+  table.verify .ok { color: var(--good); }
+
+  footer { margin-top: 40px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); padding-top: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page">
+    <h1>Plan: <em>OpenAPI / Swagger for the services</em></h1>
+    <div class="meta">
+      <span>Date: <strong>2026-07-05</strong></span>
+      <span>Author: Claude Code + Mohamed</span>
+      <span class="status approved">Status: APPROVED — implementing</span>
+    </div>
+    <div class="chips">
+      <span class="chip">Milestone: cross-cutting (edge / BFF-adjacent)</span>
+      <span class="chip">Service: catalog · booking · payment · gateway</span>
+      <span class="chip">Schema §: all controller surfaces</span>
+    </div>
+  </header>
+
+  <h2>1. Summary</h2>
+  <section>
+    <p><strong>What:</strong> add <a href="https://springdoc.org/">springdoc-openapi</a> to the three services
+    that have controllers (catalog, booking, payment) so each serves a live OpenAPI 3.1 spec + Swagger UI,
+    then aggregate them behind <strong>one Swagger UI at the gateway</strong> (<code>http://localhost:8080/swagger-ui.html</code>)
+    with a service dropdown. <strong>Why now:</strong> the API contract is currently being <em>hand-authored</em>
+    as wire-level Markdown in <code>docs/frontend/</code>; springdoc introspects the controllers, record DTOs, and
+    Bean-Validation annotations at runtime and serves an always-in-sync contract instead — so a frontend can be built
+    against it without reading Java or the repo. <strong>Microservices lesson:</strong> each service knows only its
+    bare paths (<code>/movies</code>), but the client sees one aggregated contract on <code>/api/...</code> through the
+    gateway — reconciling per-service specs into a single client-facing contract is the edge/BFF cost we surface here.</p>
+  </section>
+
+  <h2>2. Milestone &amp; schema link</h2>
+  <section>
+    <ul class="tight">
+      <li><strong>Field-guide milestone:</strong> none directly — OpenAPI is a <em>new cross-cutting workstream</em>
+      (it applies to every service's controllers). Closest theory: the API gateway / BFF section (edge concerns).</li>
+      <li><strong>Schema doc:</strong> touches every controller surface, no data-model change. The monolith
+      (<code>ARCHITECTURE_AND_SCHEMA.md</code>) already used SpringDoc — this carries that prior art into the split.</li>
+      <li><strong>Build plan:</strong> adds a new "OpenAPI / API docs" workstream item to <code>BUILD_PLAN.md</code>
+      (it does not complete an existing M1–M7 step).</li>
+    </ul>
+  </section>
+
+  <h2>3. What changes</h2>
+  <section>
+    <p class="muted">Concrete surface area. The per-service pattern (pom + <code>OpenApiConfig</code> + controller
+    annotations + <code>application.yml</code> props) repeats identically across catalog, booking, payment.</p>
+    <table>
+      <thead><tr><th>Kind</th><th>Where</th><th>What</th></tr></thead>
+      <tbody>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>pom.xml</code> (parent)</td><td>Add <code>springdoc.version=3.0.3</code> property + <code>dependencyManagement</code> entry (versions-only convention).</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>{catalog,booking,payment}/pom.xml</code></td><td>Add <code>springdoc-openapi-starter-webmvc-ui</code> (no version).</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>&lt;service&gt;/.../config/OpenApiConfig.java</code></td><td><code>@Configuration</code> with an <code>OpenAPI</code> bean: title/version/description + a <code>Server</code> URL pointing at the gateway base + <code>/api/&lt;prefix&gt;</code> so the spec advertises the real public paths.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td>each controller</td><td><code>@Tag</code> on the class; <code>@Operation</code> + <code>@ApiResponse</code> per method documenting success and the specific <code>&lt;Service&gt;ErrorCode</code> values (with the custom <code>code</code> property) returnable from that endpoint.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>&lt;service&gt;/.../exception/ApiErrorResponses.java</code> (or similar)</td><td>Shared documented <code>ProblemDetail</code> example / <code>@ApiResponse</code> constants so the <code>code</code> field + error table surface without per-method boilerplate.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>&lt;service&gt;/src/main/resources/application.yml</code></td><td>springdoc props: <code>api-docs.path</code>, <code>swagger-ui.path</code>, group name, <code>api-docs.version=openapi_3_1</code>.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>gateway/pom.xml</code> + <code>gateway/.../application.yml</code></td><td>Add the starter; add routes exposing each service's <code>/v3/api-docs</code> (respecting <code>StripPrefix=1</code>); set <code>springdoc.swagger-ui.urls</code> to list catalog/booking/payment for one aggregated UI.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>docs/concepts/openapi-springdoc.md</code></td><td>5-part concept explainer; linked from <code>concepts/README.md</code>.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>docs/BUILD_PLAN.md</code></td><td>Add the OpenAPI cross-cutting workstream item.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <h2>4. Options</h2>
+  <p class="muted">Docs topology — how the frontend reaches the specs. Depth and doc-conventions were also chosen
+    (full contract on all three + concept file + roadmap update); those are folded into the recommended path below.</p>
+  <div class="options">
+
+    <div class="option recommended">
+      <span class="badge">Recommended</span>
+      <h3>Option A — Aggregate at the gateway</h3>
+      <p>springdoc on each backend service; the gateway hosts one Swagger UI with a service dropdown.</p>
+      <ul class="pros">
+        <li><span>One URL (<code>:8080</code>) matching how the frontend really calls the system.</span></li>
+        <li><span>Paths read as the public <code>/api/...</code> via per-service <code>Server</code> URLs.</span></li>
+        <li><span>Teaches the edge/BFF cost: many per-service specs → one client contract.</span></li>
+      </ul>
+      <ul class="cons"><li><span>More setup: gateway routes for each <code>/v3/api-docs</code> + <code>StripPrefix</code> handling.</span></li></ul>
+      <p class="muted">Best when: there's a real frontend consuming through the gateway. (Chosen.)</p>
+    </div>
+
+    <div class="option">
+      <h3>Option B — Per-service only</h3>
+      <p>Each service exposes its own Swagger UI; no gateway work.</p>
+      <ul class="pros"><li><span>Simplest; nothing to aggregate.</span></li></ul>
+      <ul class="cons">
+        <li><span>Frontend dev juggles 3 URLs (<code>:8081/:8082/:8083</code>).</span></li>
+        <li><span>Shows bare paths (<code>/movies</code>), not the real <code>/api/movies</code> they must call.</span></li>
+      </ul>
+      <p class="muted">Best when: internal, per-service debugging only.</p>
+    </div>
+
+    <div class="option">
+      <h3>Option C — Per-service + static bundle</h3>
+      <p>Per-service springdoc plus a build step dumping each spec to a static file in <code>docs/</code>.</p>
+      <ul class="pros"><li><span>Offline, versioned specs the frontend can diff.</span></li></ul>
+      <ul class="cons">
+        <li><span>No live aggregated UI.</span></li>
+        <li><span>Extra Maven plugin + regeneration discipline.</span></li>
+      </ul>
+      <p class="muted">Best when: contract-diffing in CI matters more than a browsable UI. (Deferred as a follow-up.)</p>
+    </div>
+
+  </div>
+
+  <h2>5. Implementation tasks</h2>
+  <section>
+    <ol class="tasks">
+      <li class="task">
+        <h3>Manage the springdoc dependency in the parent pom</h3>
+        <p class="goal"><span class="label">Goal:</span> pin <code>springdoc-openapi-starter-webmvc-ui:3.0.3</code> (the v3 line for Spring Boot 4) centrally, so children declare it without a version.</p>
+        <p class="done"><span class="label">Done when:</span> <code>./mvnw -q -pl payment validate</code> passes with the starter on payment's classpath.</p>
+        <p class="depends">Depends on: —</p>
+      </li>
+      <li class="task">
+        <h3>Wire payment as the reference service (end-to-end)</h3>
+        <p class="goal"><span class="label">Goal:</span> prove the whole toolchain on the smallest surface — starter, <code>OpenApiConfig</code> (gateway <code>Server</code> URL), <code>@Operation</code>/<code>@ApiResponse</code> for 200/402/400/404/503 + <code>PAYMENT_*</code> codes, springdoc props.</p>
+        <p class="done"><span class="label">Done when:</span> <code>:8083/v3/api-docs</code> returns a spec including the <code>code</code>s and <code>:8083/swagger-ui.html</code> renders with "Try it out".</p>
+        <p class="depends">Depends on: Task 1</p>
+      </li>
+      <li class="task">
+        <h3>Replicate to catalog</h3>
+        <p class="goal"><span class="label">Goal:</span> annotate <code>MovieController</code>; verify the paged <code>GET /movies</code> renders as the <code>PagedModel</code> envelope and <code>MovieFilter</code> params + constraints appear.</p>
+        <p class="done"><span class="label">Done when:</span> <code>:8081/swagger-ui.html</code> shows both endpoints with the paged envelope and <code>CATALOG_*</code> codes.</p>
+        <p class="depends">Depends on: Task 2</p>
+      </li>
+      <li class="task">
+        <h3>Replicate to booking</h3>
+        <p class="goal"><span class="label">Goal:</span> annotate <code>TheaterController</code> + <code>ShowtimeController</code>; document paged vs raw-<code>List</code> responses honestly and the cross-service <code>BOOKING_MOVIE_NOT_FOUND</code>/<code>BOOKING_CATALOG_UNAVAILABLE</code> on <code>POST /showtimes</code>.</p>
+        <p class="done"><span class="label">Done when:</span> <code>:8082/swagger-ui.html</code> renders the full inventory + showtime surface with correct response shapes.</p>
+        <p class="depends">Depends on: Task 2</p>
+      </li>
+      <li class="task">
+        <h3>Aggregate the Swagger UI at the gateway</h3>
+        <p class="goal"><span class="label">Goal:</span> one UI at <code>:8080</code> with a dropdown — add the starter, routes for each <code>/v3/api-docs</code> (respecting <code>StripPrefix=1</code>), and <code>springdoc.swagger-ui.urls</code>.</p>
+        <p class="done"><span class="label">Done when:</span> <code>:8080/swagger-ui.html</code> switches between catalog/booking/payment and paths read as <code>/api/...</code>.</p>
+        <p class="depends">Depends on: Tasks 2–4</p>
+      </li>
+      <li class="task">
+        <h3>Concept file + roadmap</h3>
+        <p class="goal"><span class="label">Goal:</span> keep the learning-project conventions — add <code>docs/concepts/openapi-springdoc.md</code> (5-part shape), link it, add the workstream to <code>BUILD_PLAN.md</code>.</p>
+        <p class="done"><span class="label">Done when:</span> concept file follows the shape and both indexes reference it.</p>
+        <p class="depends">Depends on: Task 5</p>
+      </li>
+    </ol>
+  </section>
+
+  <h2>6. Risks / microservices cost felt</h2>
+  <section>
+    <div class="callout">
+      <p><strong>Bleeding-edge version.</strong> springdoc <code>3.0.3</code> is built on <code>spring-boot-starter-parent:4.0.5</code>;
+      we run <code>4.1.0</code> (same major, one minor ahead). Verified <code>3.0.3</code> exists on Maven Central and targets Boot 4.
+      Residual risk is the minor bump — validated at build time on payment first before spreading. Fallbacks: static-spec only, or a different 3.x patch.</p>
+      <p><strong>The <code>/api</code> prefix / distributed-docs cost.</strong> The client sees <code>/api/movies</code> (aggregated at the gateway);
+      no single service knows that path — it only knows <code>/movies</code>. The per-service <code>Server</code> URL + gateway aggregation is the
+      production way to reconcile isolated specs into one client-facing contract (BFF-adjacent).</p>
+      <p><strong>Contract drift on <code>code</code>.</strong> springdoc can't see <code>setProperty("code", …)</code>, so the <code>@ApiResponse</code>
+      docs can drift from the real <code>&lt;Service&gt;ErrorCode</code> enum. Mitigated by documenting codes close to the enum and flagging the coupling in the concept file.</p>
+    </div>
+  </section>
+
+  <h2>7. Verification</h2>
+  <section>
+    <table class="verify">
+      <thead><tr><th>Check</th><th>Command</th><th>Expected</th></tr></thead>
+      <tbody>
+        <tr><td>Dependency resolves under Boot 4.1</td><td class="cmd"><code>./mvnw -q -pl payment validate</code></td><td><span class="ok">✓</span> build succeeds (JDK 21)</td></tr>
+        <tr><td>Per-service spec generates</td><td class="cmd"><code>curl -s :8083/v3/api-docs | jq .info.title</code></td><td><span class="ok">✓</span> payment title; spec includes documented <code>code</code>s</td></tr>
+        <tr><td>Swagger UI renders</td><td class="cmd">open <code>:8083/swagger-ui.html</code></td><td><span class="ok">✓</span> <code>POST /payments</code> with 200/402/400 responses</td></tr>
+        <tr><td>Paged envelope in spec</td><td class="cmd"><code>curl -s :8081/v3/api-docs | jq '.paths."/movies".get'</code></td><td><span class="ok">✓</span> response schema is the <code>PagedModel</code> envelope, not <code>PageImpl</code></td></tr>
+        <tr><td>Cross-service error codes</td><td class="cmd">inspect booking <code>POST /showtimes</code></td><td><span class="ok">✓</span> shows <code>BOOKING_MOVIE_NOT_FOUND</code> (404) + <code>BOOKING_CATALOG_UNAVAILABLE</code> (503)</td></tr>
+        <tr><td>Aggregated UI at gateway</td><td class="cmd">open <code>:8080/swagger-ui.html</code></td><td><span class="ok">✓</span> dropdown lists all three; paths read as <code>/api/...</code></td></tr>
+        <tr><td>Whole system</td><td class="cmd"><code>docker compose up --build</code></td><td><span class="ok">✓</span> all three selectable and callable through <code>:8080</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <h2>8. Open questions</h2>
+  <section>
+    <div class="callout open-q">
+      <ul class="tight">
+        <li><code>notification</code> has no controllers yet — <strong>skip</strong> it until it exposes an HTTP surface (nothing to document).</li>
+        <li>Static-spec Maven plugin emitting specs into <code>docs/</code> for diffing — <strong>defer</strong> to a follow-up; not needed for the live-UI goal.</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    ScreenMaster Microservices — feature plan. Approved 2026-07-05; implementing.
+  </footer>
+
+</div>
+</body>
+</html>

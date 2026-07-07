@@ -45,6 +45,16 @@
 		</dependency>
 
 		<!--
+		  OpenAPI 3.1 spec + Swagger UI. Introspects PaymentController + its record DTOs and
+		  Bean-Validation annotations at runtime; the bundle serves /v3/api-docs and
+		  /swagger-ui.html. Version is managed in the parent pom. See concepts/openapi-springdoc.md.
+		-->
+		<dependency>
+			<groupId>org.springdoc</groupId>
+			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+		</dependency>
+
+		<!--
 		  Spring Boot 4 moved each integration's auto-configuration out of the umbrella
 		  spring-boot-autoconfigure jar into its own module. spring-boot-liquibase carries
 		  LiquibaseAutoConfiguration (the bean that runs the changelog on startup) and pulls in

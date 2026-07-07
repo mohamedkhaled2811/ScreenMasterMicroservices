@@ -12,12 +12,21 @@ import org.springframework.web.bind.annotation.RestController;
 import com.gr74.catalog.controller.dto.MovieFilter;
 import com.gr74.catalog.dto.MovieDto;
 import com.gr74.catalog.dto.MovieSummaryDto;
+import com.gr74.catalog.exception.ApiError;
 import com.gr74.catalog.model.Movie;
 import com.gr74.catalog.service.MovieService;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springdoc.core.annotations.ParameterObject;
 
 /**
  * The catalogue's read endpoints.
@@ -36,12 +45,21 @@ import lombok.extern.slf4j.Slf4j;
 @RestController
 @RequestMapping("/movies")
 @RequiredArgsConstructor
+@Tag(name = "Movies", description = "Browse and search the movie catalogue.")
 public class MovieController {
 
     private final MovieService movieService;
 
     @GetMapping("/{id}")
-    public MovieDto getMovie(@PathVariable Long id) {
+    @Operation(summary = "Get a movie by id", description = "Returns full detail for one movie.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "The movie."),
+            @ApiResponse(responseCode = "404", description = "No movie with that id. code = CATALOG_MOVIE_NOT_FOUND.",
+                    content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "400", description = "Malformed id. code = CATALOG_VALIDATION_ERROR.",
+                    content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ApiError.class)))
+    })
+    public MovieDto getMovie(@Parameter(description = "Movie id.", example = "603") @PathVariable Long id) {
         Movie movie = movieService.getById(id);
         log.info("GET /movies/{} -> {}", id, movie.getTitle());
         return MovieDto.from(movie);
@@ -58,9 +76,22 @@ public class MovieController {
      * as a {@code CATALOG_VALIDATION_ERROR} ProblemDetail.
      */
     @GetMapping
+    @Operation(
+            summary = "Search movies (paged)",
+            description = """
+                    Paged, dynamically-filtered search. Any subset of the filter query params narrows the
+                    result (AND-combined); page/size/sort ride on the standard Pageable params (0-indexed,
+                    default size 20 sorted by popularity DESC, size hard-capped at 100). The response is
+                    the PagedModel envelope: { content: [...], page: { size, number, totalElements,
+                    totalPages } }.""")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "A page of matching movies (PagedModel envelope)."),
+            @ApiResponse(responseCode = "400", description = "A filter param is out of range or the sort field is not whitelisted. code = CATALOG_VALIDATION_ERROR.",
+                    content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ApiError.class)))
+    })
     public Page<MovieSummaryDto> searchMovies(
-            @Valid MovieFilter filter,
-            @PageableDefault(size = 20, sort = "popularity", direction = Sort.Direction.DESC) Pageable pageable) {
+            @Valid @ParameterObject MovieFilter filter,
+            @ParameterObject @PageableDefault(size = 20, sort = "popularity", direction = Sort.Direction.DESC) Pageable pageable) {
         Page<MovieSummaryDto> page = movieService.search(filter, pageable).map(MovieSummaryDto::from);
         log.info("GET /movies -> {} of {} match", page.getNumberOfElements(), page.getTotalElements());
         return page;

@@ -38,6 +38,13 @@
 	<properties>
 		<java.version>21</java.version>
 		<spring-cloud.version>2025.1.2</spring-cloud.version>
+		<!--
+		  springdoc-openapi: introspects controllers + DTOs at runtime to serve an OpenAPI 3.1
+		  spec and Swagger UI. The v3 line targets Spring Boot 4 (3.0.3 is built on
+		  spring-boot-starter-parent 4.0.5); the 2.8.x line is Spring Boot 3 only. Pinned here
+		  so each service declares the starter without a version. See concepts/openapi-springdoc.md.
+		-->
+		<springdoc.version>3.0.3</springdoc.version>
 	</properties>
 
 	<!--
@@ -53,6 +60,12 @@
 				<version>${spring-cloud.version}</version>
 				<type>pom</type>
 				<scope>import</scope>
+			</dependency>
+			<!-- OpenAPI/Swagger UI starter (servlet). Children add it version-free. -->
+			<dependency>
+				<groupId>org.springdoc</groupId>
+				<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+				<version>${springdoc.version}</version>
 			</dependency>
 		</dependencies>
 	</dependencyManagement>

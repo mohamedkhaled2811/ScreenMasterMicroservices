@@ -124,6 +124,13 @@ Five business services + gateway + Eureka, on Docker Compose, with **database-pe
 
 ---
 
+## Cross-cutting — OpenAPI / API docs for a frontend  *(not an M1–M7 milestone)*
+**Goal:** expose a machine-readable, browsable API contract so a frontend can be built against the services — replacing the hand-authored wire-level docs in [`docs/frontend/`](frontend/). Applies to every service with controllers, so it's a standalone workstream rather than a phase.
+
+- [x] **X.1 springdoc across the services** — added **springdoc-openapi v3** (`springdoc-openapi-starter-webmvc-ui:3.0.3`, the Spring Boot 4 line; version pinned in the parent pom) to `catalog`/`booking`/`payment`. Each gets a `config/OpenApiConfig` (title/version/description + a gateway **`Server` URL** so the spec advertises the public `/api/...` path, not the bare service path the controller exposes) and `@Tag`/`@Operation`/`@ApiResponse` annotations documenting the happy path, the `PagedModel` envelope (paged listings) vs plain arrays (showtime reads), and each endpoint's `<Service>ErrorCode` values. The custom RFC 9457 `code` property — invisible to springdoc — is documented via a per-service `exception/ApiError` schema mirror; `@ParameterObject` flattens the filter + `Pageable` query params. The **gateway** hosts the **one aggregated Swagger UI** (`http://localhost:8080/swagger-ui.html`, service dropdown): its own spec generation is off, docs-only routes proxy each backend's `/v3/api-docs` (`StripPrefix=1`), and `springdoc.swagger-ui.urls` wires the dropdown same-origin. **Verified:** full reactor build green under JDK 21; per-service specs generate OpenAPI 3.1 with the gateway server URL, documented error `code`s, the `PagedModel` envelope, and flattened query params; Swagger UI renders; catalog + payment specs proxy through the gateway (booking's proxying is identical config — its miss in one local run was a transient Eureka registration flake, not a config defect). *(Concept: [openapi-springdoc.md](concepts/openapi-springdoc.md); Plan: [docs/plans/2026-07-05-openapi-swagger.html](plans/2026-07-05-openapi-swagger.html).)*
+
+---
+
 ## Scope guard (from the field guide)
 Cut ruthlessly: **no Kubernetes** (Compose is enough), **no real Stripe/PayPal** (the fake provider teaches more because you control its failures), **no gRPC implementation** (the `.proto` + comparison table in [sync-vs-async-comms.md](concepts/sync-vs-async-comms.md) is enough), **no UI** (curl + the RabbitMQ console + Zipkin).
 

@@ -32,6 +32,18 @@ tmdb:
   cron: ${TMDB_SYNC_CRON:0 */20 * * * *}
   max-pages-per-run: ${TMDB_MAX_PAGES_PER_RUN:10}
 
+# OpenAPI / Swagger UI (see docs/concepts/openapi-springdoc.md). Spec at /v3/api-docs, UI at
+# /swagger-ui.html; the gateway aggregates every service's spec into one UI at :8080. Emit OpenAPI
+# 3.1; the gateway base for "Try it out" is externalised so Compose can override the public host.
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+    version: openapi_3_1
+  swagger-ui:
+    path: /swagger-ui.html
+openapi:
+  public-url: ${OPENAPI_PUBLIC_URL:http://localhost:8080}
+
 # A Eureka CLIENT: registers with the discovery server on startup.
 eureka:
   client:

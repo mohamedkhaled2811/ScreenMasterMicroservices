@@ -2,6 +2,7 @@ package com.gr74.catalog.repository.spec;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Collection;
 
 import org.springframework.data.jpa.domain.Specification;
 
@@ -42,7 +43,8 @@ public final class MovieSpecifications {
                 releasedOnOrAfter(f.releaseYearFrom()),
                 releasedOnOrBefore(f.releaseYearTo()),
                 ratedAtLeast(f.minRating()),
-                isAdult(f.adult()));
+                isAdult(f.adult()),
+                idIn(f.ids()));
     }
 
     /** An always-true predicate: the identity element for {@code AND}, used when a field is absent. */
@@ -112,5 +114,19 @@ public final class MovieSpecifications {
             return noOp();
         }
         return (root, query, cb) -> cb.equal(root.get("adult"), adult);
+    }
+
+    /**
+     * Restrict to movies whose id is in {@code ids} ({@code id IN (…)}); no-op if null/empty. Backs the
+     * batch-by-id lookup — a caller that already holds a known set of ids (Booking resolving titles for
+     * a page of bookings) fetches them all in one query instead of N. An empty set is a no-op, not an
+     * {@code IN ()} (which some databases reject), so callers should short-circuit before hitting the
+     * query anyway.
+     */
+    public static Specification<Movie> idIn(Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return noOp();
+        }
+        return (root, query, cb) -> root.get("id").in(ids);
     }
 }

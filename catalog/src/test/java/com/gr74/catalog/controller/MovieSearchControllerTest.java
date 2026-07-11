@@ -131,4 +131,31 @@ class MovieSearchControllerTest {
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("CATALOG_VALIDATION_ERROR"));
     }
+
+    // ---- GET /movies/batch (the cross-service resolve helper) -----------------------------------
+
+    @Test
+    void batchReturnsPlainArrayForGivenIds() throws Exception {
+        given(movieService.batchByIds(List.of(603L, 550L))).willReturn(List.of(sampleMovie()));
+
+        mockMvc.perform(get("/movies/batch").param("ids", "603", "550"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                // A plain array (not the PagedModel envelope) — the caller holds the exact ids.
+                .andExpect(jsonPath("$[0].id").value(603))
+                .andExpect(jsonPath("$[0].title").value("The Matrix"))
+                .andExpect(jsonPath("$.content").doesNotExist());
+    }
+
+    @Test
+    void batchOverCapReturnsValidationError() throws Exception {
+        // The service enforces the 100-id cap; a coded 400 must surface, never a leaked 500.
+        given(movieService.batchByIds(any())).willThrow(
+                new CatalogException(CatalogErrorCode.CATALOG_VALIDATION_ERROR, "Too many ids: 101 requested, max 100."));
+
+        mockMvc.perform(get("/movies/batch").param("ids", "1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("CATALOG_VALIDATION_ERROR"));
+    }
 }

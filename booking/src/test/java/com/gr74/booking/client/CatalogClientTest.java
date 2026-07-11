@@ -1,19 +1,26 @@
 package com.gr74.booking.client;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestToUriTemplate;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withResourceNotFound;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import java.util.Map;
+import java.util.Set;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.test.web.client.ExpectedCount;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
@@ -90,6 +97,43 @@ class CatalogClientTest {
                 .isInstanceOf(CatalogUnavailableException.class)
                 .extracting("errorCode")
                 .isEqualTo(BookingErrorCode.BOOKING_CATALOG_UNAVAILABLE);
+        server.verify();
+    }
+
+    // ---- titlesByIds (the read-path composition helper) -----------------------------------------
+
+    @Test
+    void titlesByIdsBuildsMapFromOneBatchCall() {
+        // One call for the whole set (the N+1 fix), hitting /movies/batch with the ids as query params.
+        server.expect(ExpectedCount.once(), requestToUriTemplate(BASE + "/movies/batch?ids=603&ids=550"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(queryParam("ids", "603", "550"))
+                .andRespond(withSuccess(
+                        "[{\"id\":603,\"title\":\"The Matrix\"},{\"id\":550,\"title\":\"Fight Club\"}]",
+                        MediaType.APPLICATION_JSON));
+
+        // A LinkedHashSet keeps the query-param order deterministic for the URI match above.
+        Map<Long, String> titles = client.titlesByIds(new java.util.LinkedHashSet<>(java.util.List.of(603L, 550L)));
+
+        assertThat(titles).containsEntry(603L, "The Matrix").containsEntry(550L, "Fight Club");
+        server.verify();
+    }
+
+    @Test
+    void titlesByIdsDegradesToEmptyMapWhenCatalogIsDown() {
+        // The read path must NOT throw — a Catalog outage returns no titles so "my bookings" still answers.
+        server.expect(requestTo(BASE + "/movies/batch?ids=603")).andRespond(withServerError());
+
+        Map<Long, String> titles = client.titlesByIds(Set.of(603L));
+
+        assertThat(titles).isEmpty();
+        server.verify();
+    }
+
+    @Test
+    void titlesByIdsShortCircuitsOnEmptyInputWithNoCall() {
+        // No ids → no network call at all (server.verify() would fail if an unexpected request fired).
+        assertThat(client.titlesByIds(Set.of())).isEmpty();
         server.verify();
     }
 }

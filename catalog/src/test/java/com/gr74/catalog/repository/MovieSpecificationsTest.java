@@ -59,33 +59,33 @@ class MovieSpecificationsTest {
 
     @Test
     void titleContainsIsCaseInsensitiveSubstring() {
-        Page<Movie> page = search(new MovieFilter("matrix", null, null, null, null, null, null));
+        Page<Movie> page = search(new MovieFilter("matrix", null, null, null, null, null, null, null));
         assertThat(page.getContent()).extracting(Movie::getTitle).containsExactly("The Matrix");
     }
 
     @Test
     void filterByGenreId() {
-        Page<Movie> page = search(new MovieFilter(null, 28L, null, null, null, null, null));
+        Page<Movie> page = search(new MovieFilter(null, 28L, null, null, null, null, null, null));
         assertThat(page.getContent()).extracting(Movie::getTitle)
                 .containsExactlyInAnyOrder("The Matrix", "The Dark Knight");
     }
 
     @Test
     void filterByLanguage() {
-        Page<Movie> page = search(new MovieFilter(null, null, "fr", null, null, null, null));
+        Page<Movie> page = search(new MovieFilter(null, null, "fr", null, null, null, null, null));
         assertThat(page.getContent()).extracting(Movie::getTitle).containsExactly("Amélie");
     }
 
     @Test
     void filterByReleaseYearRange() {
-        Page<Movie> page = search(new MovieFilter(null, null, null, 2000, 2010, null, null));
+        Page<Movie> page = search(new MovieFilter(null, null, null, 2000, 2010, null, null, null));
         assertThat(page.getContent()).extracting(Movie::getTitle)
                 .containsExactlyInAnyOrder("The Dark Knight", "Amélie");
     }
 
     @Test
     void filterByMinRating() {
-        Page<Movie> page = search(new MovieFilter(null, null, null, null, null, new BigDecimal("8.4"), null));
+        Page<Movie> page = search(new MovieFilter(null, null, null, null, null, new BigDecimal("8.4"), null, null));
         assertThat(page.getContent()).extracting(Movie::getTitle)
                 .containsExactlyInAnyOrder("Fight Club", "The Dark Knight");
     }
@@ -93,13 +93,13 @@ class MovieSpecificationsTest {
     @Test
     void predicatesComposeWithAnd() {
         // genre=Action AND year>=2000 AND rating>=8.0  -> only The Dark Knight
-        Page<Movie> page = search(new MovieFilter(null, 28L, "en", 2000, null, new BigDecimal("8.0"), null));
+        Page<Movie> page = search(new MovieFilter(null, 28L, "en", 2000, null, new BigDecimal("8.0"), null, null));
         assertThat(page.getContent()).extracting(Movie::getTitle).containsExactly("The Dark Knight");
     }
 
     @Test
     void emptyFilterReturnsAllPaged() {
-        Page<Movie> page = search(new MovieFilter(null, null, null, null, null, null, null));
+        Page<Movie> page = search(new MovieFilter(null, null, null, null, null, null, null, null));
         assertThat(page.getTotalElements()).isEqualTo(4);
         assertThat(page.getContent()).hasSize(4);
     }
@@ -107,15 +107,24 @@ class MovieSpecificationsTest {
     @Test
     void genresAreFetchedWithinTheTransaction() {
         // open-in-view is off; reading genres after findMoviePage proves the @EntityGraph fetch worked.
-        Page<Movie> page = search(new MovieFilter(null, 18L, null, null, null, null, null));
+        Page<Movie> page = search(new MovieFilter(null, 18L, null, null, null, null, null, null));
         assertThat(page.getContent())
                 .allSatisfy(m -> assertThat(m.getGenres()).isNotEmpty());
     }
 
     @Test
+    void filterByIdIn() {
+        // The batch-by-id path: only the two requested ids come back, regardless of other attributes.
+        Page<Movie> page = search(
+                new MovieFilter(null, null, null, null, null, null, null, java.util.List.of(603L, 13L)));
+        assertThat(page.getContent()).extracting(Movie::getId)
+                .containsExactlyInAnyOrder(603L, 13L);
+    }
+
+    @Test
     void sortOrderIsPreserved() {
         Page<Movie> page = movies.findMoviePage(
-                MovieSpecifications.from(new MovieFilter(null, null, null, null, null, null, null)),
+                MovieSpecifications.from(new MovieFilter(null, null, null, null, null, null, null, null)),
                 PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "voteAverage")));
         assertThat(page.getContent()).extracting(Movie::getTitle)
                 .containsExactly("The Dark Knight", "Fight Club", "The Matrix", "Amélie");

@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<!--
+  Booking service — part 2 of 3: "my bookings" way A (API composition).
+  BUILD_PLAN step 2.2. Booking calls Catalog over HTTP (RestClient) and merges titles in memory.
+-->
+<title>Plan: Booking — My Bookings, Way A (API Composition) — ScreenMaster</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel-2: #1d212b; --border: #2a2f3a;
+    --text: #e6e8ee; --muted: #9aa3b2; --accent: #6ea8fe; --accent-2: #7ee787;
+    --warn: #f0b429; --bad: #f47174; --good: #4ec9a4; --chip: #232838;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 32px 20px 80px; }
+  header.page { border-bottom: 1px solid var(--border); padding-bottom: 18px; margin-bottom: 28px; }
+  h1 { font-size: 26px; margin: 0 0 6px; }
+  h2 { font-size: 19px; margin: 36px 0 12px; padding-top: 6px; }
+  h3 { font-size: 16px; }
+  .meta { color: var(--muted); font-size: 14px; display: flex; gap: 16px; flex-wrap: wrap; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 0; }
+  .chip { background: var(--chip); border: 1px solid var(--border); color: var(--muted); border-radius: 999px; padding: 3px 11px; font-size: 12.5px; }
+  .status { font-weight: 600; } .status.draft { color: var(--warn); }
+  p, li { color: var(--text); } .muted { color: var(--muted); }
+  section { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin: 14px 0; }
+  ul.tight { margin: 6px 0; padding-left: 20px; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13.5px; }
+  code { background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; }
+  pre { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow-x: auto; font-size: 13px; }
+  .options { display: grid; gap: 16px; grid-template-columns: 1fr; }
+  @media (min-width: 760px) { .options { grid-template-columns: 1fr 1fr; } }
+  .option { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; position: relative; }
+  .option.recommended { border-color: var(--accent-2); box-shadow: 0 0 0 1px var(--accent-2) inset; }
+  .option h3 { margin: 0 0 4px; }
+  .badge { position: absolute; top: -10px; right: 14px; background: var(--accent-2); color: #0c1a10; font-size: 11.5px; font-weight: 700; border-radius: 999px; padding: 2px 10px; }
+  .pros, .cons { margin: 8px 0; padding-left: 18px; }
+  .pros li { color: var(--good); } .cons li { color: var(--bad); }
+  .pros li span, .cons li span { color: var(--text); }
+  table { width: 100%; border-collapse: collapse; margin: 6px 0; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+  td.kind { white-space: nowrap; }
+  .tag { font-size: 11.5px; border-radius: 5px; padding: 1px 7px; border: 1px solid var(--border); }
+  .tag.new { color: var(--accent-2); } .tag.edit { color: var(--warn); } .tag.del { color: var(--bad); }
+  .callout { border-left: 3px solid var(--accent); background: var(--panel-2); padding: 10px 14px; border-radius: 0 8px 8px 0; }
+  .open-q { border-left-color: var(--warn); } .note { border-left-color: var(--accent-2); }
+  ol.tasks { list-style: none; counter-reset: task; margin: 0; padding: 0; display: grid; gap: 12px; }
+  ol.tasks > li.task { counter-increment: task; position: relative; background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px 14px 52px; }
+  ol.tasks > li.task::before { content: counter(task); position: absolute; left: 14px; top: 14px; width: 26px; height: 26px; border-radius: 50%; background: var(--chip); border: 1px solid var(--accent); color: var(--accent); font: 600 13px/26px ui-monospace, monospace; text-align: center; }
+  li.task h3 { margin: 0 0 4px; }
+  li.task .goal, li.task .done { margin: 4px 0; font-size: 14.5px; }
+  li.task .label { color: var(--muted); font-weight: 600; } li.task .done .label { color: var(--good); }
+  li.task .depends { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  table.verify td.cmd { white-space: nowrap; } table.verify .ok { color: var(--good); }
+  .seq { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; color: var(--muted); font-size: 13.5px; }
+  .seq .here { color: var(--accent-2); font-weight: 700; border: 1px solid var(--accent-2); border-radius: 6px; padding: 1px 8px; }
+  .seq .other { border: 1px solid var(--border); border-radius: 6px; padding: 1px 8px; }
+  footer { margin-top: 40px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); padding-top: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page">
+    <h1>Plan: <em>Booking — My Bookings, Way A (API Composition)</em></h1>
+    <div class="meta">
+      <span>Date: <strong>2026-07-01</strong></span>
+      <span>Author: Claude Code + Mohamed</span>
+      <span class="status" style="color:var(--good)">Status: DONE — implemented 2026-07-08</span>
+    </div>
+    <div class="chips">
+      <span class="chip">Milestone: M2</span>
+      <span class="chip">Service: booking → catalog</span>
+      <span class="chip">Schema §: 8.2 (FK cut)</span>
+      <span class="chip">Build plan: 2.2</span>
+    </div>
+    <div class="seq" style="margin-top:12px">
+      <strong style="color:var(--text)">Feature in 3 parts:</strong>
+      <span class="other">1 · Inventory &amp; showtime foundation</span>
+      <span class="here">2 · My bookings — way A (API composition) (this file)</span>
+      <span class="other">3 · My bookings — way B (CQRS read model)</span>
+    </div>
+  </header>
+
+  <h2>1. Summary</h2>
+  <section>
+    <p>Build the first answer to a cross-service query. <strong>"Show me my bookings, with the movie title for each."</strong>
+    Booking owns the bookings; Catalog owns the titles; the JOIN that used to do this is gone. <strong>Way A — API
+    composition:</strong> Booking's <code>GET /bookings/user/{userId}</code> reads its own rows, collects the distinct
+    <code>movieId</code>s, calls <strong>Catalog over HTTP</strong> (<code>RestClient</code>, load-balanced via
+    <code>lb://catalog</code>) to fetch those titles, and <strong>merges them in memory</strong> into the response. This
+    is BUILD_PLAN step <strong>2.2</strong>, and the whole point of M2: you write the JOIN yourself, in application code,
+    over the network — and you feel what that costs when Catalog is slow or down.</p>
+  </section>
+
+  <h2>2. Milestone &amp; schema link</h2>
+  <section>
+    <ul class="tight">
+      <li><strong>Field-guide milestone:</strong> <strong>M2</strong> — "feel the missing JOIN."</li>
+      <li><strong>Schema doc:</strong> §8.2 — the <code>Showtime → Movie</code> / <code>Booking → Showtime</code> cuts;
+        §7 — the booking facts to snapshot.</li>
+      <li><strong>Build plan step:</strong> <strong>2.2</strong> ("My bookings — way A: Booking calls Catalog over HTTP
+        and merges titles in memory"). Part 3 does 2.3; together they set up 2.4 ("break it").</li>
+      <li><strong>Concepts:</strong> <a href="../concepts/spring-web-annotations.md">spring-web-annotations.md</a> (RestClient),
+        <a href="../concepts/database-per-service.md">database-per-service.md</a> (re-earning queries: composition),
+        <a href="../concepts/sync-vs-async-comms.md">sync-vs-async-comms.md</a> (this is the sync path),
+        <a href="../concepts/service-discovery.md">service-discovery.md</a> (<code>lb://</code> resolves Catalog).</li>
+    </ul>
+  </section>
+
+  <h2>3. Prerequisite — bookings must exist to read</h2>
+  <section>
+    <p>"My bookings" reads <code>bookings</code> + <code>booking_seats</code>. Part 1 creates those <em>tables</em>
+    (open-question recommendation), but real booking <em>creation</em> is the Phase-3 saga. So before way A returns
+    anything meaningful, rows must get there. <strong>This is the cross-part decision you asked to settle in the plan</strong>
+    — laid out as the two options below (§4A). Way A's composition logic is identical either way; only how rows arrive differs.</p>
+    <div class="callout note" style="margin-top:10px">
+      <p>Each booking row already carries <code>showtimeId</code>; each showtime carries <code>movieId</code>. So the title
+      lookup is: <code>booking → showtime.movieId → Catalog GET /movies/{id} → title</code>. We can avoid a second hop by
+      <strong>snapshotting <code>movieId</code> (and <code>movieTitle</code> at booking time) onto the booking row</strong> —
+      see §4B, a genuine design fork for how "composition" even applies.</p>
+    </div>
+  </section>
+
+  <h2>4. Options</h2>
+
+  <h3 style="margin-top:8px">4A · How do booking rows come to exist for this endpoint?</h3>
+  <div class="options">
+    <div class="option recommended">
+      <span class="badge">Recommended</span>
+      <h3>Minimal <code>POST /bookings</code> now (no saga)</h3>
+      <p>A basic create: validate showtime+seats exist, run the <strong>local double-booking guard</strong>, snapshot
+      seat price + showtime facts, persist <code>PENDING</code> + <code>booking_seats</code>. <em>No</em> Payment call,
+      <em>no</em> compensation — that orchestration is Phase 3.2, layered on top of this.</p>
+      <ul class="pros">
+        <li><span>Realistic data: "my bookings" reads rows a user actually created via the API.</span></li>
+        <li><span>Builds Phase-3's 3.1 ("Booking core: create PENDING, hold seats") early — minimal rework, the saga just wraps it.</span></li>
+        <li><span>Exercises the seat-uniqueness invariant (the one place that stays strongly consistent).</span></li>
+      </ul>
+      <ul class="cons"><li><span>Some overlap with Phase 3.1; we must avoid baking saga assumptions in prematurely.</span></li></ul>
+      <p class="muted">Best when: you want the read endpoint demoed on real, self-created data (chosen unless you prefer to keep Phase 2 read-only).</p>
+    </div>
+    <div class="option">
+      <h3>Seed rows via a Liquibase fixture</h3>
+      <p>A demo-only changeset inserts a handful of <code>bookings</code> + <code>booking_seats</code> so the read path has
+      something to return. No write endpoint yet — all booking creation stays in Phase 3.</p>
+      <ul class="pros">
+        <li><span>Keeps Phase 2 strictly about the <em>read/composition</em> lesson; zero write logic.</span></li>
+        <li><span>Smallest change; no overlap with the saga.</span></li>
+      </ul>
+      <ul class="cons">
+        <li><span>The data is fake; the demo is less convincing ("where did these bookings come from?").</span></li>
+        <li><span>Still need a clean way to gate seed data out of any real run.</span></li>
+      </ul>
+      <p class="muted">Best when: you want to defer all write logic and keep parts 2/3 laser-focused on composition vs CQRS.</p>
+    </div>
+  </div>
+
+  <h3 style="margin-top:26px">4B · What does Booking snapshot vs look up live?</h3>
+  <div class="options">
+    <div class="option recommended">
+      <span class="badge">Recommended</span>
+      <h3>Snapshot <code>movieId</code>; look up <em>title</em> live</h3>
+      <p>Store <code>movieId</code> on the booking (copied from the showtime at create time) so Booking doesn't need a
+      showtime join to know which movie. The <strong>title</strong> is fetched live from Catalog per request — that's the
+      composition we want to feel. (Optionally also snapshot the title-at-time for an audit/fallback field, but render the
+      live one.)</p>
+      <ul class="pros">
+        <li><span>Keeps the M2 lesson intact: the cross-service call is real and on the hot path.</span></li>
+        <li><span>Title stays fresh (renamed movie shows new title) — the upside of composition over a stale read model.</span></li>
+        <li><span>Sets up the part-3 contrast precisely (way B trades this freshness for availability).</span></li>
+      </ul>
+      <ul class="cons"><li><span>Every "my bookings" hit calls Catalog; latency + a failure mode (handled in §6).</span></li></ul>
+      <p class="muted">Best when: you want composition to actually bite (chosen — it's the lesson).</p>
+    </div>
+    <div class="option">
+      <h3>Snapshot the title too; never call Catalog</h3>
+      <p>Copy the title onto the booking at create time and just return it — no runtime Catalog call.</p>
+      <ul class="pros"><li><span>Fastest, fully available read; no dependency on Catalog at read time.</span></li></ul>
+      <ul class="cons">
+        <li><span>There's no composition left to demonstrate — defeats the purpose of way A.</span></li>
+        <li><span>Titles go stale and never refresh (this is basically a frozen read model, the <em>worst</em> of both).</span></li>
+      </ul>
+      <p class="muted">Best when: never for way A — but note it's a legitimate production pattern for <em>immutable</em> facts (price), just not for a mutable title.</p>
+    </div>
+  </div>
+
+  <h3 style="margin-top:26px">4C · One-by-one or batch the Catalog lookup?</h3>
+  <div class="options">
+    <div class="option recommended">
+      <span class="badge">Recommended</span>
+      <h3>Batch: one call for the distinct ids</h3>
+      <p>Collect the page's distinct <code>movieId</code>s and fetch them together — reuse Catalog's existing
+      <code>GET /movies?ids=…</code> filter, or add a tiny <code>GET /movies/batch?ids=1,2,3</code>. Build an
+      <code>id → title</code> map, then merge.</p>
+      <ul class="pros">
+        <li><span>One network round-trip per page, not N — the obvious N+1 fix, and a great talking point.</span></li>
+        <li><span>Latency stays flat as the booking list grows.</span></li>
+      </ul>
+      <ul class="cons"><li><span>May need a small batch endpoint on Catalog (cheap; or reuse the filter's <code>id in (…)</code>).</span></li></ul>
+      <p class="muted">Best when: always — this is the production-grade composition.</p>
+    </div>
+    <div class="option">
+      <h3>Per-booking <code>GET /movies/{id}</code></h3>
+      <p>Call Catalog once per booking row.</p>
+      <ul class="pros"><li><span>Uses the existing endpoint as-is; zero Catalog change.</span></li></ul>
+      <ul class="cons">
+        <li><span>Classic N+1 over the network — pages of bookings = pages of calls.</span></li>
+        <li><span>We'd build it just to immediately call it a smell; better to do it right and <em>name</em> the smell.</span></li>
+      </ul>
+      <p class="muted">Best when: a deliberate teaching detour to measure N+1 first, then fix. Optional.</p>
+    </div>
+  </div>
+
+  <h2>5. What changes</h2>
+  <section>
+    <table>
+      <thead><tr><th>Kind</th><th>Where</th><th>What</th></tr></thead>
+      <tbody>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>booking/db/changelog/changes/003-create-bookings.yaml</code></td><td>If not already created in part 1: <code>bookings</code> (<code>user_id</code>, <code>showtime_id</code>, <code>movie_id</code> snapshot, <code>booking_reference</code>, <code>total_amount</code>, <code>status</code>, <code>expires_at</code>) + <code>booking_seats</code> (snapshot <code>seat_price</code>, <code>seat_type_name</code>) + the active-booking unique guard.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>booking/model/Booking.java</code>, <code>BookingSeat.java</code>, <code>BookingStatus.java</code> (STRING)</td><td>Entities + status enum (STRING — §2.4 fix).</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>booking/repository/BookingRepository.java</code></td><td><code>findByUserId</code>, the active-booking count for the guard.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>booking/client/CatalogClient.java</code> + <code>config/CatalogRestClientConfig.java</code></td><td>A <code>RestClient</code> bean pointed at <code>lb://catalog</code> (load-balanced, Eureka-resolved); a typed client method <code>titlesByIds(Set&lt;Long&gt;)</code> returning an <code>id→title</code> map. Mirrors catalog's <code>TmdbRestClientConfig</code> pattern.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>booking/dto/MyBookingDto.java</code> (+ a Catalog summary DTO)</td><td>The merged wire shape: booking fields + <code>movieTitle</code>.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>booking/service/MyBookingsService.java</code></td><td>Read rows → collect ids → call <code>CatalogClient</code> → merge. The composition lives here.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>booking/controller/BookingController.java</code></td><td><code>GET /bookings/user/{userId}</code> (+ <code>POST /bookings</code> if option 4A-minimal-create chosen).</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>booking/exception/BookingErrorCode.java</code></td><td>Add <code>BOOKING_CATALOG_UNAVAILABLE</code> (502/503) for the partial-failure path (§6).</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>catalog/...</code> (small)</td><td>If batch lookup (4C-A) chosen: a <code>GET /movies/batch?ids=…</code> (or reuse the filter's id-in support). A <em>separate, tiny</em> change in the catalog module.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td>tests</td><td>Service test with <code>MockRestServiceServer</code> stubbing Catalog (merge correctness, batch shape); <code>@WebMvcTest</code> for the endpoint; a "Catalog down → coded ProblemDetail / degraded response" test (§6).</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>docs/BUILD_PLAN.md</code></td><td>Tick 2.2.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <h2>6. Risks / microservices cost felt — <em>this is the lesson</em></h2>
+  <section>
+    <div class="callout">
+      <p><strong>Cost surfaced: the missing JOIN + partial failure.</strong> The JOIN is now hand-written network code.
+      The sharp edge: <strong>what happens when Catalog is down or slow?</strong> Way A's honest answer is "the page
+      degrades or fails" — and we make that explicit rather than letting it hang:</p>
+    </div>
+    <ul class="tight" style="margin-top:10px">
+      <li><strong>Timeout on the <code>RestClient</code></strong> (a short connect/read timeout) so a dead Catalog fails
+        fast instead of hanging the request.</li>
+      <li><strong>A decision to make:</strong> on Catalog failure, do we (a) fail the whole page with a coded
+        <code>BOOKING_CATALOG_UNAVAILABLE</code> ProblemDetail, or (b) <strong>degrade</strong> — return the bookings with
+        <code>movieTitle: null</code> / a placeholder, log the gap? <em>Recommendation:</em> <strong>degrade</strong> — a
+        booking list with missing titles is more useful than a 502, and it sets up the part-3 contrast beautifully ("way B
+        wouldn't even notice Catalog was down"). Either way the behavior is intentional, not an accident.</li>
+      <li><strong>Phase-5 hook:</strong> the real Resilience4j retry/circuit-breaker around this exact client is Phase 5.
+        Here we do the <em>minimum honest</em> version (timeout + explicit degrade) and note the breaker as the next step —
+        we don't gold-plate ahead of its milestone.</li>
+      <li><strong>N+1:</strong> addressed by 4C-A (batch). Worth saying out loud as the thing composition gets wrong by default.</li>
+    </ul>
+  </section>
+
+  <h2>7. Implementation tasks (recommended path)</h2>
+  <section>
+    <ol class="tasks">
+      <li class="task"><h3>Booking + BookingSeat entities &amp; schema</h3>
+        <p class="goal"><span class="label">Goal:</span> the bookings/booking_seats tables (if part 1 didn't create them) + entities with STRING enum + snapshot columns.</p>
+        <p class="done"><span class="label">Done when:</span> <code>ddl-auto=validate</code> green; <code>@DataJpaTest</code> persists a booking with seats and the active-booking unique guard rejects a double-book.</p>
+        <p class="depends">Depends on: part 1 (showtimes, seats)</p></li>
+      <li class="task"><h3>Booking source (4A): minimal <code>POST /bookings</code> OR seed fixture</h3>
+        <p class="goal"><span class="label">Goal:</span> get rows into the table per the chosen 4A option.</p>
+        <p class="done"><span class="label">Done when:</span> at least one user has bookings to read (via API or seed).</p>
+        <p class="depends">Depends on: Task 1</p></li>
+      <li class="task"><h3>CatalogClient + RestClient config (<code>lb://catalog</code>)</h3>
+        <p class="goal"><span class="label">Goal:</span> a load-balanced <code>RestClient</code> bean with a short timeout; a typed <code>titlesByIds</code> method returning an id→title map (batch, 4C-A). Catalog failures translate to a coded exception.</p>
+        <p class="done"><span class="label">Done when:</span> a <code>MockRestServiceServer</code> test proves the map is built from a batch response and a 5xx maps to <code>BOOKING_CATALOG_UNAVAILABLE</code>.</p>
+        <p class="depends">Depends on: — (parallel)</p></li>
+      <li class="task"><h3>MyBookingsService — the composition</h3>
+        <p class="goal"><span class="label">Goal:</span> read user's bookings → distinct <code>movieId</code>s → <code>CatalogClient.titlesByIds</code> → merge into <code>MyBookingDto</code>. Apply the degrade-vs-fail decision (§6).</p>
+        <p class="done"><span class="label">Done when:</span> with Catalog up, titles appear; with Catalog stubbed-down, the chosen degraded/failed behavior is returned and tested.</p>
+        <p class="depends">Depends on: Tasks 2, 3</p></li>
+      <li class="task"><h3>Endpoint + (optional) Catalog batch endpoint + build-plan tick</h3>
+        <p class="goal"><span class="label">Goal:</span> <code>GET /bookings/user/{userId}</code> wired; add the small Catalog <code>/movies/batch</code> if needed; tick 2.2.</p>
+        <p class="done"><span class="label">Done when:</span> end-to-end curl through the gateway returns bookings-with-titles; <code>BUILD_PLAN.md</code> updated.</p>
+        <p class="depends">Depends on: Task 4</p></li>
+    </ol>
+  </section>
+
+  <h2>8. Verification</h2>
+  <section>
+    <table class="verify">
+      <thead><tr><th>Check</th><th>Command</th><th>Expected</th></tr></thead>
+      <tbody>
+        <tr><td>Tests green</td><td class="cmd"><code>./mvnw -pl booking test</code></td><td><span class="ok">✓</span> merge + Catalog-down tests pass (MockRestServiceServer)</td></tr>
+        <tr><td>Happy path</td><td class="cmd"><code>curl .../api/bookings/user/1</code></td><td><span class="ok">✓</span> each booking has the live <code>movieTitle</code></td></tr>
+        <tr><td>Batch, not N+1</td><td class="cmd">Catalog logs during the call</td><td><span class="ok">✓</span> one <code>/movies</code> lookup for the whole page</td></tr>
+        <tr><td>Partial failure</td><td class="cmd"><code>docker stop catalog</code> then the curl</td><td><span class="ok">✓</span> degrades (null titles) <em>or</em> coded 502 — as chosen, fast (timeout), not a hang</td></tr>
+        <tr><td>Title freshness</td><td class="cmd">rename a movie in Catalog, re-curl</td><td><span class="ok">✓</span> new title shows (composition stays fresh — the part-3 contrast)</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <h2>9. Open questions — <em>resolved</em></h2>
+  <section>
+    <div class="callout note">
+      <ul class="tight">
+        <li><strong>4A:</strong> <strong>minimal `POST /bookings`</strong> (no saga) — doubles as Phase 3.1. ✅</li>
+        <li><strong>4B:</strong> <strong>snapshot `movieId`, resolve title live</strong> — keeps the M2 composition on the hot path. ✅</li>
+        <li><strong>4C:</strong> <strong>new `GET /movies/batch?ids=`</strong> on Catalog (plain array, capped at 100 ids, backed by a new `idIn` Specification) — one round-trip, not N. ✅</li>
+        <li><strong>§6:</strong> on Catalog down → <strong>degrade to `movieTitle: null`</strong> (`titlesByIds` returns an empty map + logs; contrast the write-path `verifyMovieExists`, which throws). ✅</li>
+        <li><strong>The "no users yet" gap (raised in review):</strong> Identity is Phase 7, so `user_id` is an <strong>opaque cross-service reference</strong> — typed <code>VARCHAR(36)</code> (changeset 004; Keycloak <code>sub</code> is a UUID) and supplied via an <strong><code>X-User-Id</code> header</strong> read through a <code>@CurrentUser</code> argument resolver. The Phase-7 swap to the JWT <code>sub</code> is a one-method change, no schema/controller edits. New concept: <code>docs/concepts/current-user-resolution.md</code>. ✅</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    ScreenMaster Microservices — Booking part 2 of 3 (BUILD_PLAN 2.2). Review, choose 4A/4B/4C + the §6 behavior, then implement.
+  </footer>
+
+</div>
+</body>
+</html>

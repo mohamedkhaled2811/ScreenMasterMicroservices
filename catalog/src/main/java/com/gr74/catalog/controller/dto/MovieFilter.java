@@ -1,6 +1,7 @@
 package com.gr74.catalog.controller.dto;
 
 import java.math.BigDecimal;
+import java.util.Collection;
 
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
@@ -50,6 +51,14 @@ public record MovieFilter(
         BigDecimal minRating,
 
         /** Tri-state: {@code null} = no filter, {@code true}/{@code false} = match adult flag. */
-        Boolean adult) {
+        Boolean adult,
+
+        /**
+         * Restrict to movies whose id is in this set ({@code id IN (…)}); {@code null}/empty = no
+         * filter. Not a normal browse param — it backs the batch-by-id lookup ({@code GET
+         * /movies/batch}) that sibling services (Booking's "my bookings" composition) use to resolve a
+         * known set of ids to titles in one round-trip instead of N.
+         */
+        Collection<Long> ids) {
 
 }

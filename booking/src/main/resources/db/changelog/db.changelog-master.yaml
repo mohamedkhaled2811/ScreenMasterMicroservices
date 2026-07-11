@@ -6,7 +6,8 @@
 #
 #   001-create-inventory   theaters -> screens -> seats + seat_types (intra-Booking FKs)
 #   002-create-showtimes   showtimes; movie_id is the cross-service CUT (no FK), screen_id is a real FK
-#   003-create-bookings    bookings + booking_seats — SCHEMA ONLY (mapped as entities + written in Phase 3)
+#   003-create-bookings    bookings + booking_seats — schema first (mapped as entities in Phase 2 part 2)
+#   004-alter-bookings-...  widen bookings.user_id BIGINT -> VARCHAR(36) (Keycloak `sub` is a UUID string)
 #
 # See docs/concepts/liquibase.md.
 databaseChangeLog:
@@ -16,3 +17,5 @@ databaseChangeLog:
       file: db/changelog/changes/002-create-showtimes.yaml
   - include:
       file: db/changelog/changes/003-create-bookings.yaml
+  - include:
+      file: db/changelog/changes/004-alter-bookings-user-id-varchar.yaml

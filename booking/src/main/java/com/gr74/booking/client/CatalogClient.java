@@ -3,6 +3,7 @@ package com.gr74.booking.client;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -20,14 +21,21 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Booking's synchronous window into Catalog. It carries the two cross-service reads Booking needs, and
- * they answer failure <em>differently on purpose</em> — the contrast is the whole point:
+ * Booking's synchronous window into Catalog. It carries the cross-service reads Booking needs, and they
+ * answer failure <em>differently on purpose</em> — the three contracts here are a deliberate teaching
+ * contrast, because "no such movie" and "Catalog is down" are different problems, and a read, a write, and
+ * a cache-fill each want a different answer to them:
  * <ul>
- *   <li>{@link #verifyMovieExists(long)} (write path, showtime create) <b>throws</b> on any failure — a
+ *   <li>{@link #verifyMovieExists(long)} (write path, showtime create) <b>throws on any failure</b> — a
  *       bad {@code movieId} must reject the write, so "unknown" and "Catalog down" are both hard stops.</li>
- *   <li>{@link #titlesByIds(Set)} (read path, "my bookings") <b>degrades</b> — a Catalog outage returns
- *       an empty map, so the bookings list still renders (with null titles) instead of failing. A read is
- *       more useful stale/partial than absent; a write is not.</li>
+ *   <li>{@link #titlesByIds(Set)} (read path, "my bookings" way A) <b>degrades to an empty map</b> — a
+ *       Catalog outage still renders the list (with null titles) instead of failing. A read is more useful
+ *       stale/partial than absent.</li>
+ *   <li>{@link #titleById(long)} (cache-fill, "my bookings" way B lazy backfill) <b>returns empty on 404
+ *       but throws on unavailable</b> — it must distinguish the two, because it writes the result into a
+ *       persistent read model: a genuine 404 is safe to treat as "unknown", but an outage must NOT be
+ *       cached (writing a null/placeholder would poison the cache and suppress the retry). This is exactly
+ *       why it can't reuse {@code titlesByIds}, whose degrade collapses both cases into "empty".</li>
  * </ul>
  *
  * <p>The write path makes the cross-service cut feel real: the {@code movie_id} FK is gone, so Booking
@@ -123,6 +131,46 @@ public class CatalogClient {
             log.warn("Catalog unavailable while resolving {} title(s); degrading to no titles: {}",
                     ids.size(), failure.getMessage());
             return Map.of();
+        }
+    }
+
+    /**
+     * Resolve a <em>single</em> movie id to its title for the way-B lazy backfill — the cache-fill on a
+     * {@code movie_titles} miss. Unlike {@link #titlesByIds}, this <b>distinguishes 404 from unavailable</b>
+     * because the caller persists the result:
+     * <ul>
+     *   <li><b>2xx</b> → {@code Optional.of(title)} — cache it.</li>
+     *   <li><b>404</b> → {@code Optional.empty()} — a definitive "no such movie". The caller serves a null
+     *       title and need not keep hammering Catalog for a genuinely-unknown id.</li>
+     *   <li><b>anything else / transport / timeout</b> → <b>throws</b> {@link CatalogUnavailableException}.
+     *       The caller MUST NOT write anything to the cache on this — persisting a placeholder would hide
+     *       the miss and suppress the retry once Catalog recovers (cache poisoning). Serve null this once;
+     *       the next read retries.</li>
+     * </ul>
+     * Reads {@code GET /movies/{id}} and projects out just the title (it's the {@code MovieDto} detail
+     * shape; we only need the title here).
+     */
+    public Optional<String> titleById(long movieId) {
+        try {
+            MovieSummary movie = catalogRestClient.get()
+                    .uri("/movies/{id}", movieId)
+                    .retrieve()
+                    .onStatus(status -> status.value() == 404, (request, response) -> {
+                        // Swallow 404 into a sentinel we turn into Optional.empty() below — a definitive
+                        // "no such movie", not an outage. Throwing a dedicated marker keeps the mapping clear.
+                        throw new MovieNotInCatalogException(movieId);
+                    })
+                    .body(MovieSummary.class);
+            return Optional.ofNullable(movie).map(MovieSummary::title);
+        } catch (MovieNotInCatalogException notFound) {
+            return Optional.empty();
+        } catch (RestClientResponseException http) {
+            // Any other HTTP error status (5xx, unexpected 4xx): Catalog is up but not giving a trustworthy
+            // answer — unavailable, so the caller must not cache. Throw, don't degrade.
+            throw new CatalogUnavailableException(movieId, http);
+        } catch (RuntimeException transport) {
+            // Connection refused, timeout, DNS/lb resolution failure — Catalog is unreachable.
+            throw new CatalogUnavailableException(movieId, transport);
         }
     }
 

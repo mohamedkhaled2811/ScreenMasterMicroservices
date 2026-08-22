@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<!--
+  Booking service — part 3 of 3: "my bookings" way B (CQRS read model).
+  BUILD_PLAN step 2.3. Catalog publishes MovieUpdated to RabbitMQ; Booking keeps a local
+  movie_titles(id, title) table and joins locally. Includes BOTH sides (publisher + consumer).
+-->
+<title>Plan: Booking — My Bookings, Way B (CQRS Read Model) — ScreenMaster</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel-2: #1d212b; --border: #2a2f3a;
+    --text: #e6e8ee; --muted: #9aa3b2; --accent: #6ea8fe; --accent-2: #7ee787;
+    --warn: #f0b429; --bad: #f47174; --good: #4ec9a4; --chip: #232838;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 32px 20px 80px; }
+  header.page { border-bottom: 1px solid var(--border); padding-bottom: 18px; margin-bottom: 28px; }
+  h1 { font-size: 26px; margin: 0 0 6px; }
+  h2 { font-size: 19px; margin: 36px 0 12px; padding-top: 6px; }
+  h3 { font-size: 16px; }
+  .meta { color: var(--muted); font-size: 14px; display: flex; gap: 16px; flex-wrap: wrap; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 0; }
+  .chip { background: var(--chip); border: 1px solid var(--border); color: var(--muted); border-radius: 999px; padding: 3px 11px; font-size: 12.5px; }
+  .status { font-weight: 600; } .status.draft { color: var(--warn); }
+  p, li { color: var(--text); } .muted { color: var(--muted); }
+  section { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin: 14px 0; }
+  ul.tight { margin: 6px 0; padding-left: 20px; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13.5px; }
+  code { background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; }
+  pre { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow-x: auto; font-size: 13px; }
+  .options { display: grid; gap: 16px; grid-template-columns: 1fr; }
+  @media (min-width: 760px) { .options { grid-template-columns: 1fr 1fr; } }
+  .option { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; position: relative; }
+  .option.recommended { border-color: var(--accent-2); box-shadow: 0 0 0 1px var(--accent-2) inset; }
+  .option h3 { margin: 0 0 4px; }
+  .badge { position: absolute; top: -10px; right: 14px; background: var(--accent-2); color: #0c1a10; font-size: 11.5px; font-weight: 700; border-radius: 999px; padding: 2px 10px; }
+  .pros, .cons { margin: 8px 0; padding-left: 18px; }
+  .pros li { color: var(--good); } .cons li { color: var(--bad); }
+  .pros li span, .cons li span { color: var(--text); }
+  table { width: 100%; border-collapse: collapse; margin: 6px 0; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+  td.kind { white-space: nowrap; }
+  .tag { font-size: 11.5px; border-radius: 5px; padding: 1px 7px; border: 1px solid var(--border); }
+  .tag.new { color: var(--accent-2); } .tag.edit { color: var(--warn); } .tag.del { color: var(--bad); }
+  .callout { border-left: 3px solid var(--accent); background: var(--panel-2); padding: 10px 14px; border-radius: 0 8px 8px 0; }
+  .open-q { border-left-color: var(--warn); } .note { border-left-color: var(--accent-2); }
+  ol.tasks { list-style: none; counter-reset: task; margin: 0; padding: 0; display: grid; gap: 12px; }
+  ol.tasks > li.task { counter-increment: task; position: relative; background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px 14px 52px; }
+  ol.tasks > li.task::before { content: counter(task); position: absolute; left: 14px; top: 14px; width: 26px; height: 26px; border-radius: 50%; background: var(--chip); border: 1px solid var(--accent); color: var(--accent); font: 600 13px/26px ui-monospace, monospace; text-align: center; }
+  li.task h3 { margin: 0 0 4px; }
+  li.task .goal, li.task .done { margin: 4px 0; font-size: 14.5px; }
+  li.task .label { color: var(--muted); font-weight: 600; } li.task .done .label { color: var(--good); }
+  li.task .depends { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  table.verify td.cmd { white-space: nowrap; } table.verify .ok { color: var(--good); }
+  .seq { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; color: var(--muted); font-size: 13.5px; }
+  .seq .here { color: var(--accent-2); font-weight: 700; border: 1px solid var(--accent-2); border-radius: 6px; padding: 1px 8px; }
+  .seq .other { border: 1px solid var(--border); border-radius: 6px; padding: 1px 8px; }
+  footer { margin-top: 40px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); padding-top: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page">
+    <h1>Plan: <em>Booking — My Bookings, Way B (CQRS Read Model)</em></h1>
+    <div class="meta">
+      <span>Date: <strong>2026-07-01</strong></span>
+      <span>Author: Claude Code + Mohamed</span>
+      <span class="status draft">Status: IMPLEMENTED (2026-08-03) — decisions locked in §9; 2.4 live demo Docker-pending</span>
+    </div>
+    <div class="chips">
+      <span class="chip">Milestone: M2 (+ M4 preview)</span>
+      <span class="chip">Service: catalog → booking</span>
+      <span class="chip">Schema §: 8.2, 8.5</span>
+      <span class="chip">Build plan: 2.3 + 2.4</span>
+    </div>
+    <div class="seq" style="margin-top:12px">
+      <strong style="color:var(--text)">Feature in 3 parts:</strong>
+      <span class="other">1 · Inventory &amp; showtime foundation</span>
+      <span class="other">2 · My bookings — way A (API composition)</span>
+      <span class="here">3 · My bookings — way B (CQRS read model) (this file)</span>
+    </div>
+  </header>
+
+  <h2>1. Summary</h2>
+  <section>
+    <p>The second answer to the same cross-service query — and the opposite trade. Instead of calling Catalog at read
+    time, <strong>Catalog publishes a <code>MovieUpdated</code> event to RabbitMQ whenever a movie changes</strong>, and
+    Booking <strong>keeps its own local <code>movie_titles(id, title)</code> table</strong>, updated by a consumer. Now
+    "my bookings" is a <strong>local JOIN again</strong> — Booking joins its bookings to its own title cache, no network
+    call. This is BUILD_PLAN <strong>2.3</strong> and a small, honest <strong>CQRS read model</strong>: writes stay with
+    the owner (Catalog), heavy reads hit a denormalized local view. Then <strong>2.4 ("break it")</strong>: stop Catalog —
+    way A (part 2) fails or degrades; <strong>way B keeps serving titles</strong>, possibly stale. That single side-by-side
+    is the entire eventual-consistency lesson, felt.</p>
+    <p>Per the locked decision, this plan covers <strong>both sides</strong>: the Catalog <em>publisher</em> and the Booking
+    <em>consumer + read model</em>.</p>
+  </section>
+
+  <h2>2. Milestone &amp; schema link</h2>
+  <section>
+    <ul class="tight">
+      <li><strong>Field-guide milestone:</strong> <strong>M2</strong> (the CQRS answer) with a deliberate preview of
+        <strong>M4</strong> (reliable publishing / idempotent consume) — we keep it light here and do the full
+        outbox + dedupe rigor in Phase 4.</li>
+      <li><strong>Schema doc:</strong> §8.2 (the cut), §8.5 ("eventing backbone: RabbitMQ … promote it to the inter-service
+        event bus"), §4 (the existing exchange/queue model).</li>
+      <li><strong>Build plan step:</strong> <strong>2.3</strong> + enables <strong>2.4</strong>.</li>
+      <li><strong>Concepts:</strong> <a href="../concepts/database-per-service.md">database-per-service.md</a> (CQRS read model,
+        eventual consistency), <a href="../concepts/rabbitmq.md">rabbitmq.md</a> (exchange/queue/binding),
+        <a href="../concepts/sync-vs-async-comms.md">sync-vs-async-comms.md</a> (event vs command; async path),
+        <a href="../concepts/idempotent-consumer.md">idempotent-consumer.md</a> (the consumer must be idempotent),
+        <a href="../concepts/transactional-outbox.md">transactional-outbox.md</a> (referenced; full version is Phase 4).</li>
+    </ul>
+  </section>
+
+  <h2>3. The shape</h2>
+  <section>
+<pre>Catalog (owns movies)                         RabbitMQ                      Booking (read model)
+  upsert movie ──▶ publish MovieUpdated ──▶ [exchange] ──key──▶ [queue] ──▶ consumer ──▶ UPSERT movie_titles(id,title)
+                   {id, title, eventId}                                                         │
+                                                                                                ▼
+                       GET /bookings/user/{id}  ──▶  LOCAL JOIN bookings ⨝ movie_titles  (no network call)</pre>
+    <p class="muted">The contrast with part 2: way A reaches across the boundary <em>at read time</em> (fresh, but
+    coupled); way B reaches across <em>ahead of time</em> via events (decoupled at read time, but the local copy lags).</p>
+  </section>
+
+  <h2>4. Options</h2>
+
+  <h3 style="margin-top:8px">4A · How reliably does Catalog publish? (publisher side)</h3>
+  <div class="options">
+    <div class="option recommended">
+      <span class="badge">Recommended</span>
+      <h3>Direct publish now; full outbox in Phase 4</h3>
+      <p>Catalog publishes <code>MovieUpdated</code> straight from the upsert path (<code>RabbitTemplate.convertAndSend</code>)
+      after a successful save. Note the gap honestly: if the broker is down at that instant the event is lost — which is
+      <em>exactly</em> the problem the <a href="../concepts/transactional-outbox.md">transactional outbox</a> solves in
+      Phase 4. We build the naive version here so M4's outbox has a felt motivation.</p>
+      <ul class="pros">
+        <li><span>Small, focused on the M2 CQRS lesson; doesn't pull Phase-4 work forward.</span></li>
+        <li><span>The "lost event" gap is a deliberate, narratable setup for the outbox.</span></li>
+      </ul>
+      <ul class="cons"><li><span>Not reliable: a publish can be lost on broker hiccup (acknowledged, deferred to M4).</span></li></ul>
+      <p class="muted">Best when: you want way B working without conflating it with the outbox milestone (chosen).</p>
+    </div>
+    <div class="option">
+      <h3>Outbox in Catalog now</h3>
+      <p>Write <code>MovieUpdated</code> to a Catalog <code>outbox</code> table in the same txn as the upsert; a relay
+      publishes it.</p>
+      <ul class="pros"><li><span>Reliable from day one; no lost events.</span></li></ul>
+      <ul class="cons">
+        <li><span>Pulls Phase-4's whole pattern into Phase 2; larger, and steals M4's punchline.</span></li>
+        <li><span>The build plan explicitly sequences the outbox at M4 — jumping it muddies the curriculum.</span></li>
+      </ul>
+      <p class="muted">Best when: you'd rather never ship the naive version. (Against the build-plan sequencing.)</p>
+    </div>
+  </div>
+
+  <h3 style="margin-top:26px">4B · How does Booking consume idempotently? (consumer side)</h3>
+  <div class="options">
+    <div class="option recommended">
+      <span class="badge">Recommended</span>
+      <h3>UPSERT keyed by movie id (naturally idempotent)</h3>
+      <p>The consumer does <code>INSERT … ON CONFLICT(id) DO UPDATE</code> into <code>movie_titles</code>. Re-delivering
+      the same <code>MovieUpdated</code> just re-writes the same row — idempotent by the key, no dedupe table needed for a
+      last-writer-wins title cache.</p>
+      <ul class="pros">
+        <li><span>Simplest correct thing: the operation is intrinsically idempotent (matches catalog's own assigned-key upsert pattern).</span></li>
+        <li><span>No <code>processed_events</code> table to maintain at this stage.</span></li>
+      </ul>
+      <ul class="cons"><li><span>Out-of-order delivery could write an older title over a newer one (mitigate with an <code>updatedAt</code>/version on the event — see §6).</span></li></ul>
+      <p class="muted">Best when: the projection is last-writer-wins (a title cache is). The full <code>processed_events</code> dedupe is the Phase-4 lesson.</p>
+    </div>
+    <div class="option">
+      <h3><code>processed_events</code> dedupe table now</h3>
+      <p>Track each consumed <code>eventId</code>; skip duplicates explicitly.</p>
+      <ul class="pros"><li><span>The general idempotent-consumer pattern, reusable for non-idempotent side effects.</span></li></ul>
+      <ul class="cons">
+        <li><span>Overkill for an idempotent UPSERT; it's the M4 (Notification) lesson, better taught there with the email send-effect.</span></li>
+      </ul>
+      <p class="muted">Best when: the side effect isn't naturally idempotent (Phase 4's email). Here, not needed.</p>
+    </div>
+  </div>
+
+  <h3 style="margin-top:26px">4C · What seeds the read model for movies that changed <em>before</em> Booking existed?</h3>
+  <div class="options">
+    <div class="option recommended">
+      <span class="badge">Recommended</span>
+      <h3>Lazy backfill on miss (fallback to a Catalog fetch)</h3>
+      <p>If a booking's <code>movieId</code> isn't in <code>movie_titles</code> yet (no event seen for it), fetch it once
+      from Catalog (reusing part 2's <code>CatalogClient</code>) and cache it locally. Steady-state reads are local;
+      first-ever read of an un-cached movie does one lookup.</p>
+      <ul class="pros">
+        <li><span>No cold-start hole — the read model fills itself on demand and from events.</span></li>
+        <li><span>Reuses part 2's client; shows composition + CQRS composing (a real production pattern).</span></li>
+      </ul>
+      <ul class="cons"><li><span>A cache-miss read still touches Catalog (so "break it" must use an already-cached movie to show way B surviving — which is the honest demo anyway).</span></li></ul>
+      <p class="muted">Best when: you want no missing titles ever, with local reads in steady state (chosen).</p>
+    </div>
+    <div class="option">
+      <h3>Catalog emits a full snapshot / Booking ignores misses</h3>
+      <p>Either Catalog publishes all current movies once on startup, or Booking just shows "(title unavailable)" for misses.</p>
+      <ul class="pros"><li><span>Pure event-driven; no read-time Catalog call at all.</span></li></ul>
+      <ul class="cons">
+        <li><span>Snapshot-on-startup is more publisher machinery; "ignore misses" leaves visible holes until an event arrives.</span></li>
+      </ul>
+      <p class="muted">Best when: you want way B to be 100% network-free even on cache miss, and accept holes or a snapshot job.</p>
+    </div>
+  </div>
+
+  <h2>5. What changes</h2>
+  <section>
+    <p class="muted"><strong>Catalog side</strong> (publisher) and <strong>Booking side</strong> (consumer + read model).
+    Booking gains an AMQP dependency it doesn't yet have.</p>
+    <table>
+      <thead><tr><th>Kind</th><th>Where</th><th>What</th></tr></thead>
+      <tbody>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>catalog/pom.xml</code> + <code>booking/pom.xml</code></td><td>Add <code>spring-boot-starter-amqp</code> to both (neither has it today).</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>catalog/config/RabbitConfig.java</code></td><td>Topic exchange + (for Booking) queue/binding declarations; <code>Jackson2JsonMessageConverter</code> (matches the monolith's setup).</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>catalog/event/MovieUpdated.java</code> (record) + a publisher</td><td>The event DTO (<code>id</code>, <code>title</code>, <code>updatedAt</code>/version, <code>eventId</code>); published from <code>CatalogUpserter</code> after a successful upsert.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>catalog/service/CatalogUpserter.java</code></td><td>Emit <code>MovieUpdated</code> on insert/update (direct publish, 4A-A).</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>booking/db/changelog/changes/004-create-movie-titles.yaml</code></td><td><code>movie_titles(id PK, title, updated_at)</code> — the read model.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>booking/model/MovieTitle.java</code> + repository</td><td>The local projection entity.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>booking/config/RabbitConfig.java</code> + <code>messaging/MovieUpdatedListener.java</code></td><td><code>@RabbitListener</code> consumer doing the idempotent UPSERT (4B-A).</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>booking/service/MyBookingsService.java</code></td><td>Add a way-B path: local join to <code>movie_titles</code> (lazy-backfill on miss, 4C-A). Keep way A so 2.4 can contrast both.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>booking/controller/BookingController.java</code></td><td>Expose way B — either a separate endpoint (<code>?source=readmodel</code> or <code>/bookings/user/{id}/v2</code>) so both ways are demoable side-by-side for 2.4.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>compose.yaml</code></td><td>RabbitMQ already runs (Phase 1.4); ensure catalog+booking depend on it. Likely no topology change.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td>tests</td><td>Catalog: publisher emits on upsert (mock <code>RabbitTemplate</code>). Booking: listener UPSERT is idempotent on redelivery (<code>@DataJpaTest</code> + direct invoke, or Testcontainers RabbitMQ if we want a real broker); way-B join returns local titles with Catalog down.</td></tr>
+        <tr><td class="kind"><span class="tag edit">EDIT</span></td><td><code>docs/BUILD_PLAN.md</code></td><td>Tick 2.3 and 2.4.</td></tr>
+        <tr><td class="kind"><span class="tag new">NEW</span></td><td><code>docs/concepts/cqrs-read-model.md</code> (maybe)</td><td>If we decide CQRS deserves its own concept file beyond database-per-service's section; link from concepts/README.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <h2>6. Risks / microservices cost felt</h2>
+  <section>
+    <div class="callout">
+      <p><strong>Cost surfaced: eventual consistency, by choice.</strong> The local <code>movie_titles</code> table lags
+      the real Catalog by however long the event takes to arrive. A movie renamed in Catalog shows the <em>old</em> title
+      in "my bookings (way B)" until the event lands — and that's a <strong>business decision, not a bug</strong>
+      (database-per-service.md). The flip side is the prize: with Catalog <em>down</em>, way B still answers from the local
+      copy. That's the whole 2.4 demo.</p>
+    </div>
+    <ul class="tight" style="margin-top:10px">
+      <li><strong>Lost event (publisher gap):</strong> direct publish can drop on broker hiccup → the read model silently
+        misses an update. <em>Mitigated</em> by 4C lazy-backfill (a miss self-heals) and <em>fully solved</em> by the
+        Phase-4 outbox. Named, not hidden.</li>
+      <li><strong>Out-of-order / duplicate delivery:</strong> the UPSERT is idempotent (4B-A); carrying <code>updatedAt</code>
+        on the event lets the consumer ignore an older write (last-writer-wins by timestamp), avoiding a stale overwrite.</li>
+      <li><strong>Two ways coexisting:</strong> keeping way A and way B both live (separate endpoints) is intentional —
+        2.4's value is running them <em>against the same stopped Catalog</em> and watching them diverge.</li>
+      <li><strong>Scope honesty:</strong> this is a <em>light</em> CQRS read model (a title cache), not an Elasticsearch
+        projection. We say that out loud; the pattern is the lesson, not the scale.</li>
+    </ul>
+  </section>
+
+  <h2>7. Implementation tasks (recommended path)</h2>
+  <section>
+    <ol class="tasks">
+      <li class="task"><h3>Catalog: AMQP config + <code>MovieUpdated</code> event</h3>
+        <p class="goal"><span class="label">Goal:</span> add <code>spring-boot-starter-amqp</code>, a topic exchange + JSON converter, the event record, and publish from <code>CatalogUpserter</code> after a successful upsert.</p>
+        <p class="done"><span class="label">Done when:</span> a unit test asserts an upsert triggers one <code>convertAndSend</code> with the right routing key/payload; live, a synced movie lands a message on the queue (RabbitMQ console).</p>
+        <p class="depends">Depends on: —</p></li>
+      <li class="task"><h3>Booking: read-model table + entity</h3>
+        <p class="goal"><span class="label">Goal:</span> <code>movie_titles</code> changeset + <code>MovieTitle</code> entity/repo; <code>ddl-auto=validate</code> green.</p>
+        <p class="done"><span class="label">Done when:</span> <code>@DataJpaTest</code> UPSERTs and reads a title back.</p>
+        <p class="depends">Depends on: part 1 (booking module schema wired)</p></li>
+      <li class="task"><h3>Booking: idempotent consumer</h3>
+        <p class="goal"><span class="label">Goal:</span> add AMQP, queue/binding, a <code>@RabbitListener</code> that UPSERTs <code>movie_titles</code> (4B-A), guarding against an older <code>updatedAt</code>.</p>
+        <p class="done"><span class="label">Done when:</span> delivering the same event twice yields one row, unchanged on the second (idempotent); an older-timestamp event doesn't overwrite a newer title.</p>
+        <p class="depends">Depends on: Tasks 1, 2</p></li>
+      <li class="task"><h3>Booking: way-B read path + endpoint</h3>
+        <p class="goal"><span class="label">Goal:</span> local join bookings ⨝ <code>movie_titles</code>; lazy-backfill on miss via part-2's <code>CatalogClient</code> (4C-A); expose as a distinct endpoint so way A and way B coexist.</p>
+        <p class="done"><span class="label">Done when:</span> with Catalog stopped, the way-B endpoint still returns titles for already-cached movies; way A (part 2) fails/degrades on the same call.</p>
+        <p class="depends">Depends on: Task 3, part 2</p></li>
+      <li class="task"><h3>2.4 "break it" demo + build-plan tick</h3>
+        <p class="goal"><span class="label">Goal:</span> a short scripted demo: both endpoints up with Catalog running; <code>docker stop catalog</code>; show A fail/degrade, B serve (possibly stale) titles; rename a movie to show B's lag then catch-up. Tick 2.3 + 2.4.</p>
+        <p class="done"><span class="label">Done when:</span> the demo runs as described; <code>BUILD_PLAN.md</code> updated; the staleness tradeoff is narratable from the output.</p>
+        <p class="depends">Depends on: Task 4</p></li>
+    </ol>
+  </section>
+
+  <h2>8. Verification</h2>
+  <section>
+    <table class="verify">
+      <thead><tr><th>Check</th><th>Command</th><th>Expected</th></tr></thead>
+      <tbody>
+        <tr><td>Event flows</td><td class="cmd">sync a movie; watch RabbitMQ console + Booking logs</td><td><span class="ok">✓</span> <code>MovieUpdated</code> published &amp; consumed; <code>movie_titles</code> row appears</td></tr>
+        <tr><td>Idempotent</td><td class="cmd"><code>./mvnw -pl booking test</code></td><td><span class="ok">✓</span> redelivery → one row; older event ignored</td></tr>
+        <tr><td>Local join</td><td class="cmd"><code>curl -H 'X-User-Id: …' '.../api/bookings/my?source=readmodel'</code></td><td><span class="ok">✓</span> titles from <code>movie_titles</code>, no Catalog call (logs prove it)</td></tr>
+        <tr><td>2.4 — break it</td><td class="cmd">read once with Catalog up (fills cache), then <code>docker stop catalog</code>, re-curl both</td><td><span class="ok">✓</span> way A → <code>movieTitle:null</code>; way B still answers for <strong>already-cached</strong> movies</td></tr>
+        <tr><td>Staleness</td><td class="cmd">rename a movie in Catalog, re-curl both</td><td><span class="ok">✓</span> A fresh immediately; B stale until the event lands, then catches up</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <h2>9. Decisions — RESOLVED (grill session 2026-08-03) &amp; IMPLEMENTED</h2>
+  <section>
+    <div class="callout note">
+      <p>Every open question below was walked in a grilling session and locked. Two were pushed back on and
+      re-shaped (the ambiguous four-field payload; reusing way-A's degrading client for a cache write). The
+      one hard-to-reverse call — publish-from-refresh-only — is recorded as
+      <code>docs/adr/0001-movieupserted-published-from-incremental-refresh-only.md</code>.</p>
+      <ul class="tight">
+        <li><strong>Q1 · What is the event?</strong> → <strong>A: <code>MovieUpserted</code></strong> — the
+          publisher's truth ("Catalog wrote this row"), noise absorbed by the idempotent consumer (not a
+          narrower <code>MovieTitleChanged</code>).</li>
+        <li><strong>Q2 · When does it publish?</strong> → <strong>Incremental-refresh path only</strong>
+          (<code>CatalogUpserter.refreshMovies</code>), <em>never</em> backfill (<code>upsertPage</code>) —
+          <strong>ADR 0001</strong>. The stream = "changed while Booking was live"; the read model is seeded
+          by lazy backfill, not by replaying the catalogue.</li>
+        <li><strong>4A · Publish reliability?</strong> → <strong>Direct publish now, <code>AFTER_COMMIT</code></strong>
+          (via <code>@TransactionalEventListener</code> so a rolled-back refresh never announces a phantom).
+          Broker-down = lost event, self-heals via lazy backfill, fully fixed by M4's outbox. Named, not hidden.</li>
+        <li><strong>4B / Q3a · Consumer idempotency + ordering?</strong> → <strong>UPSERT keyed by movie id</strong>
+          (naturally idempotent — no <code>processed_events</code> yet) <strong>+ an <code>updatedAt</code> guard</strong>
+          that drops an event whose timestamp <code>&le;</code> the stored one.</li>
+        <li><strong>Q3b · <code>eventId</code> on the wire?</strong> → <strong>Now</strong>, but
+          <strong>intentionally unused until Phase 4</strong> (forward-compatible for the <code>processed_events</code>
+          dedupe; documented as carried-not-consumed so it's not mistaken for a broken dedup).</li>
+        <li><strong>Q3c · What is <code>updatedAt</code>?</strong> → <strong>Catalog's <code>Movie.@LastModifiedDate</code></strong>
+          (per-row monotonic, single clock). NOT a publish-time stamp — that would defeat the guard under the
+          exact redelivery it defends.</li>
+        <li><strong>4C · Cold-start seeding?</strong> → <strong>Lazy backfill on miss</strong> — this is what
+          makes way B non-empty in a fresh demo (given Q2). Consequence, stated: way B is network-free
+          <em>only for already-cached movies</em>.</li>
+        <li><strong>Q4a · Which Catalog call for backfill?</strong> → <strong>A new
+          <code>CatalogClient.titleById</code></strong> with throw-on-unavailable / empty-on-404. NOT
+          <code>titlesByIds</code> — its silent degrade would poison the persistent cache (a null on an outage
+          hides the miss and suppresses the retry).</li>
+        <li><strong>Endpoint shape:</strong> → <strong><code>?source=composition|readmodel</code></strong> on the
+          existing <code>/bookings/my</code> (default <code>composition</code>); unknown value →
+          <code>BOOKING_VALIDATION_ERROR</code>. Not <code>/v2</code> (no contract change), not a config flag
+          (2.4 needs both live at once).</li>
+        <li><strong>Broker test:</strong> → <strong>Hermetic direct-invoke</strong> of the projector (idempotency,
+          guard, lazy-backfill). The exchange/queue/binding/routing-key/converter wiring is <em>not</em> covered
+          by these — that seam is verified once, manually, in the 2.4 live demo. Stated, not pretended.</li>
+        <li><strong>New concept file?</strong> → <strong>Yes</strong> —
+          <code>docs/concepts/cqrs-read-model.md</code>, linked from <code>concepts/README.md</code>.</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    ScreenMaster Microservices — Booking part 3 of 3 (BUILD_PLAN 2.3 + 2.4). Review, choose 4A/4B/4C + endpoint shape, then implement.
+  </footer>
+
+</div>
+</body>
+</html>

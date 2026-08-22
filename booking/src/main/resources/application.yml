@@ -20,6 +20,15 @@ spring:
       ddl-auto: validate
     open-in-view: false
 
+  # RabbitMQ — Booking CONSUMES MovieUpserted here into its movie_titles read model (CQRS, BUILD_PLAN
+  # 2.3). Host defaults to localhost for `mvn spring-boot:run`; Compose overrides RABBITMQ_HOST to the
+  # `rabbitmq` container.
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+
 # OpenAPI / Swagger UI (see docs/concepts/openapi-springdoc.md). Spec at /v3/api-docs, UI at
 # /swagger-ui.html; the gateway aggregates every service's spec into one UI at :8080. Emit OpenAPI
 # 3.1; the gateway base for "Try it out" is externalised so Compose can override the public host.

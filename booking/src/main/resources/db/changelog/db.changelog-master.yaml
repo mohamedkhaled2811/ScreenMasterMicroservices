@@ -8,6 +8,7 @@
 #   002-create-showtimes   showtimes; movie_id is the cross-service CUT (no FK), screen_id is a real FK
 #   003-create-bookings    bookings + booking_seats — schema first (mapped as entities in Phase 2 part 2)
 #   004-alter-bookings-...  widen bookings.user_id BIGINT -> VARCHAR(36) (Keycloak `sub` is a UUID string)
+#   005-create-movie-titles Booking's local read model of Catalog movie titles (CQRS way B, BUILD_PLAN 2.3)
 #
 # See docs/concepts/liquibase.md.
 databaseChangeLog:
@@ -19,3 +20,5 @@ databaseChangeLog:
       file: db/changelog/changes/003-create-bookings.yaml
   - include:
       file: db/changelog/changes/004-alter-bookings-user-id-varchar.yaml
+  - include:
+      file: db/changelog/changes/005-create-movie-titles.yaml

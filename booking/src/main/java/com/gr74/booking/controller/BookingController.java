@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -23,6 +24,7 @@ import com.gr74.booking.exception.BookingException;
 import com.gr74.booking.security.CurrentUser;
 import com.gr74.booking.service.BookingService;
 import com.gr74.booking.service.MyBookingsService;
+import com.gr74.booking.service.TitleSource;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -42,9 +44,11 @@ import org.springdoc.core.annotations.ParameterObject;
  * <ul>
  *   <li>{@code POST /bookings} — create a {@code PENDING} booking holding its seats (no Payment yet; the
  *       saga is Phase 3). Price and movie are derived and snapshotted server-side.</li>
- *   <li>{@code GET /bookings/my} — the M2 composition: a paged list of the caller's bookings, each merged
- *       with its movie title resolved live from Catalog. If Catalog is down the list still answers with
- *       {@code movieTitle: null} (degrade, not fail).</li>
+ *   <li>{@code GET /bookings/my} — a paged list of the caller's bookings, each merged with its movie title.
+ *       {@code ?source=} selects how the title is resolved: {@code composition} (default, way A — live from
+ *       Catalog, degrades to {@code null} if Catalog is down) or {@code readmodel} (way B — Booking's local
+ *       title cache, survives a Catalog outage for cached movies). Both are the M2 cross-service-query
+ *       lesson; keeping them side-by-side is what 2.4 demos.</li>
  * </ul>
  * Bare paths ({@code /bookings/...}); the gateway strips the {@code /api} prefix. DTOs cross the wire.
  */
@@ -85,19 +89,26 @@ public class BookingController {
     @Operation(summary = "List my bookings (paged, with movie titles)",
             description = """
                     Paged list of the authenticated user's bookings (PagedModel envelope), each merged with
-                    its movie title resolved live from the Catalog service (API composition). Default sort:
-                    createdDate DESC. If Catalog is unreachable the list still returns with movieTitle=null
-                    rather than failing.""")
+                    its movie title. The `source` query param picks how the title is resolved — the two
+                    answers to the cross-service-query problem, same response either way:
+                      • composition (default) — resolved LIVE from Catalog (API composition). Fresh, but if
+                        Catalog is down the title degrades to null.
+                      • readmodel — resolved from Booking's LOCAL movie_titles cache (kept fresh by events,
+                        lazy-backfilled on a miss). Survives Catalog being down for already-cached movies,
+                        at the cost of eventual consistency (a rename lags until the event lands).
+                    Default sort: createdDate DESC.""")
     @ApiResponse(responseCode = "200", description = "A page of the caller's bookings (PagedModel envelope).")
-    @ApiResponse(responseCode = "400", description = "A missing X-User-Id header or a non-whitelisted sort field. code = BOOKING_VALIDATION_ERROR.",
+    @ApiResponse(responseCode = "400", description = "A missing X-User-Id header, a non-whitelisted sort field, or an unknown source value. code = BOOKING_VALIDATION_ERROR.",
             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ApiError.class)))
     public Page<MyBookingDto> myBookings(
             @CurrentUser String userId,
+            @RequestParam(name = "source", defaultValue = "composition") String source,
             @ParameterObject @PageableDefault(sort = "createdDate", direction = Sort.Direction.DESC) Pageable pageable) {
         validateSort(pageable.getSort());
-        Page<MyBookingDto> page = myBookingsService.myBookings(userId, pageable);
-        log.info("GET /bookings/my -> {} of {} booking(s) for userId={}",
-                page.getNumberOfElements(), page.getTotalElements(), userId);
+        TitleSource titleSource = parseSource(source);
+        Page<MyBookingDto> page = myBookingsService.myBookings(userId, pageable, titleSource);
+        log.info("GET /bookings/my?source={} -> {} of {} booking(s) for userId={}",
+                titleSource, page.getNumberOfElements(), page.getTotalElements(), userId);
         return page;
     }
 
@@ -108,6 +119,21 @@ public class BookingController {
                 throw new BookingException(BookingErrorCode.BOOKING_VALIDATION_ERROR,
                         "Cannot sort by '" + order.getProperty() + "'. Sortable fields: " + MY_BOOKINGS_SORTABLE);
             }
+        }
+    }
+
+    /**
+     * Parse the {@code source} param to a {@link TitleSource} (case-insensitively), rendering an unknown
+     * value as a coded 400 — the same discipline as the sort whitelist, never a leaked 500. We bind it as
+     * a String and parse here (rather than letting Spring bind the enum) precisely so a bad value becomes
+     * our {@code BOOKING_VALIDATION_ERROR} ProblemDetail instead of a generic framework type-mismatch 400.
+     */
+    private TitleSource parseSource(String source) {
+        try {
+            return TitleSource.valueOf(source.toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException unknown) {
+            throw new BookingException(BookingErrorCode.BOOKING_VALIDATION_ERROR,
+                    "Unknown source '" + source + "'. Valid values: composition, readmodel");
         }
     }
 }

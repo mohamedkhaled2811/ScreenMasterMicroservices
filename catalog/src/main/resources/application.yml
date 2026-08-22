@@ -20,6 +20,14 @@ spring:
       ddl-auto: validate
     open-in-view: false
 
+  # RabbitMQ — Catalog PUBLISHES MovieUpserted here (CQRS read model, BUILD_PLAN 2.3). Host defaults to
+  # localhost for `mvn spring-boot:run`; Compose overrides RABBITMQ_HOST to the `rabbitmq` container.
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+
 # TMDB sync config (bound to TmdbProps). The access token is TMDB's v4 "API Read Access Token",
 # sent as a Bearer header — supplied via the TMDB_API_KEY env var / .env, never committed. The sync
 # walks all three movie lists, up to 10 pages per hourly tick (our own back-pressure vs TMDB's rate

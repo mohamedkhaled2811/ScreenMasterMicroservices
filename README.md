@@ -1,5 +1,7 @@
 # ScreenMaster — Microservices
 
+[![CI](https://github.com/mohamedkhaled2811/ScreenMasterMicroservices/actions/workflows/ci.yml/badge.svg)](https://github.com/mohamedkhaled2811/ScreenMasterMicroservices/actions/workflows/ci.yml)
+
 A learning-by-building project that **decomposes the ScreenMaster cinema monolith into microservices**, treated as production-grade code (best practices, not the minimum that demos a concept). It is for two audiences at once: someone *learning* microservices step by step, and someone *fluent* who wants to see how each pattern is actually wired.
 
 > **Status:** early. Services are being built incrementally. This README starts as a stub and **grows with the implementation** — architecture diagrams and per-pattern sections (saga, outbox, database-per-service, gateway/discovery) are added as each piece lands, not drawn up front.

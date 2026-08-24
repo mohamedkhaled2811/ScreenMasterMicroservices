@@ -45,6 +45,12 @@
 		  so each service declares the starter without a version. See concepts/openapi-springdoc.md.
 		-->
 		<springdoc.version>3.0.3</springdoc.version>
+		<!--
+		  JaCoCo: bytecode instrumentation agent + coverage reporter. 0.8.13+ is required for
+		  Java 21 class files; Spring Boot 4.1.0's parent does not manage this version.
+		  See docs/concepts/ci-and-coverage.md.
+		-->
+		<jacoco.version>0.8.13</jacoco.version>
 	</properties>
 
 	<!--
@@ -104,6 +110,33 @@
 				</plugin>
 			</plugins>
 		</pluginManagement>
+
+		<!--
+		  Plugins inherited by every module. JaCoCo instruments tests and produces coverage
+		  reports for each service without repeating the configuration in child poms.
+		-->
+		<plugins>
+			<plugin>
+				<groupId>org.jacoco</groupId>
+				<artifactId>jacoco-maven-plugin</artifactId>
+				<version>${jacoco.version}</version>
+				<executions>
+					<execution>
+						<id>prepare-agent</id>
+						<goals>
+							<goal>prepare-agent</goal>
+						</goals>
+					</execution>
+					<execution>
+						<id>report</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>report</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+		</plugins>
 	</build>
 
 </project>

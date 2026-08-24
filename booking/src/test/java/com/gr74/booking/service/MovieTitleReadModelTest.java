@@ -32,7 +32,7 @@ import com.gr74.booking.repository.MovieTitleRepository;
  * </ol>
  */
 @DataJpaTest
-@Import(MovieTitleReadModel.class)
+@Import({MovieTitleReadModel.class, MovieTitleBackfiller.class})
 class MovieTitleReadModelTest {
 
     @Autowired

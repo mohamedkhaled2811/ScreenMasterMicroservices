@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          # Caches ~/.m2/repository keyed on the hash of all pom.xml files.
+          # Because this is one reactor job, every module shares the same local
+          # Maven repo within the run, and the cache restores it across runs.
+          cache: maven
+
+      - name: Run the reactor
+        run: ./mvnw -B verify
+
+      - name: Write coverage summary
+        run: |
+          python3 - >> "$GITHUB_STEP_SUMMARY" << 'PY'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          modules = ['discovery', 'gateway', 'catalog', 'booking', 'payment', 'notification']
+
+          print('## Coverage Summary\n')
+          print('| Module | Instructions | Branches |')
+          print('|---|---|---|')
+
+          for module in modules:
+              file = Path(f'{module}/target/site/jacoco/jacoco.xml')
+              if not file.exists():
+                  print(f'| {module} | n/a | n/a |')
+                  continue
+
+              root = ET.parse(file).getroot()
+              counters = {c.attrib['type']: c.attrib for c in root.findall('counter')}
+
+              def percentage(counter_type):
+                  counter = counters.get(counter_type)
+                  if not counter:
+                      return 'n/a'
+                  missed = int(counter['missed'])
+                  covered = int(counter['covered'])
+                  total = missed + covered
+                  return f'{covered / total * 100:.1f}%' if total else 'n/a'
+
+              print(f'| {module} | {percentage("INSTRUCTION")} | {percentage("BRANCH")} |')
+          PY
+
+      - name: Publish coverage report
+        if: github.event_name == 'pull_request'
+        uses: madrapps/jacoco-report@v1.7.1
+        with:
+          paths: |
+            ${{ github.workspace }}/discovery/target/site/jacoco/jacoco.xml
+            ${{ github.workspace }}/gateway/target/site/jacoco/jacoco.xml
+            ${{ github.workspace }}/catalog/target/site/jacoco/jacoco.xml
+            ${{ github.workspace }}/booking/target/site/jacoco/jacoco.xml
+            ${{ github.workspace }}/payment/target/site/jacoco/jacoco.xml
+            ${{ github.workspace }}/notification/target/site/jacoco/jacoco.xml
+          token: ${{ github.token }}
+          title: 'Coverage Report'
+          update-comment: true
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jacoco-coverage
+          path: '*/target/site/jacoco/'
+          if-no-files-found: ignore
+
+      - name: Upload test reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: surefire-reports
+          path: '*/target/surefire-reports/'
+          if-no-files-found: ignore

@@ -131,6 +131,13 @@ Five business services + gateway + Eureka, on Docker Compose, with **database-pe
 
 ---
 
+## Cross-cutting — CI pipeline  *(not an M1–M7 milestone)*
+**Goal:** catch broken tests and measure coverage on every push, before they sit on `main`. Applies to every service because the reactor builds them all.
+
+- [x] **Y.1 CI pipeline — tests + coverage on every push** — added a **GitHub Actions** workflow (`.github/workflows/ci.yml`) that checks out the repo, sets up JDK 21 with the built-in Maven cache, runs `./mvnw -B verify` on push and pull request, uploads JaCoCo coverage HTML and Surefire test reports as artifacts (even on failure), writes a per-module coverage summary to the GitHub Actions job summary, and posts a PR coverage comment via `madrapps/jacoco-report` (GitHub-native, no third-party service). **JaCoCo** is configured once in the parent `pom.xml` (`jacoco-maven-plugin:0.8.13`, `prepare-agent` + `report` bound to `verify`) and inherited by all six modules. **Maven dependency caching** is handled by `setup-java` (`cache: maven`), restoring `~/.m2/repository` across runs; the single reactor job means all modules share the same local repo during the build. The suite was red on `HEAD` because `MovieTitleReadModelTest` did not import the newly-extracted `MovieTitleBackfiller` bean; fixing that test was the precondition for CI. **Verified:** `./mvnw -B test` reports 73/73 passing across all six modules; `./mvnw -B verify` writes `target/site/jacoco/index.html` in each module; the build is hermetic (still green with RabbitMQ unreachable via `-Dspring.rabbitmq.port=1`). No coverage gate yet — coverage is reported and inspected first, then an honest threshold can be added later. *(Concept: [ci-and-coverage.md](concepts/ci-and-coverage.md); Plan: [docs/plans/2026-08-24-ci-tests-and-coverage.html](plans/2026-08-24-ci-tests-and-coverage.html).)*
+
+---
+
 ## Scope guard (from the field guide)
 Cut ruthlessly: **no Kubernetes** (Compose is enough), **no real Stripe/PayPal** (the fake provider teaches more because you control its failures), **no gRPC implementation** (the `.proto` + comparison table in [sync-vs-async-comms.md](concepts/sync-vs-async-comms.md) is enough), **no UI** (curl + the RabbitMQ console + Zipkin).
 

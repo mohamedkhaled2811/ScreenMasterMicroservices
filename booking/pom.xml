@@ -53,6 +53,17 @@
 		</dependency>
 
 		<!--
+		  AMQP / RabbitMQ. Booking is the CONSUMER side of the CQRS read model (BUILD_PLAN 2.3, way B):
+		  a @RabbitListener consumes MovieUpserted and keeps a local movie_titles cache so "my bookings"
+		  can name movies by a local join even when Catalog is down. Version managed by the Spring Boot
+		  parent. See docs/concepts/rabbitmq.md, docs/concepts/idempotent-consumer.md, cqrs-read-model.md.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-amqp</artifactId>
+		</dependency>
+
+		<!--
 		  OpenAPI 3.1 spec + Swagger UI. Introspects the inventory + showtime controllers and their
 		  record DTOs / filter params at runtime; serves /v3/api-docs and /swagger-ui.html. Version
 		  managed in the parent pom. See concepts/openapi-springdoc.md.

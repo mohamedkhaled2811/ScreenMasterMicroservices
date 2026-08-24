@@ -49,3 +49,24 @@
   `![](<name>.png)` — one PNG file, both committed and shown inline. The sidecar's fixed skeleton: title +
   caption, "what to learn here", patterns→`docs/concepts/` links, the embedded PNG, and (low-level only)
   code anchors as `service/src/.../File.java` paths.
+
+## Cross-service events & read models
+
+- **MovieUpserted** — the event Catalog publishes when it *writes a movie row on the **incremental-refresh**
+  path* (a movie changed upstream after we were already running and we re-hydrated it). Its semantics are
+  the publisher's truth — "Catalog wrote this movie" — **not** "a field a consumer cares about changed";
+  it fires for a refreshed movie even if that movie's title did not change, so consumers must treat it as
+  at-least-once and noisy and absorb that with an idempotent projection. It is **not** published during
+  backfill (the bulk initial load) — the stream means "a movie moved while a consumer was live", and a
+  consumer seeds its cold start by lazy backfill, not by replaying this stream (see
+  `docs/adr/0001-movieupserted-published-from-incremental-refresh-only.md`). (Chosen over a narrower
+  `MovieTitleChanged` so the publisher stays naive and the residual noise is a felt, narratable cost.)
+
+- **Read model** — a service's own local, queryable copy of *another* service's data, kept up to date by
+  consuming that service's events, so the owning service need not be called at read time. It is **eventually
+  consistent**: it lags the source by however long the event takes to arrive, and that lag is a business
+  decision, not a bug. Booking's title cache (its projection of Catalog movie titles) is the first one.
+
+- **Title cache** — Booking's specific read model for movie titles: a local `id → title` projection built
+  from `MovieUpserted` events, joined locally when listing a user's bookings so the list answers even when
+  Catalog is down. Last-writer-wins by the movie id key (the UPSERT is naturally idempotent).

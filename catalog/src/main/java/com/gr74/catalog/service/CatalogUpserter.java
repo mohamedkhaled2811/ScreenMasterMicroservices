@@ -4,10 +4,13 @@ import java.time.LocalDate;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.gr74.catalog.event.MovieUpserted;
 import com.gr74.catalog.model.Genre;
 import com.gr74.catalog.model.Movie;
 import com.gr74.catalog.model.SyncStatus;
@@ -32,6 +35,14 @@ import lombok.extern.slf4j.Slf4j;
  *
  * <p>All upserts are idempotent by construction: PKs are assigned TMDB ids, so {@code save()} on an
  * existing id is an UPDATE — re-syncing the same page updates rows, never duplicates them.
+ *
+ * <p><b>It is also the publisher of {@link MovieUpserted}</b> — but only on the <em>incremental-refresh</em>
+ * path ({@link #refreshMovies}), never on backfill ({@link #upsertPage}). See ADR 0001: backfill is a bulk
+ * load, so flooding the broker with one event per movie in the whole catalogue on first boot is pure noise;
+ * the event stream means "a movie moved while a consumer was live". We raise an in-JVM
+ * {@link ApplicationEventPublisher} event <em>inside</em> the transaction and let
+ * {@link com.gr74.catalog.event.MovieEventPublisher} do the actual broker send <em>after commit</em>, so we
+ * never announce a change that then rolled back.
  */
 @Slf4j
 @Component
@@ -42,6 +53,7 @@ public class CatalogUpserter {
     private final MovieRepository movieRepository;
     private final SyncStatusRepository syncStatusRepository;
     private final TmdbApiClient tmdb;
+    private final ApplicationEventPublisher events;
 
     /** Upsert the whole genre vocabulary in one transaction (parents before any movie links them). */
     @Transactional
@@ -66,8 +78,9 @@ public class CatalogUpserter {
         int upserted = 0;
         for (Long movieId : movieIds) {
             // Skip a single unfetchable movie rather than failing the whole page — the page cursor still
-            // advances, and the missing movie is picked up on the next full pass.
-            if (hydrateOne(movieId, "%s page %d".formatted(status.getSyncType(), page))) {
+            // advances, and the missing movie is picked up on the next full pass. NOTE: backfill does NOT
+            // publish MovieUpserted (ADR 0001) — the returned Movie is only used to count here.
+            if (hydrateOne(movieId, "%s page %d".formatted(status.getSyncType(), page)) != null) {
                 upserted++;
             }
         }
@@ -97,8 +110,17 @@ public class CatalogUpserter {
     public int refreshMovies(SyncStatus status, List<Long> movieIds, LocalDate through) {
         int refreshed = 0;
         for (Long movieId : movieIds) {
-            if (hydrateOne(movieId, "changes " + through)) {
+            Movie saved = hydrateOne(movieId, "changes " + through);
+            if (saved != null) {
                 refreshed++;
+                // Publisher side of the CQRS read model (ADR 0001). Raise an in-JVM event now, inside the
+                // txn; MovieEventPublisher sends it to RabbitMQ AFTER_COMMIT so a rolled-back refresh
+                // never announces a phantom change. updatedAt is the ROW's @LastModifiedDate (Catalog's
+                // clock, per-row monotonic) — the consumer's ordering guard depends on that, not on a
+                // publish-time stamp. Backfill (upsertPage) deliberately publishes nothing.
+                events.publishEvent(new MovieUpserted(
+                        saved.getId(), saved.getTitle(), saved.getLastModifiedDate(),
+                        UUID.randomUUID().toString()));
             }
         }
         SyncStatus managed = syncStatusRepository.findById(status.getId()).orElse(status);
@@ -110,18 +132,22 @@ public class CatalogUpserter {
 
     /**
      * Fetch one movie's full details and upsert it (an UPDATE when the id already exists, since the PK
-     * is the TMDB id). Returns {@code true} on success; logs and returns {@code false} for a single
-     * unfetchable movie so the caller can keep going. {@code context} is just for the warn log.
+     * is the TMDB id). Returns the persisted {@link Movie} on success; logs and returns {@code null} for
+     * a single unfetchable movie so the caller can keep going. {@code context} is just for the warn log.
+     *
+     * <p>We {@code saveAndFlush} so the {@code @LastModifiedDate} auditing listener runs <em>now</em> and
+     * the returned entity carries the fresh timestamp — {@link #refreshMovies} publishes it as the event's
+     * {@code updatedAt}, and the consumer's ordering guard is only correct if that value is the real
+     * per-row last-modified time.
      */
-    private boolean hydrateOne(Long movieId, String context) {
+    private Movie hydrateOne(Long movieId, String context) {
         try {
             TmdbMovieDetails details = tmdb.movieDetails(movieId);
             Set<Genre> resolved = resolveGenres(details);
-            movieRepository.save(tmdb.toMovie(details, resolved));
-            return true;
+            return movieRepository.saveAndFlush(tmdb.toMovie(details, resolved));
         } catch (RuntimeException e) {
             log.warn("Skipping movie {} on {}: {}", movieId, context, e.getMessage());
-            return false;
+            return null;
         }
     }
 

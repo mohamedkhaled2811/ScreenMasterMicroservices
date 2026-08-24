@@ -33,6 +33,7 @@ Each concept file follows the same shape so they're predictable:
 | [microservices-overview.md](microservices-overview.md) | What/why/cost, bounded contexts, the distributed-systems tax |
 | [service-decomposition-ddd.md](service-decomposition-ddd.md) | Bounded context, aggregate, subdomain, how ScreenMaster splits |
 | [database-per-service.md](database-per-service.md) | Private data, no shared tables, FK cuts, API composition vs CQRS read models |
+| [cqrs-read-model.md](cqrs-read-model.md) | Local event-fed replica of another service's data, eventual consistency, lazy backfill, the ordering guard — Booking's movie-title cache |
 | [saga-pattern.md](saga-pattern.md) | Local transactions + compensation, choreography vs orchestration, the booking saga |
 | [transactional-outbox.md](transactional-outbox.md) | Dual-write problem, outbox table, relay, at-least-once delivery |
 | [idempotent-consumer.md](idempotent-consumer.md) | Dedupe by event id, exactly-once *effect* |

@@ -76,11 +76,15 @@ services:
       # and TMDB_SYNC_ENABLED=true to fill the catalog. See .env.example.
       TMDB_API_KEY: ${TMDB_API_KEY:-}
       TMDB_SYNC_ENABLED: ${TMDB_SYNC_ENABLED:-false}
+      # Catalog PUBLISHES MovieUpserted to the broker (CQRS read model, 2.3). service name = DNS name.
+      RABBITMQ_HOST: rabbitmq
     depends_on:
       catalog-db:
         condition: service_healthy   # don't boot until Postgres answers pg_isready (no race)
       discovery:
         condition: service_started
+      rabbitmq:
+        condition: service_healthy
     networks: [screenmaster]
 
   # ---------------------------------------------------------------------------
@@ -97,11 +101,15 @@ services:
       BOOKING_DB_PASSWORD: postgres
       EUREKA_SERVICE_URL: http://discovery:8761/eureka/
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+      # Booking CONSUMES MovieUpserted from the broker into its movie_titles read model (2.3).
+      RABBITMQ_HOST: rabbitmq
     depends_on:
       booking-db:
         condition: service_healthy
       discovery:
         condition: service_started
+      rabbitmq:
+        condition: service_healthy
     networks: [screenmaster]
 
   # ---------------------------------------------------------------------------
@@ -145,9 +153,20 @@ services:
   #  Datastores — database-per-service made physical: one Postgres per owner.
   #  pg_isready ships inside the postgres image, so it's a dependency-free
   #  healthcheck that app services gate on (condition: service_healthy above).
+  #
+  #  PORTS: published for LOCAL INSPECTION ONLY (DBeaver / psql from the host).
+  #  Services never use these — they reach their own database in-network as
+  #  catalog-db:5432 etc., and only their own. The host mapping is a dev-time
+  #  convenience, NOT a licence to cross the boundary: no service may connect to
+  #  another service's database, published or not.
+  #  Bound to 127.0.0.1 so they are unreachable from the LAN (a bare "5442:5432"
+  #  would bypass most host firewalls). Host ports are 544x, not 5432, to avoid
+  #  colliding with a natively installed Postgres already holding 5432.
   # ===========================================================================
   catalog-db:
     image: postgres:16
+    ports:
+      - "127.0.0.1:5442:5432"
     environment:
       POSTGRES_DB: catalog
       POSTGRES_USER: postgres
@@ -163,6 +182,8 @@ services:
 
   booking-db:
     image: postgres:16
+    ports:
+      - "127.0.0.1:5443:5432"
     environment:
       POSTGRES_DB: booking
       POSTGRES_USER: postgres
@@ -178,6 +199,8 @@ services:
 
   payment-db:
     image: postgres:16
+    ports:
+      - "127.0.0.1:5444:5432"
     environment:
       POSTGRES_DB: payment
       POSTGRES_USER: postgres
@@ -199,8 +222,13 @@ services:
   rabbitmq:
     image: rabbitmq:3-management
     ports:
-      - "5672:5672"          # AMQP (producers/consumers) — used from Phase 4
+      - "5672:5672"          # AMQP (producers/consumers) — the CQRS MovieUpserted stream (2.3) onward
       - "15672:15672"        # management console -> http://localhost:15672 (guest/guest)
+    healthcheck:             # catalog+booking gate on this (condition: service_healthy) so no publish/consume races the broker
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     networks: [screenmaster]
 
   zipkin:

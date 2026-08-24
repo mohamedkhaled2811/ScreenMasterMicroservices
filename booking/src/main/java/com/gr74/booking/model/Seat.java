@@ -1,7 +1,14 @@
 package com.gr74.booking.model;
 
+import java.time.Instant;
+
+import org.springframework.data.annotation.CreatedDate;
+import org.springframework.data.annotation.LastModifiedDate;
+import org.springframework.data.jpa.domain.support.AuditingEntityListener;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EntityListeners;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -22,9 +29,13 @@ import lombok.NoArgsConstructor;
  * seat, not a count; plan option 5B).
  *
  * <p>Both links are {@code @ManyToOne(LAZY)} intra-Booking FKs. {@code seatRow} is a {@link String}
- * label ("A", "B", …), not an int, so alphabetic row labels work. No auditing columns on seats
- * (they're bulk-generated and immutable once placed) — matching the leaner schema in
- * {@code 001-create-inventory.yaml}.
+ * label ("A", "B", …), not an int, so alphabetic row labels work.
+ *
+ * <p>Audited like the rest of the inventory slice: {@code 001-create-inventory.yaml} declares
+ * {@code created_date NOT NULL} on {@code seats}, so the {@code @CreatedDate} field is what makes a
+ * bulk grid insert succeed — without it every row is rejected by the not-null constraint. Note that
+ * {@code ddl-auto=validate} does <em>not</em> catch this class of drift: it flags columns the entity
+ * expects but the table lacks, not NOT NULL columns the entity silently ignores.
  */
 @Entity
 @Table(
@@ -34,6 +45,7 @@ import lombok.NoArgsConstructor;
         uniqueConstraints = @UniqueConstraint(
                 name = "uq_seats_screen_row_number",
                 columnNames = {"screen_id", "seat_row", "seat_number"}))
+@EntityListeners(AuditingEntityListener.class)
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Seat {
@@ -55,6 +67,14 @@ public class Seat {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "seat_type_id", nullable = false)
     private SeatType seatType;
+
+    @CreatedDate
+    @Column(name = "created_date", nullable = false, updatable = false)
+    private Instant createdDate;
+
+    @LastModifiedDate
+    @Column(name = "last_modified_date")
+    private Instant lastModifiedDate;
 
     public Seat(String seatRow, Integer seatNumber, Screen screen, SeatType seatType) {
         this.seatRow = seatRow;

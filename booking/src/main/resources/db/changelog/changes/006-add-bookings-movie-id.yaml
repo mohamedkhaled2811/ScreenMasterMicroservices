@@ -1,0 +1,36 @@
+# Changeset 006 — add the missing bookings.movie_id column.
+#
+# Why: Booking SNAPSHOTS the showtime's movie_id at create time (schema doc §8.2) so a booking carries its
+# own cross-service reference to Catalog and never has to re-read the showtime to answer "which movie was
+# this?". The `Booking.movieId` field was added with the API-composition work, but no migration ever created
+# the column — so `ddl-auto=validate` failed startup with "missing column [movie_id] in table [bookings]".
+# This changeset closes that gap.
+#
+# Same shape as showtimes.movie_id (002): a plain indexed BIGINT with NO foreign key — that is the service
+# cut. Referential integrity is the application's job (movie_id is validated against Catalog when the
+# showtime is created), never the database's.
+#
+# A NEW changeset rather than editing 003: shipped changesets are immutable — a database that already
+# applied 003 must migrate forward, not have its history rewritten. NOT NULL is asserted directly with no
+# back-fill because bookings is still empty (booking creation is Phase 2 part 2 onward); on a non-empty
+# table this would first need an UPDATE from the parent showtime.
+databaseChangeLog:
+  - changeSet:
+      id: 006-add-bookings-movie-id
+      author: mohamed
+      changes:
+        - addColumn:
+            tableName: bookings
+            columns:
+              - column:
+                  name: movie_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+        # Not a FK — just an index, so "all bookings for movie X" doesn't table-scan.
+        - createIndex:
+            indexName: idx_bookings_movie_id
+            tableName: bookings
+            columns:
+              - column:
+                  name: movie_id

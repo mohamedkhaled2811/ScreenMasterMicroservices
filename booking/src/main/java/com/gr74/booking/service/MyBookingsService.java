@@ -31,10 +31,19 @@ import lombok.extern.slf4j.Slf4j;
  *   <li>merge title into each row, {@code null} on a miss.</li>
  * </ol>
  *
- * <p><b>Partial-failure behaviour (the cost you feel):</b> the client <em>degrades</em> — if Catalog is
- * down it returns no titles rather than throwing, so this list still answers with {@code movieTitle:
- * null} instead of a 503. That's the deliberate trade this endpoint exists to demonstrate, and the exact
- * contrast Part 3's CQRS read model removes (a local title copy wouldn't depend on Catalog at read time).
+ * <p><b>Two title-resolution strategies, chosen per request</b> ({@code ?source=}) so both are demoable
+ * side-by-side (BUILD_PLAN 2.4). The bookings query and the {@link MyBookingDto} shape are identical; only
+ * where the title comes from differs:
+ * <ul>
+ *   <li>{@link TitleSource#COMPOSITION} (way A) — resolve titles live from Catalog in one batch call
+ *       ({@link CatalogClient#titlesByIds}). <b>Degrades:</b> if Catalog is down it returns no titles, so
+ *       the list still answers with {@code movieTitle: null} instead of a 503. That partial-failure trade
+ *       is the cost this path exists to make you feel.</li>
+ *   <li>{@link TitleSource#READMODEL} (way B) — resolve titles from Booking's local {@code movie_titles}
+ *       read model ({@link MovieTitleReadModel}), lazy-backfilling a cache miss. A Catalog outage doesn't
+ *       stop already-cached titles from rendering — the resilience way A trades away — at the price of
+ *       eventual consistency (a rename lags until the event lands).</li>
+ * </ul>
  */
 @Slf4j
 @Service
@@ -43,18 +52,25 @@ public class MyBookingsService {
 
     private final BookingRepository bookingRepository;
     private final CatalogClient catalogClient;
+    private final MovieTitleReadModel movieTitleReadModel;
 
     @Transactional(readOnly = true)
-    public Page<MyBookingDto> myBookings(String userId, Pageable pageable) {
+    public Page<MyBookingDto> myBookings(String userId, Pageable pageable, TitleSource source) {
         Page<Booking> bookings = bookingRepository.findByUserId(userId, pageable);
-
-        // One batch lookup for the whole page's distinct movie ids — the N+1 fix. Degrades to an empty
-        // map if Catalog is down (see CatalogClient#titlesByIds), so a title miss is just a null below.
         Set<Long> movieIds = bookings.stream().map(Booking::getMovieId).collect(Collectors.toSet());
-        Map<Long, String> titles = catalogClient.titlesByIds(movieIds);
-        log.info("My bookings for userId={}: {} row(s), resolved {}/{} title(s) from Catalog",
-                userId, bookings.getNumberOfElements(), titles.size(), movieIds.size());
+
+        Map<Long, String> titles = resolveTitles(source, movieIds);
+        log.info("My bookings for userId={} via {}: {} row(s), resolved {}/{} title(s)",
+                userId, source, bookings.getNumberOfElements(), titles.size(), movieIds.size());
 
         return bookings.map(b -> MyBookingDto.of(b, titles.get(b.getMovieId())));
+    }
+
+    /** Way A resolves live from Catalog (one batch call); way B resolves from the local read model. */
+    private Map<Long, String> resolveTitles(TitleSource source, Set<Long> movieIds) {
+        return switch (source) {
+            case COMPOSITION -> catalogClient.titlesByIds(movieIds);
+            case READMODEL -> movieTitleReadModel.titlesByIds(movieIds);
+        };
     }
 }

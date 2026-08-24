@@ -59,6 +59,18 @@
 		</dependency>
 
 		<!--
+		  AMQP / RabbitMQ. Catalog is the PUBLISHER side of the CQRS read model (BUILD_PLAN 2.3, way B):
+		  after a movie row is (re)hydrated on the incremental-refresh path it emits a MovieUpserted event
+		  that Booking consumes to keep a local title cache. Publish is deferred to AFTER_COMMIT and fires
+		  ONLY from the change-feed refresh, never from backfill — see ADR 0001. Version managed by the
+		  Spring Boot parent. See docs/concepts/rabbitmq.md, docs/concepts/cqrs-read-model.md.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-amqp</artifactId>
+		</dependency>
+
+		<!--
 		  OpenAPI 3.1 spec + Swagger UI. Introspects MovieController + its record DTOs and the
 		  MovieFilter query params at runtime; serves /v3/api-docs and /swagger-ui.html. Version
 		  managed in the parent pom. See concepts/openapi-springdoc.md.

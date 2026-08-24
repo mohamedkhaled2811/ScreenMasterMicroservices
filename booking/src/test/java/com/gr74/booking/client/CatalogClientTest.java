@@ -136,4 +136,39 @@ class CatalogClientTest {
         assertThat(client.titlesByIds(Set.of())).isEmpty();
         server.verify();
     }
+
+    // ---- titleById (the way-B lazy-backfill cache-fill) ------------------------------------------
+    // Distinct from titlesByIds: it writes into a persistent cache, so it must tell 404 (safe to treat as
+    // "unknown") apart from unavailable (must NOT be cached — would poison the cache).
+
+    @Test
+    void titleByIdReturnsTitleOn200() {
+        server.expect(requestTo(BASE + "/movies/603"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("{\"id\":603,\"title\":\"The Matrix\"}", MediaType.APPLICATION_JSON));
+
+        assertThat(client.titleById(603L)).contains("The Matrix");
+        server.verify();
+    }
+
+    @Test
+    void titleByIdReturnsEmptyOn404() {
+        // A definitive "no such movie" — empty, NOT an exception (the caller serves null and won't retry).
+        server.expect(requestTo(BASE + "/movies/999999")).andRespond(withResourceNotFound());
+
+        assertThat(client.titleById(999_999L)).isEmpty();
+        server.verify();
+    }
+
+    @Test
+    void titleByIdThrowsOnUnavailableSoTheCacheIsNotPoisoned() {
+        // A 5xx is an outage, not a bad id — throw so the caller writes NOTHING and retries next read.
+        server.expect(requestTo(BASE + "/movies/603")).andRespond(withServerError());
+
+        assertThatThrownBy(() -> client.titleById(603L))
+                .isInstanceOf(CatalogUnavailableException.class)
+                .extracting("errorCode")
+                .isEqualTo(BookingErrorCode.BOOKING_CATALOG_UNAVAILABLE);
+        server.verify();
+    }
 }

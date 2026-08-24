@@ -34,6 +34,7 @@ import com.gr74.booking.model.PaymentStatus;
 import com.gr74.booking.security.CurrentUserArgumentResolver;
 import com.gr74.booking.service.BookingService;
 import com.gr74.booking.service.MyBookingsService;
+import com.gr74.booking.service.TitleSource;
 
 /**
  * Web-layer slice for {@link BookingController}. Imports {@link WebMvcConfig} so the real
@@ -101,7 +102,8 @@ class BookingControllerTest {
     @Test
     void myBookingsReturnsPagedEnvelopeWithTitles() throws Exception {
         MyBookingDto row = MyBookingDto.of(sampleBooking(), "The Matrix");
-        given(myBookingsService.myBookings(eq(USER), any()))
+        // No source param -> defaults to COMPOSITION (way A).
+        given(myBookingsService.myBookings(eq(USER), any(), eq(TitleSource.COMPOSITION)))
                 .willReturn(new PageImpl<>(List.of(row), PageRequest.of(0, 20), 1));
 
         mockMvc.perform(get("/bookings/my").header("X-User-Id", USER))
@@ -110,6 +112,24 @@ class BookingControllerTest {
                 .andExpect(jsonPath("$.content[0].movieTitle").value("The Matrix"))
                 .andExpect(jsonPath("$.content[0].bookingReference").value("BK-ABCD1234"))
                 .andExpect(jsonPath("$.page.totalElements").value(1));
+    }
+
+    @Test
+    void myBookingsWithSourceReadmodelSelectsWayB() throws Exception {
+        MyBookingDto row = MyBookingDto.of(sampleBooking(), "The Matrix");
+        given(myBookingsService.myBookings(eq(USER), any(), eq(TitleSource.READMODEL)))
+                .willReturn(new PageImpl<>(List.of(row), PageRequest.of(0, 20), 1));
+
+        mockMvc.perform(get("/bookings/my").header("X-User-Id", USER).param("source", "readmodel"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].movieTitle").value("The Matrix"));
+    }
+
+    @Test
+    void myBookingsRejectsUnknownSourceWithCoded400() throws Exception {
+        mockMvc.perform(get("/bookings/my").header("X-User-Id", USER).param("source", "wat"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("BOOKING_VALIDATION_ERROR"));
     }
 
     @Test

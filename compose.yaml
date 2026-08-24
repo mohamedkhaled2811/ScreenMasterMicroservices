@@ -153,9 +153,20 @@ services:
   #  Datastores — database-per-service made physical: one Postgres per owner.
   #  pg_isready ships inside the postgres image, so it's a dependency-free
   #  healthcheck that app services gate on (condition: service_healthy above).
+  #
+  #  PORTS: published for LOCAL INSPECTION ONLY (DBeaver / psql from the host).
+  #  Services never use these — they reach their own database in-network as
+  #  catalog-db:5432 etc., and only their own. The host mapping is a dev-time
+  #  convenience, NOT a licence to cross the boundary: no service may connect to
+  #  another service's database, published or not.
+  #  Bound to 127.0.0.1 so they are unreachable from the LAN (a bare "5442:5432"
+  #  would bypass most host firewalls). Host ports are 544x, not 5432, to avoid
+  #  colliding with a natively installed Postgres already holding 5432.
   # ===========================================================================
   catalog-db:
     image: postgres:16
+    ports:
+      - "127.0.0.1:5442:5432"
     environment:
       POSTGRES_DB: catalog
       POSTGRES_USER: postgres
@@ -171,6 +182,8 @@ services:
 
   booking-db:
     image: postgres:16
+    ports:
+      - "127.0.0.1:5443:5432"
     environment:
       POSTGRES_DB: booking
       POSTGRES_USER: postgres
@@ -186,6 +199,8 @@ services:
 
   payment-db:
     image: postgres:16
+    ports:
+      - "127.0.0.1:5444:5432"
     environment:
       POSTGRES_DB: payment
       POSTGRES_USER: postgres

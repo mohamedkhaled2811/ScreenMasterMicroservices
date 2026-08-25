@@ -24,6 +24,8 @@ import com.gr74.booking.dto.CreateShowtimeRequest;
 import com.gr74.booking.exception.CatalogUnavailableException;
 import com.gr74.booking.exception.DuplicateResourceException;
 import com.gr74.booking.exception.MovieNotInCatalogException;
+import com.gr74.booking.exception.ShowtimeHasBookingsException;
+import com.gr74.booking.repository.BookingRepository;
 import com.gr74.booking.model.Screen;
 import com.gr74.booking.model.ScreenType;
 import com.gr74.booking.model.Showtime;
@@ -41,6 +43,9 @@ class ShowtimeServiceTest {
 
     @Mock
     private ShowtimeRepository showtimeRepository;
+
+    @Mock
+    private BookingRepository bookingRepository;
 
     @Mock
     private TheaterService theaterService;
@@ -109,5 +114,28 @@ class ShowtimeServiceTest {
         assertThatThrownBy(() -> showtimeService.create(REQUEST))
                 .isInstanceOf(DuplicateResourceException.class);
         verify(showtimeRepository, never()).save(any());
+    }
+
+    @Test
+    void deleteSucceedsWhenShowtimeHasNoBookings() {
+        Showtime showtime = new Showtime(603L, null, REQUEST.showDate(), REQUEST.showTime(), REQUEST.basePrice());
+        given(showtimeRepository.findById(7L)).willReturn(java.util.Optional.of(showtime));
+        given(bookingRepository.existsByShowtimeId(7L)).willReturn(false);
+
+        showtimeService.delete(7L);
+
+        verify(showtimeRepository).delete(showtime);
+    }
+
+    @Test
+    void deleteIsRejectedWhenShowtimeHasBookings() {
+        Showtime showtime = new Showtime(603L, null, REQUEST.showDate(), REQUEST.showTime(), REQUEST.basePrice());
+        given(showtimeRepository.findById(7L)).willReturn(java.util.Optional.of(showtime));
+        given(bookingRepository.existsByShowtimeId(7L)).willReturn(true);
+
+        assertThatThrownBy(() -> showtimeService.delete(7L))
+                .isInstanceOf(ShowtimeHasBookingsException.class);
+
+        verify(showtimeRepository, never()).delete(any());
     }
 }

@@ -37,9 +37,9 @@ import lombok.NoArgsConstructor;
  *       "my bookings" can name the movie without re-joining the showtime, and the title is then resolved
  *       live from Catalog by id (the M2 composition). Frozen ids are cheap; the mutable title stays fresh.</li>
  * </ul>
- * {@code showtimeId} is an intra-Booking reference kept a plain column (a booking can outlive a showtime
- * row; the entity relation lands in Phase 3). {@code totalAmount} is a snapshot of the total at booking
- * time — never recomputed from live prices.
+ * {@code showtimeId} is an intra-Booking FK to {@code showtimes.id} (migration 007). Deleting a
+ * showtime that still has bookings is rejected ({@code ON DELETE NO ACTION}). {@code totalAmount} is a
+ * snapshot of the total at booking time — never recomputed from live prices.
  *
  * <p>Enums are {@code @Enumerated(STRING)} (never ordinal — §2.4 fix). The {@code bookingReference} is
  * unique. Schema owned by Liquibase ({@code ddl-auto=validate}); must match {@code 003-create-bookings.yaml}

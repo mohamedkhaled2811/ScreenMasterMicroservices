@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>booking-db · schema</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #f5f5f5;
+      --color-ink:     #2d3142;
+      --color-muted:   #4f5d75;
+      --color-accent:  #eb6c36;
+      --color-pg:      #336791;
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+
+    .frame { max-width: 1400px; width: 100%; }
+
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+
+    svg { width: 100%; min-width: 1100px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Database schema · ScreenMaster Microservices</p>
+    <h1>booking-db · schema</h1>
+
+    <svg viewBox="0 0 1440 1120" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="booking-db-schema-title booking-db-schema-desc">
+      <title id="booking-db-schema-title">booking-db · schema</title>
+      <desc id="booking-db-schema-desc">Physical PostgreSQL schema of the Booking service showing all eight tables grouped into inventory, scheduling, and booking zones, with column-level foreign keys inside the service and dashed no-foreign-key markers where movie_id and user_id cross a service boundary.</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
+        <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+      <!-- ============ POSTGRES BADGE (brand blue — product mark, not a signal color) ============ -->
+      <rect x="40" y="32" width="272" height="56" rx="8" fill="rgba(51,103,145,0.06)" stroke="rgba(51,103,145,0.30)" stroke-width="1"/>
+      <g transform="translate(56, 44) scale(1.3333)" fill="#336791">
+        <path d="M23.5594 14.7228a.5269.5269 0 0 0-.0563-.1191c-.139-.2632-.4768-.3418-1.0074-.2321-1.6533.3411-2.2935.1312-2.5256-.0191 1.342-2.0482 2.445-4.522 3.0411-6.8297.2714-1.0507.7982-3.5237.1222-4.7316a1.5641 1.5641 0 0 0-.1509-.235C21.6931.9086 19.8007.0248 17.5099.0005c-1.4947-.0158-2.7705.3461-3.1161.4794a9.449 9.449 0 0 0-.5159-.0816 8.044 8.044 0 0 0-1.3114-.1278c-1.1822-.0184-2.2038.2642-3.0498.8406-.8573-.3211-4.7888-1.645-7.2219.0788C.9359 2.1526.3086 3.8733.4302 6.3043c.0409.818.5069 3.334 1.2423 5.7436.4598 1.5065.9387 2.7019 1.4334 3.582.553.9942 1.1259 1.5933 1.7143 1.7895.4474.1491 1.1327.1441 1.8581-.7279.8012-.9635 1.5903-1.8258 1.9446-2.2069.4351.2355.9064.3625 1.39.3772a.0569.0569 0 0 0 .0004.0041 11.0312 11.0312 0 0 0-.2472.3054c-.3389.4302-.4094.5197-1.5002.7443-.3102.064-1.1344.2339-1.1464.8115-.0025.1224.0329.2309.0919.3268.2269.4231.9216.6097 1.015.6331 1.3345.3335 2.5044.092 3.3714-.6787-.017 2.231.0775 4.4174.3454 5.0874.2212.5529.7618 1.9045 2.4692 1.9043.2505 0 .5263-.0291.8296-.0941 1.7819-.3821 2.5557-1.1696 2.855-2.9059.1503-.8707.4016-2.8753.5388-4.1012.0169-.0703.0357-.1207.057-.1362.0007-.0005.0697-.0471.4272.0307a.3673.3673 0 0 0 .0443.0068l.2539.0223.0149.001c.8468.0384 1.9114-.1426 2.5312-.4308.6438-.2988 1.8057-1.0323 1.5951-1.6698zM2.371 11.8765c-.7435-2.4358-1.1779-4.8851-1.2123-5.5719-.1086-2.1714.4171-3.6829 1.5623-4.4927 1.8367-1.2986 4.8398-.5408 6.108-.13-.0032.0032-.0066.0061-.0098.0094-2.0238 2.044-1.9758 5.536-1.9708 5.7495-.0002.0823.0066.1989.0162.3593.0348.5873.0996 1.6804-.0735 2.9184-.1609 1.1504.1937 2.2764.9728 3.0892.0806.0841.1648.1631.2518.2374-.3468.3714-1.1004 1.1926-1.9025 2.1576-.5677.6825-.9597.5517-1.0886.5087-.3919-.1307-.813-.5871-1.2381-1.3223-.4796-.839-.9635-2.0317-1.4155-3.5126zm6.0072 5.0871c-.1711-.0428-.3271-.1132-.4322-.1772.0889-.0394.2374-.0902.4833-.1409 1.2833-.2641 1.4815-.4506 1.9143-1.0002.0992-.126.2116-.2687.3673-.4426a.3549.3549 0 0 0 .0737-.1298c.1708-.1513.2724-.1099.4369-.0417.156.0646.3078.26.3695.4752.0291.1016.0619.2945-.0452.4444-.9043 1.2658-2.2216 1.2494-3.1676 1.0128zm2.094-3.988-.0525.141c-.133.3566-.2567.6881-.3334 1.003-.6674-.0021-1.3168-.2872-1.8105-.8024-.6279-.6551-.9131-1.5664-.7825-2.5004.1828-1.3079.1153-2.4468.079-3.0586-.005-.0857-.0095-.1607-.0122-.2199.2957-.2621 1.6659-.9962 2.6429-.7724.4459.1022.7176.4057.8305.928.5846 2.7038.0774 3.8307-.3302 4.7363-.084.1866-.1633.3629-.2311.5454zm7.3637 4.5725c-.0169.1768-.0358.376-.0618.5959l-.146.4383a.3547.3547 0 0 0-.0182.1077c-.0059.4747-.054.6489-.115.8693-.0634.2292-.1353.4891-.1794 1.0575-.11 1.4143-.8782 2.2267-2.4172 2.5565-1.5155.3251-1.7843-.4968-2.0212-1.2217a6.5824 6.5824 0 0 0-.0769-.2266c-.2154-.5858-.1911-1.4119-.1574-2.5551.0165-.5612-.0249-1.9013-.3302-2.6462.0044-.2932.0106-.5909.019-.8918a.3529.3529 0 0 0-.0153-.1126 1.4927 1.4927 0 0 0-.0439-.208c-.1226-.4283-.4213-.7866-.7797-.9351-.1424-.059-.4038-.1672-.7178-.0869.067-.276.1831-.5875.309-.9249l.0529-.142c.0595-.16.134-.3257.213-.5012.4265-.9476 1.0106-2.2453.3766-5.1772-.2374-1.0981-1.0304-1.6343-2.2324-1.5098-.7207.0746-1.3799.3654-1.7088.5321a5.6716 5.6716 0 0 0-.1958.1041c.0918-1.1064.4386-3.1741 1.7357-4.4823a4.0306 4.0306 0 0 1 .3033-.276.3532.3532 0 0 0 .1447-.0644c.7524-.5706 1.6945-.8506 2.802-.8325.4091.0067.8017.0339 1.1742.081 1.939.3544 3.2439 1.4468 4.0359 2.3827.8143.9623 1.2552 1.9315 1.4312 2.4543-1.3232-.1346-2.2234.1268-2.6797.779-.9926 1.4189.543 4.1729 1.2811 5.4964.1353.2426.2522.4522.2889.5413.2403.5825.5515.9713.7787 1.2552.0696.087.1372.1714.1885.245-.4008.1155-1.1208.3825-1.0552 1.717-.0123.1563-.0423.4469-.0834.8148-.0461.2077-.0702.4603-.0994.7662zm.8905-1.6211c-.0405-.8316.2691-.9185.5967-1.0105a2.8566 2.8566 0 0 0 .135-.0406 1.202 1.202 0 0 0 .1342.103c.5703.3765 1.5823.4213 3.0068.1344-.2016.1769-.5189.3994-.9533.6011-.4098.1903-1.0957.333-1.7473.3636-.7197.0336-1.0859-.0807-1.1721-.151zm.5695-9.2712c-.0059.3508-.0542.6692-.1054 1.0017-.055.3576-.112.7274-.1264 1.1762-.0142.4368.0404.8909.0932 1.3301.1066.887.216 1.8003-.2075 2.7014a3.5272 3.5272 0 0 1-.1876-.3856c-.0527-.1276-.1669-.3326-.3251-.6162-.6156-1.1041-2.0574-3.6896-1.3193-4.7446.3795-.5427 1.3408-.5661 2.1781-.463zm.2284 7.0137a12.3762 12.3762 0 0 0-.0853-.1074l-.0355-.0444c.7262-1.1995.5842-2.3862.4578-3.4385-.0519-.4318-.1009-.8396-.0885-1.2226.0129-.4061.0666-.7543.1185-1.0911.0639-.415.1288-.8443.1109-1.3505.0134-.0531.0188-.1158.0118-.1902-.0457-.4855-.5999-1.938-1.7294-3.253-.6076-.7073-1.4896-1.4972-2.6889-2.0395.5251-.1066 1.2328-.2035 2.0244-.1859 2.0515.0456 3.6746.8135 4.8242 2.2824a.908.908 0 0 1 .0667.1002c.7231 1.3556-.2762 6.2751-2.9867 10.5405zm-8.8166-6.1162c-.025.1794-.3089.4225-.6211.4225a.5821.5821 0 0 1-.0809-.0056c-.1873-.026-.3765-.144-.5059-.3156-.0458-.0605-.1203-.178-.1055-.2844.0055-.0401.0261-.0985.0925-.1488.1182-.0894.3518-.1226.6096-.0867.3163.0441.6426.1938.6113.4186zm7.9305-.4114c.0111.0792-.049.201-.1531.3102-.0683.0717-.212.1961-.4079.2232a.5456.5456 0 0 1-.075.0052c-.2935 0-.5414-.2344-.5607-.3717-.024-.1765.2641-.3106.5611-.352.297-.0414.6111.0088.6356.1851z"/>
+      </g>
+      <text x="108" y="58" fill="#336791" font-size="12" font-weight="600" font-family="'Geist', sans-serif">PostgreSQL 16</text>
+      <text x="108" y="76" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">booking-db</text>
+
+      <!-- Liquibase note, right-aligned in the header band -->
+      <text x="1400" y="58" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">LIQUIBASE 001-007 · ddl-auto=validate</text>
+      <text x="1400" y="76" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">8 tables · all FKs stay inside this database</text>
+
+      <!-- ============ ZONE GROUPS (drawn first so tables paint over them) ============ -->
+      <!-- INVENTORY zone (changeset 001) -->
+      <rect x="40" y="128" width="376" height="840" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="0.8" stroke-dasharray="4,4"/>
+      <text x="56" y="152" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">INVENTORY · 001</text>
+
+      <!-- SCHEDULING zone (changeset 002) -->
+      <rect x="472" y="128" width="376" height="404" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="0.8" stroke-dasharray="4,4"/>
+      <text x="488" y="152" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">SCHEDULING · 002</text>
+
+      <!-- READ MODEL zone (changeset 005) -->
+      <rect x="472" y="592" width="376" height="256" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="0.8" stroke-dasharray="4,4"/>
+      <text x="488" y="616" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">CQRS READ MODEL · 005</text>
+
+      <!-- BOOKING zone (changesets 003 / 004 / 006 / 007) -->
+      <rect x="904" y="128" width="496" height="800" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="0.8" stroke-dasharray="4,4"/>
+      <text x="920" y="152" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">BOOKING · 003 · 004 · 006 · 007</text>
+
+      <!-- ============ FK CONNECTORS (drawn before boxes) ============ -->
+
+      <!-- FK1: screens.theater_id -> theaters.id  (down the left column, both x-aligned) -->
+      <path d="M 88,392 V 264" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+
+      <!-- FK2: seats.screen_id -> screens.id  (down the left column, x-offset from FK1's lane) -->
+      <path d="M 88,672 V 560" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+
+      <!-- FK3: seats.seat_type_id -> seat_types.id  (right edge of seats, up and over to seat_types) -->
+      <path d="M 392,788 H 424 Q 432,788 432,796 V 884 Q 432,892 424,892 H 392" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+
+      <!-- FK4: showtimes.screen_id -> screens.id  (left edge of showtimes, over to screens' right edge) -->
+      <path d="M 520,244 H 480 Q 472,244 472,252 V 428 Q 472,436 464,436 H 392" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+
+      <!-- FK5 (FOCAL): bookings.showtime_id -> showtimes.id · ON DELETE NO ACTION -->
+      <path d="M 952,288 H 896 Q 888,288 888,280 V 224 Q 888,216 880,216 H 824" fill="none" stroke="#eb6c36" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+
+      <!-- FK6: booking_seats.booking_id -> bookings.id -->
+      <path d="M 1376,704 H 1404 Q 1412,704 1412,696 V 224 Q 1412,216 1404,216 H 1376" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+
+      <!-- FK7: booking_seats.seat_id -> seats.id  (long haul back to the inventory zone) -->
+      <path d="M 952,732 H 872 Q 864,732 864,740 V 872 Q 864,880 856,880 H 448 Q 440,880 440,872 V 700 Q 440,692 432,692 H 392" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+
+      <!-- ============ NO-FK CUT MARKERS (dashed link-blue — the service boundary) ============ -->
+      <!-- showtimes.movie_id and bookings.movie_id both point at Catalog; movie_titles caches it locally -->
+      <path d="M 824,264 H 856 Q 864,264 864,272 V 672 Q 864,680 856,680 H 824" fill="none" stroke="#2e5aa8" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow-link)"/>
+
+      <!-- ============ FK / CUT LABELS (masked, 6-10px gap, clear of every box) ============ -->
+      <!-- FK1 label — vertical segment, label sits to the right with a gap -->
+      <rect x="98" y="330" width="88" height="12" rx="2" fill="#f3f3f4"/>
+      <text x="102" y="339" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">NO ACTION</text>
+
+      <!-- FK2 label -->
+      <rect x="98" y="604" width="88" height="12" rx="2" fill="#f3f3f4"/>
+      <text x="102" y="613" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">NO ACTION</text>
+
+      <!-- FK3 label — on the vertical run at x=440, placed in the gutter between the zones -->
+      <rect x="442" y="806" width="88" height="12" rx="2" fill="#f3f3f4"/>
+      <text x="446" y="815" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">NO ACTION</text>
+
+      <!-- FK4 label — on the horizontal run just left of showtimes -->
+      <rect x="410" y="300" width="88" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="414" y="309" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">NO ACTION</text>
+
+      <!-- FK5 (focal) label — in the gutter above the connector, clear of both tables -->
+      <rect x="828" y="196" width="112" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="832" y="205" fill="#eb6c36" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">ON DELETE NO ACTION</text>
+
+      <!-- FK6 label -->
+      <rect x="1356" y="560" width="88" height="12" rx="2" fill="#f3f3f4"/>
+      <text x="1360" y="569" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">NO ACTION</text>
+
+      <!-- FK7 label — on the long horizontal run, in the gutter between zones -->
+      <rect x="600" y="858" width="88" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="604" y="867" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">NO ACTION</text>
+
+      <!-- Cut marker label -->
+      <rect x="872" y="536" width="104" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="876" y="545" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">SAME ID · NO FK</text>
+
+      <!-- ============ TABLE: theaters ============ -->
+      <rect x="64" y="176" width="328" height="112" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="64" y="176" width="328" height="28" rx="6" fill="rgba(45,49,66,0.04)" stroke="none"/>
+      <rect x="64" y="196" width="328" height="8" fill="rgba(45,49,66,0.04)"/>
+      <line x1="64" y1="204" x2="392" y2="204" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+      <text x="76" y="194" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif">public.theaters</text>
+      <rect x="340" y="184" width="40" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="360" y="193" fill="#2d3142" opacity="0.8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">TABLE</text>
+
+      <rect x="64" y="204" width="328" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="76" y="220" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">id</text>
+      <rect x="228" y="212" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="238" y="221" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">PK</text>
+      <text x="380" y="220" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">bigserial</text>
+
+      <text x="76" y="244" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">name</text>
+      <rect x="228" y="236" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="238" y="245" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">UQ</text>
+      <rect x="252" y="236" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="262" y="245" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="380" y="244" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">varchar(150)</text>
+
+      <rect x="64" y="252" width="328" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="76" y="268" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">location</text>
+      <text x="380" y="268" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">varchar(255)</text>
+
+      <text x="76" y="284" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">+ 2 audit columns</text>
+
+      <!-- ============ TABLE: screens ============ -->
+      <rect x="64" y="392" width="328" height="168" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="64" y="392" width="328" height="28" rx="6" fill="rgba(45,49,66,0.04)" stroke="none"/>
+      <rect x="64" y="412" width="328" height="8" fill="rgba(45,49,66,0.04)"/>
+      <line x1="64" y1="420" x2="392" y2="420" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+      <text x="76" y="410" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif">public.screens</text>
+      <rect x="340" y="400" width="40" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="360" y="409" fill="#2d3142" opacity="0.8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">TABLE</text>
+
+      <rect x="64" y="420" width="328" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="76" y="436" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">id</text>
+      <rect x="228" y="428" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="238" y="437" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">PK</text>
+      <text x="380" y="436" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">bigserial</text>
+
+      <text x="76" y="460" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">name</text>
+      <rect x="228" y="452" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="238" y="461" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="380" y="460" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">varchar(100)</text>
+
+      <rect x="64" y="468" width="328" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="76" y="484" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">screen_type</text>
+      <rect x="228" y="476" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="238" y="485" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="380" y="484" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">varchar(40)</text>
+
+      <text x="76" y="508" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">theater_id</text>
+      <rect x="228" y="500" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="238" y="509" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">FK</text>
+      <rect x="252" y="500" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="262" y="509" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="380" y="508" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">bigint</text>
+
+      <rect x="64" y="516" width="328" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="76" y="532" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">+ 2 audit columns</text>
+
+      <line x1="64" y1="540" x2="392" y2="540" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+      <text x="76" y="554" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">UQ · NAME + THEATER_ID</text>
+
+      <!-- ============ TABLE: seats ============ -->
+      <rect x="64" y="648" width="328" height="192" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="64" y="648" width="328" height="28" rx="6" fill="rgba(45,49,66,0.04)" stroke="none"/>
+      <rect x="64" y="668" width="328" height="8" fill="rgba(45,49,66,0.04)"/>
+      <line x1="64" y1="676" x2="392" y2="676" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+      <text x="76" y="666" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif">public.seats</text>
+      <rect x="340" y="656" width="40" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="360" y="665" fill="#2d3142" opacity="0.8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">TABLE</text>
+
+      <rect x="64" y="676" width="328" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="76" y="692" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">id</text>
+      <rect x="228" y="684" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="238" y="693" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">PK</text>
+      <text x="380" y="692" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">bigserial</text>
+
+      <text x="76" y="716" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">seat_row</text>
+      <rect x="228" y="708" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="238" y="717" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="380" y="716" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">varchar(8)</text>
+
+      <rect x="64" y="724" width="328" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="76" y="740" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">seat_number</text>
+      <rect x="228" y="732" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="238" y="741" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="380" y="740" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">integer</text>
+
+      <text x="76" y="764" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">screen_id</text>
+      <rect x="228" y="756" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="238" y="765" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">FK</text>
+      <rect x="252" y="756" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="262" y="765" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="380" y="764" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">bigint</text>
+
+      <rect x="64" y="772" width="328" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="76" y="788" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">seat_type_id</text>
+      <rect x="228" y="780" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="238" y="789" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">FK</text>
+      <rect x="252" y="780" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="262" y="789" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="380" y="788" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">bigint</text>
+
+      <text x="76" y="812" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">+ 2 audit columns</text>
+
+      <line x1="64" y1="820" x2="392" y2="820" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+      <text x="76" y="834" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">UQ · SCREEN + ROW + NUMBER</text>
+
+      <!-- ============ TABLE: seat_types (docked at the bottom of the inventory zone) ============ -->
+      <rect x="64" y="856" width="328" height="72" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="64" y="856" width="328" height="28" rx="6" fill="rgba(45,49,66,0.04)" stroke="none"/>
+      <rect x="64" y="876" width="328" height="8" fill="rgba(45,49,66,0.04)"/>
+      <line x1="64" y1="884" x2="392" y2="884" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+      <text x="76" y="874" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif">public.seat_types</text>
+      <rect x="340" y="864" width="40" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="360" y="873" fill="#2d3142" opacity="0.8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">TABLE</text>
+
+      <rect x="64" y="884" width="328" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="76" y="900" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">id</text>
+      <rect x="228" y="892" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="238" y="901" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">PK</text>
+      <text x="380" y="900" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">bigserial</text>
+
+      <text x="76" y="924" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">price_multiplier</text>
+      <rect x="228" y="916" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="238" y="925" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="380" y="924" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">numeric(4,2)</text>
+
+      <!-- ============ TABLE: showtimes ============ -->
+      <rect x="520" y="176" width="304" height="240" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="520" y="176" width="304" height="28" rx="6" fill="rgba(45,49,66,0.04)" stroke="none"/>
+      <rect x="520" y="196" width="304" height="8" fill="rgba(45,49,66,0.04)"/>
+      <line x1="520" y1="204" x2="824" y2="204" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+      <text x="532" y="194" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif">public.showtimes</text>
+      <rect x="772" y="184" width="40" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="792" y="193" fill="#2d3142" opacity="0.8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">TABLE</text>
+
+      <rect x="520" y="204" width="304" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="532" y="220" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">id</text>
+      <rect x="668" y="212" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="678" y="221" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">PK</text>
+      <text x="812" y="220" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">bigserial</text>
+
+      <text x="532" y="244" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">screen_id</text>
+      <rect x="668" y="236" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="678" y="245" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">FK</text>
+      <rect x="692" y="236" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="702" y="245" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="812" y="244" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">bigint</text>
+
+      <rect x="520" y="252" width="304" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="532" y="268" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">movie_id</text>
+      <rect x="644" y="260" width="40" height="12" rx="2" fill="none" stroke="rgba(46,90,168,0.55)" stroke-width="0.8"/>
+      <text x="664" y="269" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NO FK</text>
+      <rect x="688" y="260" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="698" y="269" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="812" y="268" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">bigint</text>
+
+      <text x="532" y="292" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">show_date</text>
+      <rect x="668" y="284" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="678" y="293" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="812" y="292" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">date</text>
+
+      <rect x="520" y="300" width="304" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="532" y="316" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">show_time</text>
+      <rect x="668" y="308" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="678" y="317" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="812" y="316" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">time</text>
+
+      <text x="532" y="340" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">base_price</text>
+      <rect x="668" y="332" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="678" y="341" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="812" y="340" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">numeric(10,2)</text>
+
+      <rect x="520" y="348" width="304" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="532" y="364" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">status</text>
+      <rect x="668" y="356" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="678" y="365" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="812" y="364" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">varchar(20)</text>
+
+      <text x="532" y="388" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">+ 2 audit columns</text>
+
+      <line x1="520" y1="396" x2="824" y2="396" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+      <text x="532" y="410" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">IDX_SHOWTIMES_MOVIE_ID · UQ SLOT</text>
+
+      <!-- ============ TABLE: movie_titles ============ -->
+      <rect x="520" y="640" width="304" height="120" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="520" y="640" width="304" height="28" rx="6" fill="rgba(45,49,66,0.04)" stroke="none"/>
+      <rect x="520" y="660" width="304" height="8" fill="rgba(45,49,66,0.04)"/>
+      <line x1="520" y1="668" x2="824" y2="668" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+      <text x="532" y="658" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif">public.movie_titles</text>
+      <rect x="772" y="648" width="40" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="792" y="657" fill="#2d3142" opacity="0.8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">TABLE</text>
+
+      <rect x="520" y="668" width="304" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="532" y="684" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">id</text>
+      <rect x="620" y="676" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="630" y="685" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">PK</text>
+      <rect x="644" y="676" width="40" height="12" rx="2" fill="none" stroke="rgba(46,90,168,0.55)" stroke-width="0.8"/>
+      <text x="664" y="685" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NO FK</text>
+      <text x="812" y="684" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">bigint</text>
+
+      <text x="532" y="708" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">title</text>
+      <rect x="668" y="700" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="678" y="709" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="812" y="708" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">varchar(500)</text>
+
+      <rect x="520" y="716" width="304" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="532" y="732" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">updated_at</text>
+      <text x="812" y="732" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">timestamptz</text>
+
+      <text x="532" y="752" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">assigned PK · TMDB id, not generated</text>
+
+      <!-- Read-model editorial aside -->
+      <text x="520" y="792" fill="#2d3142" font-size="14" font-style="italic" font-family="'Instrument Serif', serif">Eventually consistent — a local cache of Catalog,</text>
+      <text x="520" y="812" fill="#2d3142" font-size="14" font-style="italic" font-family="'Instrument Serif', serif">so “my bookings” still names movies when Catalog is down.</text>
+
+      <!-- ============ TABLE: bookings (FOCAL header band) ============ -->
+      <rect x="952" y="176" width="424" height="336" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="952" y="176" width="424" height="28" rx="6" fill="rgba(235,108,54,0.08)" stroke="none"/>
+      <rect x="952" y="196" width="424" height="8" fill="rgba(235,108,54,0.08)"/>
+      <line x1="952" y1="204" x2="1376" y2="204" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+      <text x="964" y="194" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif">public.bookings</text>
+      <rect x="1324" y="184" width="40" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="1344" y="193" fill="#2d3142" opacity="0.8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">TABLE</text>
+
+      <rect x="952" y="204" width="424" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="964" y="220" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">id</text>
+      <rect x="1180" y="212" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="1190" y="221" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">PK</text>
+      <text x="1364" y="220" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">bigserial</text>
+
+      <text x="964" y="244" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">booking_reference</text>
+      <rect x="1180" y="236" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="1190" y="245" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">UQ</text>
+      <rect x="1204" y="236" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="1214" y="245" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="1364" y="244" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">varchar(20)</text>
+
+      <rect x="952" y="252" width="424" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="964" y="268" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">user_id</text>
+      <rect x="1156" y="260" width="40" height="12" rx="2" fill="none" stroke="rgba(46,90,168,0.55)" stroke-width="0.8"/>
+      <text x="1176" y="269" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NO FK</text>
+      <rect x="1200" y="260" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="1210" y="269" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="1364" y="268" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">varchar(36)</text>
+
+      <text x="964" y="292" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">showtime_id</text>
+      <rect x="1180" y="284" width="20" height="12" rx="2" fill="none" stroke="rgba(235,108,54,0.60)" stroke-width="0.8"/>
+      <text x="1190" y="293" fill="#eb6c36" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">FK</text>
+      <rect x="1204" y="284" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="1214" y="293" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="1364" y="292" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">bigint</text>
+
+      <rect x="952" y="300" width="424" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="964" y="316" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">movie_id</text>
+      <rect x="1156" y="308" width="40" height="12" rx="2" fill="none" stroke="rgba(46,90,168,0.55)" stroke-width="0.8"/>
+      <text x="1176" y="317" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NO FK</text>
+      <rect x="1200" y="308" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="1210" y="317" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="1364" y="316" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">bigint</text>
+
+      <text x="964" y="340" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">status</text>
+      <rect x="1180" y="332" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="1190" y="341" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="1364" y="340" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">varchar(20)</text>
+
+      <rect x="952" y="348" width="424" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="964" y="364" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">payment_status</text>
+      <rect x="1180" y="356" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="1190" y="365" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="1364" y="364" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">varchar(20)</text>
+
+      <text x="964" y="388" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">total_amount</text>
+      <rect x="1180" y="380" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="1190" y="389" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="1364" y="388" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">numeric(12,2)</text>
+
+      <rect x="952" y="396" width="424" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="964" y="412" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">expires_at</text>
+      <rect x="1180" y="404" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="1190" y="413" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="1364" y="412" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">timestamptz</text>
+
+      <text x="964" y="436" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">+ 2 audit columns</text>
+
+      <line x1="952" y1="444" x2="1376" y2="444" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+      <text x="964" y="458" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">INDEXES</text>
+      <text x="964" y="476" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">idx_bookings_showtime_id</text>
+      <text x="964" y="494" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">idx_bookings_movie_id</text>
+
+      <!-- ============ TABLE: booking_seats ============ -->
+      <rect x="952" y="640" width="424" height="168" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="952" y="640" width="424" height="28" rx="6" fill="rgba(45,49,66,0.04)" stroke="none"/>
+      <rect x="952" y="660" width="424" height="8" fill="rgba(45,49,66,0.04)"/>
+      <line x1="952" y1="668" x2="1376" y2="668" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+      <text x="964" y="658" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif">public.booking_seats</text>
+      <rect x="1324" y="648" width="40" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="1344" y="657" fill="#2d3142" opacity="0.8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">TABLE</text>
+
+      <rect x="952" y="668" width="424" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="964" y="684" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">id</text>
+      <rect x="1180" y="676" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="1190" y="685" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">PK</text>
+      <text x="1364" y="684" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">bigserial</text>
+
+      <text x="964" y="708" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">booking_id</text>
+      <rect x="1180" y="700" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="1190" y="709" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">FK</text>
+      <rect x="1204" y="700" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="1214" y="709" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="1364" y="708" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">bigint</text>
+
+      <rect x="952" y="716" width="424" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="964" y="732" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">seat_id</text>
+      <rect x="1180" y="724" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="1190" y="733" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">FK</text>
+      <rect x="1204" y="724" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="1214" y="733" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="1364" y="732" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">bigint</text>
+
+      <text x="964" y="756" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">seat_price</text>
+      <rect x="1180" y="748" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="1190" y="757" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="1364" y="756" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">numeric(10,2)</text>
+
+      <rect x="952" y="764" width="424" height="24" fill="rgba(45,49,66,0.02)"/>
+      <text x="964" y="780" fill="#2d3142" font-size="12" font-family="'Geist', sans-serif">seat_type_name</text>
+      <rect x="1180" y="772" width="20" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+      <text x="1190" y="781" fill="#2d3142" opacity="0.75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NN</text>
+      <text x="1364" y="780" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">varchar(60)</text>
+
+      <line x1="952" y1="788" x2="1376" y2="788" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+      <text x="964" y="802" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">UQ · BOOKING_ID + SEAT_ID · PRICE SNAPSHOT</text>
+
+      <!-- ============ LEGEND (horizontal strip, bottom) ============ -->
+      <line x1="40" y1="1000" x2="1400" y2="1000" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="40" y="1020" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+
+      <line x1="140" y1="1016" x2="180" y2="1016" stroke="#4f5d75" stroke-width="1"/>
+      <text x="188" y="1020" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">Real FK inside booking-db</text>
+
+      <line x1="404" y1="1016" x2="444" y2="1016" stroke="#eb6c36" stroke-width="1.2"/>
+      <text x="452" y="1020" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">Enforced FK · delete rejected</text>
+
+      <line x1="676" y1="1016" x2="716" y2="1016" stroke="#2e5aa8" stroke-width="1" stroke-dasharray="5,4"/>
+      <text x="724" y="1020" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">Cross-service id · no FK, no JOIN</text>
+
+      <rect x="988" y="1008" width="40" height="12" rx="2" fill="none" stroke="rgba(46,90,168,0.55)" stroke-width="0.8"/>
+      <text x="1008" y="1017" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NO FK</text>
+      <text x="1040" y="1020" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">Column crossing a service boundary</text>
+
+      <rect x="40" y="1040" width="1360" height="24" fill="none"/>
+      <text x="40" y="1056" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">PK primary key · FK foreign key · UQ unique · NN not null · audit columns = created_date, last_modified_date (timestamptz)</text>
+      <text x="40" y="1084" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">Over the standard 5-table budget by intent: this is the whole database, so every table Liquibase creates is shown.</text>
+    </svg>
+  </div>
+</body>
+</html>

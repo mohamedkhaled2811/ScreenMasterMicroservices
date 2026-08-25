@@ -1,0 +1,281 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 952 536" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="booking-integration-title booking-integration-desc">
+      <title id="booking-integration-title">Booking · Cross-Service Reads</title>
+      <desc id="booking-integration-desc">Process diagram of the Booking service's three synchronous calls into Catalog — showtime write-path validation, batched title composition, and lazy read-model backfill — alongside the RabbitMQ MovieUpserted projection that keeps Booking's local movie_titles read model current.</desc>
+      <defs>
+      <style>@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap');</style>
+        <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+          <circle cx="11" cy="11" r="0.8" fill="rgba(45,49,66,0.10)"/>
+        </pattern>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
+        <marker id="arrow-sm" markerWidth="6" markerHeight="5" refX="5" refY="2.5" orient="auto"><polygon points="0 0, 6 2.5, 0 5" fill="#4f5d75"/></marker>
+      </defs>
+
+      <!-- ============ background ============ -->
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+      <rect width="100%" height="100%" fill="url(#dots)" opacity="0.55"/>
+
+      <!-- alternating lane tints (odd-indexed lanes 0, 2, 4) -->
+      <rect x="140" y="36"  width="812" height="80" fill="rgba(45,49,66,0.018)"/>
+      <rect x="140" y="196" width="812" height="80" fill="rgba(45,49,66,0.018)"/>
+      <rect x="140" y="356" width="812" height="80" fill="rgba(45,49,66,0.018)"/>
+
+      <!-- lane dividers -->
+      <line x1="0" y1="36"  x2="952" y2="36"  stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+      <line x1="0" y1="116" x2="952" y2="116" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+      <line x1="0" y1="196" x2="952" y2="196" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+      <line x1="0" y1="276" x2="952" y2="276" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+      <line x1="0" y1="356" x2="952" y2="356" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+      <line x1="0" y1="436" x2="952" y2="436" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+
+      <!-- label column right border -->
+      <line x1="140" y1="36" x2="140" y2="436" stroke="rgba(45,49,66,0.20)" stroke-width="1"/>
+
+      <!-- ============ step header chips + labels ============ -->
+      <!-- 1 Validate -->
+      <rect x="190" y="8" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+      <text x="198" y="19" fill="#2d3142" font-size="8" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">1</text>
+      <text x="198" y="32" fill="#4f5d75" font-size="6" font-weight="500" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">VALIDATE</text>
+      <!-- 2 Book -->
+      <rect x="302" y="8" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+      <text x="310" y="19" fill="#2d3142" font-size="8" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">2</text>
+      <text x="310" y="32" fill="#4f5d75" font-size="6" font-weight="500" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">BOOK</text>
+      <!-- 3 Query -->
+      <rect x="414" y="8" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+      <text x="422" y="19" fill="#2d3142" font-size="8" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">3</text>
+      <text x="422" y="32" fill="#4f5d75" font-size="6" font-weight="500" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">QUERY</text>
+      <!-- 4 Resolve — FOCAL -->
+      <rect x="526" y="8" width="16" height="16" rx="8" fill="rgba(235,108,54,0.20)"/>
+      <text x="534" y="19" fill="#eb6c36" font-size="8" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">4</text>
+      <text x="534" y="32" fill="#eb6c36" font-size="6" font-weight="500" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">RESOLVE</text>
+      <!-- 5 Way A -->
+      <rect x="638" y="8" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+      <text x="646" y="19" fill="#2d3142" font-size="8" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">5</text>
+      <text x="646" y="32" fill="#4f5d75" font-size="6" font-weight="500" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">WAY A</text>
+      <!-- 6 Way B -->
+      <rect x="750" y="8" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+      <text x="758" y="19" fill="#2d3142" font-size="8" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">6</text>
+      <text x="758" y="32" fill="#4f5d75" font-size="6" font-weight="500" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">WAY B</text>
+      <!-- 7 Project -->
+      <rect x="862" y="8" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+      <text x="870" y="19" fill="#2d3142" font-size="8" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">7</text>
+      <text x="870" y="32" fill="#4f5d75" font-size="6" font-weight="500" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">PROJECT</text>
+
+      <!-- ============ lane labels ============ -->
+      <text x="70" y="80"  fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">CLIENT</text>
+
+      <text x="70" y="152" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">BOOKING</text>
+      <text x="70" y="160" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">API</text>
+
+      <text x="70" y="232" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">BOOKING</text>
+      <text x="70" y="240" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SERVICE</text>
+
+      <text x="70" y="312" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">BOOKING</text>
+      <text x="70" y="320" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">DB</text>
+
+      <text x="70" y="392" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">CATALOG</text>
+      <text x="70" y="400" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SERVICE</text>
+
+      <!-- ============ connectors (drawn before nodes) ============ -->
+
+      <!-- 1 CLI(step0,lane0) -> SVC(step0,lane2) : down. exit right of node0 (248,76), enter top of (198,204) -->
+      <path d="M 248,76 H 190 Q 198,76 198,84 V 204" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+
+      <!-- 2 SVC(step0,lane2) -> CAT(step0,lane4) : down. exit right (248,236) -> enter top (198,364) -->
+      <path d="M 248,236 H 190 Q 198,236 198,244 V 364" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+
+      <!-- 3 CLI(step1,lane0) -> API(step1,lane1) : down. exit right (360,76) -> enter top (310,124) -->
+      <path d="M 360,76 H 302 Q 310,76 310,84 V 124" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+
+      <!-- 4 API(step1,lane1) -> DB(step1,lane3) : down. exit right (360,156) -> enter top (310,284) -->
+      <path d="M 360,156 H 302 Q 310,156 310,164 V 284" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+
+      <!-- 5 CLI(step2,lane0) -> API(step2,lane1) : down. exit right (472,76) -> enter top (422,124) -->
+      <path d="M 472,76 H 414 Q 422,76 422,84 V 124" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+
+      <!-- 6 API(step2,lane1) -> DB(step2,lane3) : down. exit right (472,156) -> enter top (422,284) -->
+      <path d="M 472,156 H 414 Q 422,156 422,164 V 284" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+
+      <!-- 7 FOCAL-IN : DB(step2,lane3) -> SVC(step3,lane2) focal node. up. exit right (472,316) -> enter bottom (534,268) -->
+      <path d="M 472,316 H 526 Q 534,316 534,308 V 268" fill="none" stroke="#eb6c36" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+
+      <!-- 8 FOCAL-OUT : SVC(step3,lane2) -> CAT(step4,lane4). down. exit right (584,236) -> enter top (646,364) -->
+      <path d="M 584,236 H 638 Q 646,236 646,244 V 364" fill="none" stroke="#eb6c36" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+
+      <!-- 9 FOCAL-OUT : SVC(step3,lane2) -> DB(step5,lane3). down. exit right at a distinct attach point (584,220) -> enter top (758,284) -->
+      <path d="M 584,220 H 750 Q 758,220 758,228 V 284" fill="none" stroke="#eb6c36" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+
+      <!-- 10 DB(step5,lane3) -> CAT(step5,lane4) : down, lazy backfill on a miss. dashed trigger. exit right (808,316) -> enter top (758,364) -->
+      <path d="M 808,316 H 750 Q 758,316 758,324 V 364" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-sm)"/>
+
+      <!-- 11 CAT(step6,lane4) -> SVC(step6,lane2) : up, MovieUpserted event. exit right (920,396) -> enter bottom (870,268) -->
+      <path d="M 920,396 H 848 Q 856,396 856,388 V 268" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+
+      <!-- 12 SVC(step6,lane2) -> DB(step6,lane3) : down, idempotent upsert. exit right (920,236) -> enter top (870,284) -->
+      <path d="M 920,236 H 876 Q 884,236 884,244 V 284" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+
+      <!-- ============ nodes ============ -->
+
+      <!-- (lane0 CLI, step0) POST /showtimes -->
+      <rect x="148" y="44" width="100" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="148" y="44" width="100" height="64" rx="6" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+      <rect x="152" y="48" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+      <text x="159" y="56" fill="#2d3142" font-size="6" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">CLI</text>
+      <text x="198" y="70" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">POST /showtimes</text>
+      <text x="198" y="84" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">movieId + screen</text>
+      <text x="198" y="96" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">write path</text>
+
+      <!-- (lane2 SVC, step0) ShowtimeService -->
+      <rect x="148" y="204" width="100" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="148" y="204" width="100" height="64" rx="6" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+      <rect x="152" y="208" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+      <text x="159" y="216" fill="#2d3142" font-size="6" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">SVC</text>
+      <text x="198" y="230" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">ShowtimeService</text>
+      <text x="198" y="244" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">no movie_id FK</text>
+      <text x="198" y="256" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">CatalogClient</text>
+
+      <!-- (lane4 CAT, step0) verifyMovieExists — rust-red, governance/validation gate -->
+      <rect x="148" y="364" width="100" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="148" y="364" width="100" height="64" rx="6" fill="rgba(184,84,80,0.06)" stroke="rgba(184,84,80,0.35)" stroke-width="1"/>
+      <rect x="152" y="368" width="14" height="10" rx="2" fill="rgba(184,84,80,0.18)"/>
+      <text x="159" y="376" fill="#b85450" font-size="6" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">CAT</text>
+      <text x="198" y="390" fill="#b85450" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">GET /movies/{id}</text>
+      <text x="198" y="404" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">404 → reject · down → 503</text>
+      <text x="198" y="416" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">throws, never degrades</text>
+
+      <!-- (lane0 CLI, step1) POST /bookings -->
+      <rect x="260" y="44" width="100" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="260" y="44" width="100" height="64" rx="6" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+      <rect x="264" y="48" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+      <text x="271" y="56" fill="#2d3142" font-size="6" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">CLI</text>
+      <text x="310" y="70" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">POST /bookings</text>
+      <text x="310" y="84" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">X-User-Id · seats</text>
+      <text x="310" y="96" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">no Catalog call</text>
+
+      <!-- (lane1 API, step1) BookingController -->
+      <rect x="260" y="124" width="100" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="260" y="124" width="100" height="64" rx="6" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+      <rect x="264" y="128" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+      <text x="271" y="136" fill="#2d3142" font-size="6" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">API</text>
+      <text x="310" y="150" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">BookingService</text>
+      <text x="310" y="164" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">hold + price snapshot</text>
+      <text x="310" y="176" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">PENDING · 15 min</text>
+
+      <!-- (lane3 DB, step1) booking row — snapshots movie_id -->
+      <rect x="260" y="284" width="100" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="260" y="284" width="100" height="64" rx="6" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+      <rect x="264" y="288" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+      <text x="271" y="296" fill="#2d3142" font-size="6" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">DB</text>
+      <text x="310" y="310" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">booking</text>
+      <text x="310" y="324" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">movie_id snapshotted</text>
+      <text x="310" y="336" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">booking-db</text>
+
+      <!-- (lane0 CLI, step2) GET /bookings/my -->
+      <rect x="372" y="44" width="100" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="372" y="44" width="100" height="64" rx="6" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+      <rect x="376" y="48" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+      <text x="383" y="56" fill="#2d3142" font-size="6" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">CLI</text>
+      <text x="422" y="70" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">GET /bookings/my</text>
+      <text x="422" y="84" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">?source=…</text>
+      <text x="422" y="96" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">paged · PagedModel</text>
+
+      <!-- (lane1 API, step2) MyBookingsService page read -->
+      <rect x="372" y="124" width="100" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="372" y="124" width="100" height="64" rx="6" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+      <rect x="376" y="128" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+      <text x="383" y="136" fill="#2d3142" font-size="6" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">API</text>
+      <text x="422" y="150" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">MyBookingsService</text>
+      <text x="422" y="164" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">findByUserId(page)</text>
+      <text x="422" y="176" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">readOnly txn</text>
+
+      <!-- (lane3 DB, step2) distinct movieIds -->
+      <rect x="372" y="284" width="100" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="372" y="284" width="100" height="64" rx="6" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+      <rect x="376" y="288" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+      <text x="383" y="296" fill="#2d3142" font-size="6" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">DB</text>
+      <text x="422" y="310" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">page of bookings</text>
+      <text x="422" y="324" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">distinct movieIds</text>
+      <text x="422" y="336" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">titles live elsewhere</text>
+
+      <!-- (lane2 SVC, step3) FOCAL — the title-source fork -->
+      <rect x="484" y="204" width="100" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="484" y="204" width="100" height="64" rx="6" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+      <rect x="488" y="208" width="14" height="10" rx="2" fill="rgba(235,108,54,0.20)"/>
+      <text x="495" y="216" fill="#eb6c36" font-size="6" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">SVC</text>
+      <text x="534" y="230" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">resolveTitles()</text>
+      <text x="534" y="244" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">the missing JOIN</text>
+      <text x="534" y="256" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">switch (source)</text>
+
+      <!-- (lane4 CAT, step4) way A — batch composition -->
+      <rect x="596" y="364" width="100" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="596" y="364" width="100" height="64" rx="6" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+      <rect x="600" y="368" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+      <text x="607" y="376" fill="#2d3142" font-size="6" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">CAT</text>
+      <text x="646" y="390" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">GET /movies/batch</text>
+      <text x="646" y="404" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">?ids=1&amp;ids=2 · one call</text>
+      <text x="646" y="416" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">down → null titles</text>
+
+      <!-- (lane3 DB, step5) way B — local read model — slate-blue -->
+      <rect x="708" y="284" width="100" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="708" y="284" width="100" height="64" rx="6" fill="rgba(90,125,154,0.06)" stroke="rgba(90,125,154,0.35)" stroke-width="1"/>
+      <rect x="712" y="288" width="14" height="10" rx="2" fill="rgba(90,125,154,0.18)"/>
+      <text x="719" y="296" fill="#5a7d9a" font-size="6" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">DB</text>
+      <text x="758" y="310" fill="#5a7d9a" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">movie_titles</text>
+      <text x="758" y="324" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">WHERE id IN (…)</text>
+      <text x="758" y="336" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">read model · no network</text>
+
+      <!-- (lane4 CAT, step5) lazy backfill on miss -->
+      <rect x="708" y="364" width="100" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="708" y="364" width="100" height="64" rx="6" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+      <rect x="712" y="368" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+      <text x="719" y="376" fill="#2d3142" font-size="6" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">CAT</text>
+      <text x="758" y="390" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">lazy backfill</text>
+      <text x="758" y="404" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">on cache miss only</text>
+      <text x="758" y="416" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">REQUIRES_NEW txn</text>
+
+      <!-- (lane4 CAT, step6) MovieUpserted publish -->
+      <rect x="820" y="364" width="100" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="820" y="364" width="100" height="64" rx="6" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+      <rect x="824" y="368" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+      <text x="831" y="376" fill="#2d3142" font-size="6" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">CAT</text>
+      <text x="870" y="390" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">MovieUpserted</text>
+      <text x="870" y="404" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">topic exchange</text>
+      <text x="870" y="416" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">AMQP · at-least-once</text>
+
+      <!-- (lane2 SVC, step6) projector — olive-green -->
+      <rect x="820" y="204" width="100" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="820" y="204" width="100" height="64" rx="6" fill="rgba(122,140,71,0.06)" stroke="rgba(122,140,71,0.35)" stroke-width="1"/>
+      <rect x="824" y="208" width="14" height="10" rx="2" fill="rgba(122,140,71,0.18)"/>
+      <text x="831" y="216" fill="#7a8c47" font-size="6" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">SVC</text>
+      <text x="870" y="230" fill="#7a8c47" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">MovieTitleProjector</text>
+      <text x="870" y="244" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">idempotent by PK</text>
+      <text x="870" y="256" fill="#7a8399" font-size="6.5" font-family="'Geist Mono', monospace" text-anchor="middle">drops stale updatedAt</text>
+
+      <!-- ============ legend ============ -->
+      <text x="144" y="452" fill="#4f5d75" font-size="7" font-weight="500" font-family="'Geist Mono', monospace" letter-spacing="0.14em">STEPS</text>
+      <rect x="212" y="444" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+      <text x="220" y="455" fill="#2d3142" font-size="8" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">1</text>
+      <text x="236" y="455" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" letter-spacing="0.08em">VALIDATE · BOOK · QUERY</text>
+      <rect x="416" y="444" width="16" height="16" rx="8" fill="rgba(235,108,54,0.20)"/>
+      <text x="424" y="455" fill="#eb6c36" font-size="8" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">4</text>
+      <text x="440" y="455" fill="#eb6c36" font-size="7" font-family="'Geist Mono', monospace" letter-spacing="0.08em">RESOLVE — the title-source fork</text>
+
+      <text x="144" y="473" fill="#4f5d75" font-size="7" font-weight="500" font-family="'Geist Mono', monospace" letter-spacing="0.14em">CONCERN</text>
+      <rect x="212" y="466" width="10" height="10" rx="2" fill="rgba(184,84,80,0.18)" stroke="rgba(184,84,80,0.35)" stroke-width="0.8"/>
+      <text x="228" y="474" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace">write-path gate (hard fail)</text>
+      <rect x="416" y="466" width="10" height="10" rx="2" fill="rgba(90,125,154,0.18)" stroke="rgba(90,125,154,0.35)" stroke-width="0.8"/>
+      <text x="432" y="474" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace">CQRS read model (query side)</text>
+      <rect x="668" y="466" width="10" height="10" rx="2" fill="rgba(122,140,71,0.18)" stroke="rgba(122,140,71,0.35)" stroke-width="0.8"/>
+      <text x="684" y="474" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace">CQRS projection (write side)</text>
+
+      <text x="144" y="494" fill="#4f5d75" font-size="7" font-weight="500" font-family="'Geist Mono', monospace" letter-spacing="0.14em">FLOW</text>
+      <line x1="212" y1="491" x2="248" y2="491" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <text x="256" y="494" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace">in-process / HTTP hand-off</text>
+      <line x1="416" y1="491" x2="452" y2="491" stroke="#eb6c36" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+      <text x="460" y="494" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace">the fork: way A vs way B</text>
+      <line x1="668" y1="491" x2="704" y2="491" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-sm)"/>
+      <text x="712" y="494" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace">conditional (cache miss)</text>
+
+      <text x="144" y="516" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" letter-spacing="0.06em">Booking holds no FK into Catalog — every title crosses the boundary by HTTP or by event.</text>
+    </svg>

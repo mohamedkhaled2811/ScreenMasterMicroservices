@@ -1,0 +1,29 @@
+# Changeset 007 — bookings.showtime_id becomes a real FK to showtimes.id.
+#
+# 003 deliberately left showtime_id a plain column so a booking could "outlive" a showtime row. That
+# choice is now reversed: the relationship is enforced in the database because deleting a showtime
+# that has bookings would leave orphaned reservation history. The FK uses the same default as every
+# other FK in booking-db — ON DELETE NO ACTION — so the delete is rejected instead of cascading.
+#
+# Service code pre-checks the existence of bookings before attempting the delete and translates the
+# constraint-violation safety net into the coded BOOKING_SHOWTIME_HAS_BOOKINGS error.
+databaseChangeLog:
+  - changeSet:
+      id: 007-add-bookings-showtime-fk
+      author: mohamed
+      changes:
+        - addForeignKeyConstraint:
+            constraintName: fk_bookings_showtime
+            baseTableName: bookings
+            baseColumnNames: showtime_id
+            referencedTableName: showtimes
+            referencedColumnNames: id
+        # The double-booking guard and "bookings for showtime" reads are hot paths; a child-side index
+        # on the FK column keeps them out of a sequential scan. (The other child-side FK columns were
+        # either covered by unique-constraint leading columns or not on hot lookup paths at the time.)
+        - createIndex:
+            indexName: idx_bookings_showtime_id
+            tableName: bookings
+            columns:
+              - column:
+                  name: showtime_id

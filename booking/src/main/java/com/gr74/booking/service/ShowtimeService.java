@@ -10,8 +10,10 @@ import com.gr74.booking.client.CatalogClient;
 import com.gr74.booking.dto.CreateShowtimeRequest;
 import com.gr74.booking.exception.DuplicateResourceException;
 import com.gr74.booking.exception.ResourceNotFoundException;
+import com.gr74.booking.exception.ShowtimeHasBookingsException;
 import com.gr74.booking.model.Screen;
 import com.gr74.booking.model.Showtime;
+import com.gr74.booking.repository.BookingRepository;
 import com.gr74.booking.repository.ShowtimeRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -43,6 +45,7 @@ import lombok.extern.slf4j.Slf4j;
 public class ShowtimeService {
 
     private final ShowtimeRepository showtimeRepository;
+    private final BookingRepository bookingRepository;
     private final TheaterService theaterService; // reuse the intra-Booking screen lookup
     private final CatalogClient catalogClient;
 
@@ -97,6 +100,9 @@ public class ShowtimeService {
     @Transactional
     public void delete(long showtimeId) {
         Showtime showtime = getById(showtimeId);
+        if (bookingRepository.existsByShowtimeId(showtimeId)) {
+            throw new ShowtimeHasBookingsException(showtimeId);
+        }
         showtimeRepository.delete(showtime);
         log.info("Deleted showtime id={}", showtimeId);
     }

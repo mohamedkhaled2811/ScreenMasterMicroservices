@@ -51,6 +51,12 @@ public enum BookingErrorCode {
     /** A uniqueness constraint was violated (duplicate name, seat, or showtime slot). */
     BOOKING_DUPLICATE(HttpStatus.CONFLICT, "Duplicate resource"),
 
+    /**
+     * Deleting a showtime would orphan existing bookings. Rejected by the FK (ON DELETE NO ACTION)
+     * and pre-checked in the service so the caller gets a coded 409 instead of a raw DB error.
+     */
+    BOOKING_SHOWTIME_HAS_BOOKINGS(HttpStatus.CONFLICT, "Showtime has bookings"),
+
     /** A fallback for anything we did not anticipate — never leak internals to the caller. */
     BOOKING_INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Internal error");
 

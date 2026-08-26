@@ -28,6 +28,12 @@ public interface BookingRepository extends JpaRepository<Booking, Long>, JpaSpec
     Page<Booking> findByUserId(String userId, Pageable pageable);
 
     /**
+     * Used before deleting a showtime: if any booking row still references it, the delete must be
+     * rejected. The FK is the real guard; this is the friendly pre-check.
+     */
+    boolean existsByShowtimeId(Long showtimeId);
+
+    /**
      * Of the given seat ids, which are already held by an <em>active</em> booking for this showtime?
      * "Active" = a status that still reserves the seat ({@code PENDING} or {@code CONFIRMED}); a
      * {@code CANCELLED}/{@code EXPIRED} booking has released its seats and must not block a rebook. An

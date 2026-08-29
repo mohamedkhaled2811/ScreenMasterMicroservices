@@ -17,8 +17,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import com.gr74.booking.client.CatalogClient;
 import com.gr74.booking.exception.CatalogUnavailableException;
-import com.gr74.booking.model.MovieTitle;
-import com.gr74.booking.repository.MovieTitleRepository;
+import com.gr74.booking.model.MovieProjection;
+import com.gr74.booking.repository.MovieProjectionRepository;
 
 /**
  * The read side of way B, on H2 with {@link CatalogClient} mocked (the lazy-backfill boundary). Proves the
@@ -32,21 +32,21 @@ import com.gr74.booking.repository.MovieTitleRepository;
  * </ol>
  */
 @DataJpaTest
-@Import({MovieTitleReadModel.class, MovieTitleBackfiller.class})
-class MovieTitleReadModelTest {
+@Import({MovieReadModel.class, MovieBackfiller.class})
+class MovieReadModelTest {
 
     @Autowired
-    private MovieTitleReadModel readModel;
+    private MovieReadModel readModel;
 
     @Autowired
-    private MovieTitleRepository repository;
+    private MovieProjectionRepository repository;
 
     @MockitoBean
     private CatalogClient catalogClient;
 
     @Test
     void cachedTitleServedLocallyWithoutCallingCatalog() {
-        repository.saveAndFlush(new MovieTitle(603L, "The Matrix", null));
+        repository.saveAndFlush(new MovieProjection(603L, "The Matrix", null));
 
         Map<Long, String> titles = readModel.titlesByIds(Set.of(603L));
 
@@ -62,7 +62,7 @@ class MovieTitleReadModelTest {
 
         assertThat(titles).containsEntry(550L, "Fight Club");
         // Cached for next time (updatedAt null: from a fetch, not an event).
-        MovieTitle cached = repository.findById(550L).orElseThrow();
+        MovieProjection cached = repository.findById(550L).orElseThrow();
         assertThat(cached.getTitle()).isEqualTo("Fight Club");
         assertThat(cached.getUpdatedAt()).isNull();
     }
@@ -90,7 +90,7 @@ class MovieTitleReadModelTest {
 
     @Test
     void mixOfCachedAndBackfilledIdsResolvesBoth() {
-        repository.saveAndFlush(new MovieTitle(603L, "The Matrix", null));
+        repository.saveAndFlush(new MovieProjection(603L, "The Matrix", null));
         given(catalogClient.titleById(550L)).willReturn(Optional.of("Fight Club"));
 
         Map<Long, String> titles = readModel.titlesByIds(Set.of(603L, 550L));

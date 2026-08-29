@@ -5,14 +5,19 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.gr74.booking.client.CatalogClient;
 import com.gr74.booking.dto.CreateBookingRequest;
+import com.gr74.booking.dto.MyBookingDto;
 import com.gr74.booking.exception.BookingErrorCode;
 import com.gr74.booking.exception.BookingException;
 import com.gr74.booking.exception.DuplicateResourceException;
@@ -30,6 +35,15 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
+ * Bookings: the write side (create) and the read side ("my bookings").
+ *
+ * <p>Both live here because they are one aggregate in one service — Booking. The read side was briefly a
+ * separate {@code MyBookingsService} bean, but it is a single repository call plus a title lookup, and a
+ * bean boundary inside the same module bought nothing. The distributed-systems boundary that <em>does</em>
+ * matter is the one to Catalog, and that is expressed by {@link CatalogClient} / {@link MovieReadModel},
+ * not by splitting this class.
+ *
+ * <h2>The write side</h2>
  * Creates bookings — the <em>minimal</em> write, deliberately without the saga.
  *
  * <p>This is BUILD_PLAN 2.2's option 4A: a real {@code POST /bookings} so "my bookings" reads rows a
@@ -61,6 +75,8 @@ public class BookingService {
     private final ShowtimeRepository showtimeRepository;
     private final SeatRepository seatRepository;
     private final Clock clock;
+    private final CatalogClient catalogClient;
+    private final MovieReadModel movieReadModel;
 
     @Transactional
     public Booking create(String userId, CreateBookingRequest request) {
@@ -121,6 +137,54 @@ public class BookingService {
         log.info("Created booking id={} ref={} userId={} showtimeId={} seats={} total={} (PENDING, no payment yet)",
                 saved.getId(), saved.getBookingReference(), userId, showtime.getId(), seatIds.size(), total);
         return saved;
+    }
+
+    // ===== Read side: "my bookings" (the M2 cross-service query) =====
+
+    /**
+     * The M2 lesson made concrete: "show me my bookings, with the movie title for each."
+     *
+     * <p>The monolith did this with a single {@code JOIN booking → showtime → movie}. After decomposition
+     * the title lives in another service's database, so this method <b>hand-writes that JOIN over the
+     * network</b>:
+     * <ol>
+     *   <li>read the user's own bookings (paged) from booking-db;</li>
+     *   <li>collect the page's <em>distinct</em> {@code movieId}s (snapshotted onto each booking at create);</li>
+     *   <li>resolve them to titles in <b>one</b> call — not one call per row (the network N+1 that naive
+     *       composition falls into);</li>
+     *   <li>merge the title into each row, {@code null} on a miss.</li>
+     * </ol>
+     *
+     * <p><b>Two resolution strategies, chosen per request</b> ({@code ?source=}) so both are demoable
+     * side-by-side (BUILD_PLAN 2.4). The bookings query and the {@link MyBookingDto} shape are identical;
+     * only where the title comes from differs — see {@link MovieDataSource} and {@link #resolveTitles}.
+     */
+    @Transactional(readOnly = true)
+    public Page<MyBookingDto> myBookings(String userId, Pageable pageable, MovieDataSource source) {
+        Page<Booking> bookings = bookingRepository.findByUserId(userId, pageable);
+        Set<Long> movieIds = bookings.stream().map(Booking::getMovieId).collect(Collectors.toSet());
+
+        Map<Long, String> titles = resolveTitles(source, movieIds);
+        log.info("My bookings for userId={} via {}: {} row(s), resolved {}/{} title(s)",
+                userId, source, bookings.getNumberOfElements(), titles.size(), movieIds.size());
+
+        return bookings.map(b -> MyBookingDto.of(b, titles.get(b.getMovieId())));
+    }
+
+    /**
+     * Way A resolves live from Catalog (one batch call); way B resolves from the local read model.
+     *
+     * <p>Way A <b>degrades</b>: if Catalog is down it returns no titles, so the list still answers with
+     * {@code movieTitle: null} instead of a 503 — the partial-failure trade this path exists to make you
+     * feel. Way B reads Booking's own {@code movie_projections} table, lazy-backfilling a cache miss, so a
+     * Catalog outage doesn't stop already-cached titles from rendering — at the price of eventual
+     * consistency (a rename lags until the event lands).
+     */
+    private Map<Long, String> resolveTitles(MovieDataSource source, Set<Long> movieIds) {
+        return switch (source) {
+            case COMPOSITION -> catalogClient.titlesByIds(movieIds);
+            case READMODEL -> movieReadModel.titlesByIds(movieIds);
+        };
     }
 
     /** A human-facing "BK-XXXXXXXX" handle. Uniqueness is backed by the DB constraint on the column. */

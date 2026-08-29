@@ -60,7 +60,7 @@
   backfill (the bulk initial load) — the stream means "a movie moved while a consumer was live", and a
   consumer seeds its cold start by lazy backfill, not by replaying this stream (see
   `docs/adr/0001-movieupserted-published-from-incremental-refresh-only.md`). (Chosen over a narrower
-  `MovieTitleChanged` so the publisher stays naive and the residual noise is a felt, narratable cost.)
+  `MovieProjectionChanged` so the publisher stays naive and the residual noise is a felt, narratable cost.)
 
 - **Read model** — a service's own local, queryable copy of *another* service's data, kept up to date by
   consuming that service's events, so the owning service need not be called at read time. It is **eventually

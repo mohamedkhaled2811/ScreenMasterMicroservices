@@ -32,10 +32,10 @@ import lombok.NoArgsConstructor;
  * write time, so it must never be overwritten by a local audit hook.
  */
 @Entity
-@Table(name = "movie_titles")
+@Table(name = "movie_projections")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class MovieTitle {
+public class MovieProjection {
 
     @Id
     private Long id;
@@ -46,7 +46,7 @@ public class MovieTitle {
     @Column(name = "updated_at")
     private Instant updatedAt;
 
-    public MovieTitle(Long id, String title, Instant updatedAt) {
+    public MovieProjection(Long id, String title, Instant updatedAt) {
         this.id = id;
         this.title = title;
         this.updatedAt = updatedAt;

@@ -20,7 +20,7 @@ spring:
       ddl-auto: validate
     open-in-view: false
 
-  # RabbitMQ — Booking CONSUMES MovieUpserted here into its movie_titles read model (CQRS, BUILD_PLAN
+  # RabbitMQ — Booking CONSUMES MovieUpserted here into its movie_projections read model (CQRS, BUILD_PLAN
   # 2.3). Host defaults to localhost for `mvn spring-boot:run`; Compose overrides RABBITMQ_HOST to the
   # `rabbitmq` container.
   rabbitmq:

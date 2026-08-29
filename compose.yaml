@@ -101,7 +101,7 @@ services:
       BOOKING_DB_PASSWORD: postgres
       EUREKA_SERVICE_URL: http://discovery:8761/eureka/
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
-      # Booking CONSUMES MovieUpserted from the broker into its movie_titles read model (2.3).
+      # Booking CONSUMES MovieUpserted from the broker into its movie_projections read model (2.3).
       RABBITMQ_HOST: rabbitmq
     depends_on:
       booking-db:

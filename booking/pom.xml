@@ -54,7 +54,7 @@
 
 		<!--
 		  AMQP / RabbitMQ. Booking is the CONSUMER side of the CQRS read model (BUILD_PLAN 2.3, way B):
-		  a @RabbitListener consumes MovieUpserted and keeps a local movie_titles cache so "my bookings"
+		  a @RabbitListener consumes MovieUpserted and keeps a local movie_projections cache so "my bookings"
 		  can name movies by a local join even when Catalog is down. Version managed by the Spring Boot
 		  parent. See docs/concepts/rabbitmq.md, docs/concepts/idempotent-consumer.md, cqrs-read-model.md.
 		-->

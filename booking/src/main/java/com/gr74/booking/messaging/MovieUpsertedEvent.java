@@ -10,7 +10,7 @@ import java.time.Instant;
  * doesn't need). Fields are matched by name during JSON deserialization.
  *
  * <ul>
- *   <li>{@code id} — the movie id; the UPSERT key into {@code movie_titles}.</li>
+ *   <li>{@code id} — the movie id; the UPSERT key into {@code movie_projections}.</li>
  *   <li>{@code title} — the new title to cache.</li>
  *   <li>{@code updatedAt} — the source row's last-modified time; the consumer's ordering-guard baseline
  *       (drop an event whose {@code updatedAt <=} the stored one).</li>

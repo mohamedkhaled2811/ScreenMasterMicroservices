@@ -45,7 +45,7 @@ A class can have 100% line coverage but low branch coverage if all `if`s always 
 
 * **Coverage is necessary, not sufficient.** 80% coverage with weak assertions is worse than 50% coverage with strong ones. Treat it as "what is definitely not exercised" rather than "how good the tests are".
 * **Bytecode instrumentation changes nothing semantically.** JaCoCo adds probes to class files at load time via a `-javaagent`. The application behaves the same; it just records which probes fired.
-* **Self-invocation bypasses transaction proxies.** The test fix that rode along with this CI plan (`MovieTitleReadModelTest` importing `MovieTitleBackfiller`) is a real example: splitting `REQUIRES_NEW` into its own bean fixed a silent drop, but the test slice had to be updated too. Without CI, that break sat on `main`.
+* **Self-invocation bypasses transaction proxies.** The test fix that rode along with this CI plan (`MovieReadModelTest` importing `MovieBackfiller`) is a real example: splitting `REQUIRES_NEW` into its own bean fixed a silent drop, but the test slice had to be updated too. Without CI, that break sat on `main`.
 * **Independent deployability needs independent proof.** Six services that *can* deploy separately must also *build and test* separately — or at least together in a reactor gate. CI is what keeps that promise honest.
 * **PR-only coverage comments.** `madrapps/jacoco-report` only posts a comment on pull requests. Direct pushes to `main` still show coverage via the Actions job summary, so nothing is lost.
 * **The upgrade path.** Once the real coverage numbers are known, add `jacoco:check` with a per-module threshold that is intentionally a floor, not a target.

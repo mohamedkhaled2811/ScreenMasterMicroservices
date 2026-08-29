@@ -4,7 +4,7 @@
 A **read model** is a service's own **local, queryable copy of *another* service's data**, kept up to
 date by consuming that service's events — so the owning service need not be called at read time. It's the
 "query" half of **CQRS** (Command Query Responsibility Segregation): writes go to the owner (Catalog owns
-movies); reads are served from a projection shaped for the reader (Booking's `movie_titles` cache).
+movies); reads are served from a projection shaped for the reader (Booking's `movie_projections` cache).
 
 In ScreenMaster it answers the same question as [API composition](database-per-service.md) — *"show me my
 bookings, with each movie's title"* — but the other way round. This is **way B** of BUILD_PLAN 2.3 (way A
@@ -12,7 +12,7 @@ is composition).
 
 ```
 Catalog (owns movies)                         Booking (owns bookings)
-  refresh a movie ──MovieUpserted──▶ RabbitMQ ──▶ @RabbitListener ──▶ movie_titles (local copy)
+  refresh a movie ──MovieUpserted──▶ RabbitMQ ──▶ @RabbitListener ──▶ movie_projections (local copy)
                                                                           ▲
   GET /bookings/my?source=readmodel ───────────── local JOIN ────────────┘   (no Catalog call)
 ```
@@ -50,7 +50,7 @@ stamp, which would carry a *newer* time on a redelivered *older* event and defea
 
 **3. Lazy backfill seeds the cold start.** The publisher fires **only from the incremental-refresh path,
 never from backfill** (see [ADR 0001](../adr/0001-movieupserted-published-from-incremental-refresh-only.md)),
-so on a fresh system the stream may be silent for a while and `movie_titles` starts empty. On a cache miss
+so on a fresh system the stream may be silent for a while and `movie_projections` starts empty. On a cache miss
 the read model fetches the one title from Catalog and caches it, then serves local forever after. Two
 consequences to state honestly:
 - Way B is **network-free only for already-cached movies** — a cold movie still costs one Catalog touch.
@@ -71,10 +71,12 @@ M4's outbox has a felt motivation.
 - **Publisher** — `catalog`: `event/MovieUpserted.java`, `event/MovieEventPublisher.java`
   (`@TransactionalEventListener`), raised from `service/CatalogUpserter.refreshMovies`, `config/RabbitConfig`.
 - **Consumer + read model** — `booking`: `messaging/MovieUpsertedListener.java` (thin adapter) →
-  `service/MovieTitleProjector.java` (the guarded idempotent UPSERT), `model/MovieTitle.java`,
-  `repository/MovieTitleRepository.java`, changeset `005-create-movie-titles.yaml`, `config/RabbitConfig`.
-- **Read path** — `booking`: `service/MovieTitleReadModel.java` (local join + lazy backfill),
-  `service/MyBookingsService.java` (branches on `TitleSource`), `GET /bookings/my?source=readmodel`.
+  `service/MovieProjector.java` (the guarded idempotent UPSERT), `model/MovieProjection.java`,
+  `repository/MovieProjectionRepository.java`, changesets `005-create-movie-titles.yaml` +
+  `008-rename-movie-titles.yaml` (the table was renamed once the projection outgrew its title-only name),
+  `config/RabbitConfig`.
+- **Read path** — `booking`: `service/MovieReadModel.java` (local join + lazy backfill),
+  `service/BookingService.java` (branches on `MovieDataSource`), `GET /bookings/my?source=readmodel`.
 
 ## Interview lens
 "For a cross-service query I can compose at read time or keep a read model. The read model is a local

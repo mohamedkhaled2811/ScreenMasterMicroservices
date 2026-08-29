@@ -46,11 +46,11 @@ Seven tables in one database, in three clusters that mirror the three contexts:
 | **Inventory** | `theaters` → `screens` → `seats`, `seat_types` | a real FK chain — containment enforced by the database, because it is all inside one boundary |
 | **Scheduling** | `showtimes` | FK to `screens`; `movie_id` is a **plain column, not an FK** |
 | **Booking** | `bookings` → `booking_seats` | line items reference `seats`; `uq_booking_seats_booking_seat` is the last line of defence against double-booking |
-| **Read model** | `movie_titles` | a cache Booking *owns*, not a shared table (see CQRS below) |
+| **Read model** | `movie_projections` | a cache Booking *owns*, not a shared table (see CQRS below) |
 
 The one thing worth reading twice: **there is no FK to Catalog anywhere.** The monolith's `booking → showtime → movie` JOIN is cut. `movie_id` is a snapshotted id validated at write time over HTTP, and every immutable fact a booking needs (seat price, total) is **snapshotted onto the row at creation** so a later price change never rewrites history.
 
-`movie_titles` uses an **assigned** primary key — the TMDB movie id that Catalog owns — which is what makes the event consumer idempotent for free.
+`movie_projections` uses an **assigned** primary key — the TMDB movie id that Catalog owns — which is what makes the event consumer idempotent for free.
 
 ---
 
@@ -77,7 +77,7 @@ A write must reject an unverifiable id; a read is more useful partial than absen
 The same endpoint, the same `MyBookingDto` — only the title's provenance changes:
 
 - **`composition`** (default, way A) — one **batched** Catalog call per page (`/movies/batch?ids=…`, not one call per row — that's the network N+1). Fresh, but a Catalog outage means null titles.
-- **`readmodel`** (way B) — a local `WHERE id IN (…)` against `movie_titles`. Survives a Catalog outage for already-cached movies, at the price of eventual consistency. A genuine miss triggers one lazy backfill in a `REQUIRES_NEW` transaction — the read path runs `readOnly`, so the write must be delegated or it would be **silently dropped**.
+- **`readmodel`** (way B) — a local `WHERE id IN (…)` against `movie_projections`. Survives a Catalog outage for already-cached movies, at the price of eventual consistency. A genuine miss triggers one lazy backfill in a `REQUIRES_NEW` transaction — the read path runs `readOnly`, so the write must be delegated or it would be **silently dropped**.
 
 Stop Catalog and call both back-to-back: that divergence is the whole lesson.
 
@@ -97,13 +97,13 @@ Each is wired in real code, not demoed. Diagrams exist for the first three; **th
 
 | Pattern | Where it lives | Why it's here |
 |---|---|---|
-| **CQRS read model** | `MovieTitleProjector`, `MovieTitleReadModel`, `movie_titles` | Booking keeps its own query-optimised copy of Catalog titles so reads survive a Catalog outage. Write side is the event consumer; read side is a local join. |
-| **API composition** | `MyBookingsService`, `CatalogClient.titlesByIds` | The other answer to the lost JOIN — fan out at read time, batched to avoid the network N+1. |
+| **CQRS read model** | `MovieProjector`, `MovieReadModel`, `movie_projections` | Booking keeps its own query-optimised copy of Catalog titles so reads survive a Catalog outage. Write side is the event consumer; read side is a local join. |
+| **API composition** | `BookingService`, `CatalogClient.titlesByIds` | The other answer to the lost JOIN — fan out at read time, batched to avoid the network N+1. |
 | **Database per service** | `booking-db`, no cross-service FKs | The boundary is the schema. Cross-service references are ids, resolved over API or events. |
 | **Snapshotting immutable facts** | `booking_seats.seat_price` + `seat_type_name`, `bookings.total_amount`, `bookings.movie_id` | A booking records what was true *when it was made*; upstream changes never rewrite history. |
-| **Event-driven integration** | `MovieUpsertedListener` → `MovieTitleProjector` | Catalog publishes to a topic exchange knowing nothing about consumers; Booking owns its queue and binding. |
-| **Idempotent consumer** | `MovieTitleProjector.apply` | RabbitMQ is at-least-once. The PK is the assigned movie id, so a redelivery just rewrites the same row — no dedupe table needed (contrast Notification, whose side effect isn't naturally idempotent). |
-| **Ordering guard** | `MovieTitleProjector` | Redeliveries aren't globally ordered, so an event whose `updatedAt` isn't strictly newer than what's stored is dropped — a late event can't overwrite a fresher title. |
+| **Event-driven integration** | `MovieUpsertedListener` → `MovieProjector` | Catalog publishes to a topic exchange knowing nothing about consumers; Booking owns its queue and binding. |
+| **Idempotent consumer** | `MovieProjector.apply` | RabbitMQ is at-least-once. The PK is the assigned movie id, so a redelivery just rewrites the same row — no dedupe table needed (contrast Notification, whose side effect isn't naturally idempotent). |
+| **Ordering guard** | `MovieProjector` | Redeliveries aren't globally ordered, so an event whose `updatedAt` isn't strictly newer than what's stored is dropped — a late event can't overwrite a fresher title. |
 | **Synchronous validation of a cut FK** | `ShowtimeService` → `verifyMovieExists` | The DB can't enforce `movie_id` any more, so the service does — accepting temporal coupling on the write path, deliberately. |
 | **RFC 9457 error contract** | `BookingErrorCode`, `GlobalExceptionHandler` | Every error is `application/problem+json` with a stable machine-readable `code` siblings can branch on. |
 | **Pagination + dynamic filtering** | `TheaterController`, `repository/spec/*`, `WebPagingConfig` | Listings never dump. Nullable filter DTO → composed JPA `Specification`, bounded page size, whitelisted sort fields, stable `PagedModel` envelope. |

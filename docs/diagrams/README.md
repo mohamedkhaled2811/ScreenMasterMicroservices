@@ -115,7 +115,7 @@ reads as one system). Do **not** use a formal sequence/lifeline grammar.
 
 **Verify names against the actual code first.** Before drawing, read the relevant repo source and use its
 **real** class / method / table / endpoint names. This is a learning repo — a diagram that teaches fiction
-is worse than no diagram. (Example done right: `MyBookingsService.myBookings` → `bookingRepository.findByUserId`
+is worse than no diagram. (Example done right: `BookingService.myBookings` → `bookingRepository.findByUserId`
 → `catalogClient.titlesByIds` → `GET /movies/batch?ids=…`.)
 
 **Required content — all seven:**

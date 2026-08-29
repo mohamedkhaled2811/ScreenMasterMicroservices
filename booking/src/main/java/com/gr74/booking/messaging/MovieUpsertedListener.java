@@ -4,14 +4,14 @@ import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 
 import com.gr74.booking.config.RabbitConfig;
-import com.gr74.booking.service.MovieTitleProjector;
+import com.gr74.booking.service.MovieProjector;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
  * The AMQP adapter for the {@code MovieUpserted} stream — a deliberately thin shell over
- * {@link MovieTitleProjector}. All the interesting behaviour (the idempotent UPSERT and the ordering
+ * {@link MovieProjector}. All the interesting behaviour (the idempotent UPSERT and the ordering
  * guard) lives in the projector so it is unit-testable without a broker; this class only bridges the
  * queue to it.
  *
@@ -24,9 +24,9 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public class MovieUpsertedListener {
 
-    private final MovieTitleProjector projector;
+    private final MovieProjector projector;
 
-    @RabbitListener(queues = RabbitConfig.MOVIE_TITLES_QUEUE)
+    @RabbitListener(queues = RabbitConfig.MOVIE_PROJECTIONS_QUEUE)
     public void onMovieUpserted(MovieUpsertedEvent event) {
         log.debug("Received MovieUpserted id={} title='{}'", event.id(), event.title());
         projector.apply(event);

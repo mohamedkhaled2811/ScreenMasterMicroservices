@@ -10,6 +10,9 @@
 #   004-alter-bookings-...  widen bookings.user_id BIGINT -> VARCHAR(36) (Keycloak `sub` is a UUID string)
 #   005-create-movie-titles Booking's local read model of Catalog movie titles (CQRS way B, BUILD_PLAN 2.3)
 #   006-add-bookings-...    bookings.movie_id — the Catalog ref snapshotted from the showtime (no FK)
+#   007-add-bookings-...    bookings.showtime_id FK constraint (intra-Booking, both sides local)
+#   008-rename-movie-...   movie_titles -> movie_projections; the projection is the concept, title is
+#                           one column on it. Booking-private table, so a plain forward-only rename.
 #
 # See docs/concepts/liquibase.md.
 databaseChangeLog:
@@ -27,3 +30,5 @@ databaseChangeLog:
       file: db/changelog/changes/006-add-bookings-movie-id.yaml
   - include:
       file: db/changelog/changes/007-add-bookings-showtime-fk.yaml
+  - include:
+      file: db/changelog/changes/008-rename-movie-titles.yaml

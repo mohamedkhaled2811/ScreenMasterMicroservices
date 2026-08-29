@@ -55,7 +55,7 @@
 
     <svg viewBox="0 0 952 720" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="booking-architecture-title booking-architecture-desc">
       <title id="booking-architecture-title">Booking · Service Architecture</title>
-      <desc id="booking-architecture-desc">Architecture diagram of the ScreenMaster Booking service, showing the three bounded contexts it absorbed — theater inventory, showtime scheduling, and the booking write and read paths — over its own Postgres database and movie_titles read model, with a synchronous RestClient edge into Catalog and an asynchronous RabbitMQ listener that projects MovieUpserted events.</desc>
+      <desc id="booking-architecture-desc">Architecture diagram of the ScreenMaster Booking service, showing the three bounded contexts it absorbed — theater inventory, showtime scheduling, and the booking write and read paths — over its own Postgres database and movie_projections read model, with a synchronous RestClient edge into Catalog and an asynchronous RabbitMQ listener that projects MovieUpserted events.</desc>
       <defs>
         <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
           <circle cx="11" cy="11" r="0.8" fill="rgba(45,49,66,0.10)"/>
@@ -160,13 +160,13 @@
       <!-- CatalogClient -> Catalog : horizontal right, shared y -->
       <line x1="700" y1="140" x2="740" y2="140" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
 
-      <!-- Booking read -> movie_titles : elbow down-left into right edge (way B) -->
+      <!-- Booking read -> movie_projections : elbow down-left into right edge (way B) -->
       <path d="M 588,344 V 488 Q 588,496 580,496 H 564"
             fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
       <rect x="504" y="416" width="76" height="12" rx="2" fill="#f5f5f5"/>
       <text x="542" y="425" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">WAY B · LOCAL</text>
 
-      <!-- CatalogClient -> movie_titles : lazy backfill, dashed, down-left into right edge -->
+      <!-- CatalogClient -> movie_projections : lazy backfill, dashed, down-left into right edge -->
       <path d="M 656,188 V 512 Q 656,520 648,520 H 564"
             fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
       <rect x="664" y="396" width="64" height="12" rx="2" fill="#f5f5f5"/>
@@ -177,7 +177,7 @@
       <rect x="808" y="414" width="80" height="12" rx="2" fill="#f5f5f5"/>
       <text x="848" y="423" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">MOVIEUPSERTED</text>
 
-      <!-- Projector -> movie_titles : elbow left-down into right edge -->
+      <!-- Projector -> movie_projections : elbow left-down into right edge -->
       <path d="M 740,480 H 700 Q 692,480 692,488 V 536 Q 692,544 684,544 H 564"
             fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
       <rect x="596" y="524" width="88" height="12" rx="2" fill="#f5f5f5"/>
@@ -258,13 +258,13 @@
       <text x="216" y="534" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">showtimes · bookings · booking_seats</text>
       <text x="216" y="554" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Liquibase · ddl-auto=validate · no FK to catalog</text>
 
-      <!-- movie_titles read model -->
+      <!-- movie_projections read model -->
       <rect x="404" y="472" width="160" height="96" rx="6" fill="#f5f5f5"/>
       <rect x="404" y="472" width="160" height="96" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
       <rect x="412" y="480" width="60" height="12" rx="2" fill="transparent" stroke="rgba(79,93,117,0.40)" stroke-width="0.8"/>
       <text x="442" y="489" fill="rgba(79,93,117,0.90)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">READ MODEL</text>
       <use href="#ico-postgres" x="524" y="480" width="24" height="24" color="#336791"/>
-      <text x="484" y="520" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">movie_titles</text>
+      <text x="484" y="520" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">movie_projections</text>
       <text x="484" y="540" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">id · title · updated_at</text>
       <text x="484" y="554" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">eventually consistent</text>
 

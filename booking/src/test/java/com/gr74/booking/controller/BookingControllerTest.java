@@ -33,8 +33,7 @@ import com.gr74.booking.model.BookingStatus;
 import com.gr74.booking.model.PaymentStatus;
 import com.gr74.booking.security.CurrentUserArgumentResolver;
 import com.gr74.booking.service.BookingService;
-import com.gr74.booking.service.MyBookingsService;
-import com.gr74.booking.service.TitleSource;
+import com.gr74.booking.service.MovieDataSource;
 
 /**
  * Web-layer slice for {@link BookingController}. Imports {@link WebMvcConfig} so the real
@@ -58,9 +57,6 @@ class BookingControllerTest {
 
     @MockitoBean
     private BookingService bookingService;
-
-    @MockitoBean
-    private MyBookingsService myBookingsService;
 
     @Test
     void createReturns201WithSnapshottedFields() throws Exception {
@@ -103,7 +99,7 @@ class BookingControllerTest {
     void myBookingsReturnsPagedEnvelopeWithTitles() throws Exception {
         MyBookingDto row = MyBookingDto.of(sampleBooking(), "The Matrix");
         // No source param -> defaults to COMPOSITION (way A).
-        given(myBookingsService.myBookings(eq(USER), any(), eq(TitleSource.COMPOSITION)))
+        given(bookingService.myBookings(eq(USER), any(), eq(MovieDataSource.COMPOSITION)))
                 .willReturn(new PageImpl<>(List.of(row), PageRequest.of(0, 20), 1));
 
         mockMvc.perform(get("/bookings/my").header("X-User-Id", USER))
@@ -117,7 +113,7 @@ class BookingControllerTest {
     @Test
     void myBookingsWithSourceReadmodelSelectsWayB() throws Exception {
         MyBookingDto row = MyBookingDto.of(sampleBooking(), "The Matrix");
-        given(myBookingsService.myBookings(eq(USER), any(), eq(TitleSource.READMODEL)))
+        given(bookingService.myBookings(eq(USER), any(), eq(MovieDataSource.READMODEL)))
                 .willReturn(new PageImpl<>(List.of(row), PageRequest.of(0, 20), 1));
 
         mockMvc.perform(get("/bookings/my").header("X-User-Id", USER).param("source", "readmodel"))

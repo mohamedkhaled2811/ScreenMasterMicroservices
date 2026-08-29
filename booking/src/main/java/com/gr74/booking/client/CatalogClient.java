@@ -136,7 +136,7 @@ public class CatalogClient {
 
     /**
      * Resolve a <em>single</em> movie id to its title for the way-B lazy backfill — the cache-fill on a
-     * {@code movie_titles} miss. Unlike {@link #titlesByIds}, this <b>distinguishes 404 from unavailable</b>
+     * {@code movie_projections} miss. Unlike {@link #titlesByIds}, this <b>distinguishes 404 from unavailable</b>
      * because the caller persists the result:
      * <ul>
      *   <li><b>2xx</b> → {@code Optional.of(title)} — cache it.</li>

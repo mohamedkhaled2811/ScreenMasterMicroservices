@@ -23,8 +23,7 @@ import com.gr74.booking.exception.BookingErrorCode;
 import com.gr74.booking.exception.BookingException;
 import com.gr74.booking.security.CurrentUser;
 import com.gr74.booking.service.BookingService;
-import com.gr74.booking.service.MyBookingsService;
-import com.gr74.booking.service.TitleSource;
+import com.gr74.booking.service.MovieDataSource;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -64,7 +63,6 @@ public class BookingController {
             Set.of("createdDate", "expiresAt", "totalAmount", "status");
 
     private final BookingService bookingService;
-    private final MyBookingsService myBookingsService;
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
@@ -93,7 +91,7 @@ public class BookingController {
                     answers to the cross-service-query problem, same response either way:
                       • composition (default) — resolved LIVE from Catalog (API composition). Fresh, but if
                         Catalog is down the title degrades to null.
-                      • readmodel — resolved from Booking's LOCAL movie_titles cache (kept fresh by events,
+                      • readmodel — resolved from Booking's LOCAL movie_projections cache (kept fresh by events,
                         lazy-backfilled on a miss). Survives Catalog being down for already-cached movies,
                         at the cost of eventual consistency (a rename lags until the event lands).
                     Default sort: createdDate DESC.""")
@@ -105,8 +103,8 @@ public class BookingController {
             @RequestParam(name = "source", defaultValue = "composition") String source,
             @ParameterObject @PageableDefault(sort = "createdDate", direction = Sort.Direction.DESC) Pageable pageable) {
         validateSort(pageable.getSort());
-        TitleSource titleSource = parseSource(source);
-        Page<MyBookingDto> page = myBookingsService.myBookings(userId, pageable, titleSource);
+        MovieDataSource titleSource = parseSource(source);
+        Page<MyBookingDto> page = bookingService.myBookings(userId, pageable, titleSource);
         log.info("GET /bookings/my?source={} -> {} of {} booking(s) for userId={}",
                 titleSource, page.getNumberOfElements(), page.getTotalElements(), userId);
         return page;
@@ -123,14 +121,14 @@ public class BookingController {
     }
 
     /**
-     * Parse the {@code source} param to a {@link TitleSource} (case-insensitively), rendering an unknown
+     * Parse the {@code source} param to a {@link MovieDataSource} (case-insensitively), rendering an unknown
      * value as a coded 400 — the same discipline as the sort whitelist, never a leaked 500. We bind it as
      * a String and parse here (rather than letting Spring bind the enum) precisely so a bad value becomes
      * our {@code BOOKING_VALIDATION_ERROR} ProblemDetail instead of a generic framework type-mismatch 400.
      */
-    private TitleSource parseSource(String source) {
+    private MovieDataSource parseSource(String source) {
         try {
-            return TitleSource.valueOf(source.toUpperCase(java.util.Locale.ROOT));
+            return MovieDataSource.valueOf(source.toUpperCase(java.util.Locale.ROOT));
         } catch (IllegalArgumentException unknown) {
             throw new BookingException(BookingErrorCode.BOOKING_VALIDATION_ERROR,
                     "Unknown source '" + source + "'. Valid values: composition, readmodel");

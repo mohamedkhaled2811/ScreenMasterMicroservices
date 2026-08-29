@@ -10,14 +10,14 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.context.annotation.Import;
 
 import com.gr74.booking.messaging.MovieUpsertedEvent;
-import com.gr74.booking.model.MovieTitle;
-import com.gr74.booking.repository.MovieTitleRepository;
+import com.gr74.booking.model.MovieProjection;
+import com.gr74.booking.repository.MovieProjectionRepository;
 
 /**
- * The consumer's core behaviour, tested by <b>direct invocation</b> of {@link MovieTitleProjector} on H2 —
+ * The consumer's core behaviour, tested by <b>direct invocation</b> of {@link MovieProjector} on H2 —
  * no broker. This deliberately does <em>not</em> exercise the exchange/queue/binding/routing-key/converter
  * wiring (a typo'd routing key would pass every test here); that seam is covered once, manually, in the
- * 2.4 live demo (sync a change → watch {@code movie_titles} update via the RabbitMQ console + logs).
+ * 2.4 live demo (sync a change → watch {@code movie_projections} update via the RabbitMQ console + logs).
  *
  * <p>What it proves — the three things that are actually ours:
  * <ol>
@@ -28,14 +28,14 @@ import com.gr74.booking.repository.MovieTitleRepository;
  * </ol>
  */
 @DataJpaTest
-@Import(MovieTitleProjector.class)
-class MovieTitleProjectorTest {
+@Import(MovieProjector.class)
+class MovieProjectorTest {
 
     @Autowired
-    private MovieTitleProjector projector;
+    private MovieProjector projector;
 
     @Autowired
-    private MovieTitleRepository repository;
+    private MovieProjectionRepository repository;
 
     private static final long MOVIE = 603L;
     private static final Instant T1 = Instant.parse("2026-08-01T10:00:00Z");
@@ -47,7 +47,7 @@ class MovieTitleProjectorTest {
 
         assertThat(applied).isTrue();
         assertThat(repository.findById(MOVIE)).get()
-                .extracting(MovieTitle::getTitle, MovieTitle::getUpdatedAt)
+                .extracting(MovieProjection::getTitle, MovieProjection::getUpdatedAt)
                 .containsExactly("The Matrix", T1);
     }
 
@@ -61,7 +61,7 @@ class MovieTitleProjectorTest {
         assertThat(secondApplied).isFalse();
         assertThat(repository.count()).isEqualTo(1);
         assertThat(repository.findById(MOVIE)).get()
-                .extracting(MovieTitle::getTitle).isEqualTo("The Matrix");
+                .extracting(MovieProjection::getTitle).isEqualTo("The Matrix");
     }
 
     @Test
@@ -72,7 +72,7 @@ class MovieTitleProjectorTest {
 
         assertThat(applied).isTrue();
         assertThat(repository.findById(MOVIE)).get()
-                .extracting(MovieTitle::getTitle, MovieTitle::getUpdatedAt)
+                .extracting(MovieProjection::getTitle, MovieProjection::getUpdatedAt)
                 .containsExactly("New Title", T2);
     }
 
@@ -84,20 +84,20 @@ class MovieTitleProjectorTest {
 
         assertThat(applied).isFalse();
         assertThat(repository.findById(MOVIE)).get()
-                .extracting(MovieTitle::getTitle, MovieTitle::getUpdatedAt)
+                .extracting(MovieProjection::getTitle, MovieProjection::getUpdatedAt)
                 .containsExactly("New Title", T2); // unchanged
     }
 
     @Test
     void firstRealEventOverwritesLazyBackfilledRowWithNullBaseline() {
         // A lazy-backfilled row: title cached from a Catalog fetch, no event timestamp yet.
-        repository.saveAndFlush(new MovieTitle(MOVIE, "Backfilled Title", null));
+        repository.saveAndFlush(new MovieProjection(MOVIE, "Backfilled Title", null));
 
         boolean applied = projector.apply(new MovieUpsertedEvent(MOVIE, "Event Title", T1, "evt-1"));
 
         assertThat(applied).isTrue();
         assertThat(repository.findById(MOVIE)).get()
-                .extracting(MovieTitle::getTitle, MovieTitle::getUpdatedAt)
+                .extracting(MovieProjection::getTitle, MovieProjection::getUpdatedAt)
                 .containsExactly("Event Title", T1);
     }
 }

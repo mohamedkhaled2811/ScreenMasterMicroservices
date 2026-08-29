@@ -6,14 +6,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.gr74.booking.messaging.MovieUpsertedEvent;
-import com.gr74.booking.model.MovieTitle;
-import com.gr74.booking.repository.MovieTitleRepository;
+import com.gr74.booking.model.MovieProjection;
+import com.gr74.booking.repository.MovieProjectionRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Applies a {@code MovieUpserted} event to Booking's {@code movie_titles} read model — the guarded,
+ * Applies a {@code MovieUpserted} event to Booking's {@code movie_projections} read model — the guarded,
  * idempotent write side of way B. Kept a plain {@code @Transactional} service (not the {@code @RabbitListener}
  * itself) so it can be unit-tested by direct invocation, and so the AMQP adapter stays a thin shell.
  *
@@ -32,9 +32,9 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class MovieTitleProjector {
+public class MovieProjector {
 
-    private final MovieTitleRepository movieTitleRepository;
+    private final MovieProjectionRepository movieProjectionRepository;
 
     /**
      * Upsert the title for {@code event.id()}, unless a strictly-newer (or equal) row is already stored.
@@ -43,7 +43,7 @@ public class MovieTitleProjector {
      */
     @Transactional
     public boolean apply(MovieUpsertedEvent event) {
-        MovieTitle existing = movieTitleRepository.findById(event.id()).orElse(null);
+        MovieProjection existing = movieProjectionRepository.findById(event.id()).orElse(null);
 
         if (existing != null && !isNewer(event.updatedAt(), existing.getUpdatedAt())) {
             log.debug("Dropping stale MovieUpserted id={} (event updatedAt={} <= stored {})",
@@ -52,10 +52,10 @@ public class MovieTitleProjector {
         }
 
         if (existing == null) {
-            movieTitleRepository.save(new MovieTitle(event.id(), event.title(), event.updatedAt()));
+            movieProjectionRepository.save(new MovieProjection(event.id(), event.title(), event.updatedAt()));
         } else {
             existing.apply(event.title(), event.updatedAt());
-            movieTitleRepository.save(existing);
+            movieProjectionRepository.save(existing);
         }
         log.debug("Applied MovieUpserted id={} title='{}' updatedAt={}",
                 event.id(), event.title(), event.updatedAt());

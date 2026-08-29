@@ -8,14 +8,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.gr74.booking.client.CatalogClient;
 import com.gr74.booking.exception.CatalogUnavailableException;
-import com.gr74.booking.model.MovieTitle;
-import com.gr74.booking.repository.MovieTitleRepository;
+import com.gr74.booking.model.MovieProjection;
+import com.gr74.booking.repository.MovieProjectionRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Lazy-backfills a single missing title from Catalog into the {@code movie_titles} read model.
+ * Lazy-backfills a single missing title from Catalog into the {@code movie_projections} read model.
  *
  * <p>{@link Propagation#REQUIRES_NEW} suspends the caller's read-only transaction and runs the write in a
  * fresh read-write one, so the row actually lands. It lives in a <em>separate</em> bean because a
@@ -30,9 +30,9 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class MovieTitleBackfiller {
+public class MovieBackfiller {
 
-    private final MovieTitleRepository movieTitleRepository;
+    private final MovieProjectionRepository movieProjectionRepository;
     private final CatalogClient catalogClient;
 
     /**
@@ -46,7 +46,7 @@ public class MovieTitleBackfiller {
             Optional<String> title = catalogClient.titleById(id);
             // Cache ONLY a real title. updatedAt is null: this row came from a fetch, not an event, so it
             // has no ordering baseline — the first real MovieUpserted (any timestamp) will win.
-            title.ifPresent(t -> movieTitleRepository.save(new MovieTitle(id, t, null)));
+            title.ifPresent(t -> movieProjectionRepository.save(new MovieProjection(id, t, null)));
             return title;
         } catch (CatalogUnavailableException outage) {
             // Serve null this once; DO NOT write anything. The miss retries on the next read.

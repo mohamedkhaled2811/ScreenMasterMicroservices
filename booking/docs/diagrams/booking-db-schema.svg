@@ -3,7 +3,7 @@
       <title id="booking-db-schema-title">booking-db · schema</title>
       <desc id="booking-db-schema-desc">Physical PostgreSQL schema of the Booking service showing all eight tables grouped into inventory, scheduling, and booking zones, with column-level foreign keys inside the service and dashed no-foreign-key markers where movie_id and user_id cross a service boundary.</desc>
       <defs>
-        <style>@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap');</style>
+<style>@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap');</style>
         <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
         <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
         <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
@@ -64,7 +64,7 @@
       <path d="M 952,732 H 872 Q 864,732 864,740 V 872 Q 864,880 856,880 H 448 Q 440,880 440,872 V 700 Q 440,692 432,692 H 392" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
 
       <!-- ============ NO-FK CUT MARKERS (dashed link-blue — the service boundary) ============ -->
-      <!-- showtimes.movie_id and bookings.movie_id both point at Catalog; movie_titles caches it locally -->
+      <!-- showtimes.movie_id and bookings.movie_id both point at Catalog; movie_projections caches it locally -->
       <path d="M 824,264 H 856 Q 864,264 864,272 V 672 Q 864,680 856,680 H 824" fill="none" stroke="#2e5aa8" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow-link)"/>
 
       <!-- ============ FK / CUT LABELS (masked, 6-10px gap, clear of every box) ============ -->
@@ -290,12 +290,12 @@
       <line x1="520" y1="396" x2="824" y2="396" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
       <text x="532" y="410" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">IDX_SHOWTIMES_MOVIE_ID · UQ SLOT</text>
 
-      <!-- ============ TABLE: movie_titles ============ -->
+      <!-- ============ TABLE: movie_projections ============ -->
       <rect x="520" y="640" width="304" height="120" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
       <rect x="520" y="640" width="304" height="28" rx="6" fill="rgba(45,49,66,0.04)" stroke="none"/>
       <rect x="520" y="660" width="304" height="8" fill="rgba(45,49,66,0.04)"/>
       <line x1="520" y1="668" x2="824" y2="668" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
-      <text x="532" y="658" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif">public.movie_titles</text>
+      <text x="532" y="658" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif">public.movie_projections</text>
       <rect x="772" y="648" width="40" height="12" rx="2" fill="none" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
       <text x="792" y="657" fill="#2d3142" opacity="0.8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">TABLE</text>
 

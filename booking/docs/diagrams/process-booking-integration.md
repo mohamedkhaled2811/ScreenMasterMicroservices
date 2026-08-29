@@ -26,19 +26,19 @@ tell the two apart because it *persists* the answer.
 
 ## The fork (step 4, accent)
 
-`MyBookingsService.resolveTitles()` switches on `?source=`:
+`BookingService.resolveTitles()` switches on `?source=`:
 
 - **way A — composition** (step 5): one batched Catalog call for the whole page. Fresh, but a Catalog
   outage means null titles. Batching is what keeps this off the network N+1.
-- **way B — read model** (step 6): a local `WHERE id IN (…)` against `movie_titles`. Survives a Catalog
+- **way B — read model** (step 6): a local `WHERE id IN (…)` against `movie_projections`. Survives a Catalog
   outage for already-cached movies, at the cost of eventual consistency. A genuine miss triggers one
   lazy backfill (dashed) in a `REQUIRES_NEW` transaction — the read path runs `readOnly`, so the write
-  is delegated to `MovieTitleBackfiller` or it would be silently dropped.
+  is delegated to `MovieBackfiller` or it would be silently dropped.
 
 ## The CQRS write side (step 7)
 
 Catalog publishes `MovieUpserted` to the shared topic exchange knowing nothing about consumers.
-Booking owns its queue and binding; `MovieTitleProjector` applies the event — idempotent by PK
+Booking owns its queue and binding; `MovieProjector` applies the event — idempotent by PK
 (so at-least-once redelivery is harmless) and guarded on `updatedAt` (so a late event can't overwrite
 a fresher title).
 
@@ -53,3 +53,7 @@ payment/notification — the latter aren't wired to Booking yet.
 # PNG (needs playwright + chromium)
 python raster.py process-booking-integration.html process-booking-integration.png 2
 ```
+
+> **Rendered assets are stale.** The committed `.svg`/`.png` still show the pre-rename names
+> (`movie_titles`, `MovieProjector` was `MovieTitleProjector`, `BookingService` was `MyBookingsService`).
+> The prose *and the `.html` source* are current — only the exported images need regenerating.

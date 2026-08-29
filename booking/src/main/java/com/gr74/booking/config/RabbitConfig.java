@@ -36,8 +36,24 @@ public class RabbitConfig {
     /** Routing key Catalog publishes MovieUpserted with — must equal Catalog's constant. */
     public static final String MOVIE_UPSERTED_ROUTING_KEY = "movie-upserted-key";
 
-    /** Booking's own durable queue for the movie-title read model. */
-    public static final String MOVIE_TITLES_QUEUE = "booking-movie-titles-queue";
+    /**
+     * Booking's own durable queue for the movie projection read model.
+     *
+     * <p><b>The value deliberately still says {@code movie-titles}.</b> Unlike every other name in this
+     * package, this string does not merely identify a Java symbol — it names a <em>durable queue that
+     * already exists in the broker</em>. Renaming it would make Booking declare a brand-new queue on the
+     * next deploy while the old one stays bound to the routing key, silently accumulating
+     * {@code MovieUpserted} events that nothing consumes. Nothing would throw; the read model would just
+     * quietly stop updating for whatever was in flight, and the orphaned queue would linger until someone
+     * deleted it by hand.
+     *
+     * <p>That is the lesson worth keeping: in a monolith a rename is safe by construction, but across a
+     * broker boundary <b>a name is deployed infrastructure, and renaming it is a migration, not a
+     * refactor</b>. Contrast {@code movie_projections}, the table this queue feeds: Booking owns it
+     * privately (database-per-service), so renaming <em>it</em> was a single Liquibase changeset with
+     * nothing to coordinate (see {@code 008-rename-movie-titles.yaml}).
+     */
+    public static final String MOVIE_PROJECTIONS_QUEUE = "booking-movie-titles-queue";
 
     @Bean
     public TopicExchange screenmasterExchange() {
@@ -45,14 +61,14 @@ public class RabbitConfig {
     }
 
     @Bean
-    public Queue movieTitlesQueue() {
+    public Queue movieProjectionsQueue() {
         // Durable so events aren't lost while Booking is briefly down (they wait in the queue).
-        return new Queue(MOVIE_TITLES_QUEUE, true);
+        return new Queue(MOVIE_PROJECTIONS_QUEUE, true);
     }
 
     @Bean
-    public Binding movieTitlesBinding(Queue movieTitlesQueue, TopicExchange screenmasterExchange) {
-        return BindingBuilder.bind(movieTitlesQueue).to(screenmasterExchange).with(MOVIE_UPSERTED_ROUTING_KEY);
+    public Binding movieProjectionsBinding(Queue movieProjectionsQueue, TopicExchange screenmasterExchange) {
+        return BindingBuilder.bind(movieProjectionsQueue).to(screenmasterExchange).with(MOVIE_UPSERTED_ROUTING_KEY);
     }
 
     /** JSON (de)serialization for AMQP payloads — must mirror Catalog's converter. */

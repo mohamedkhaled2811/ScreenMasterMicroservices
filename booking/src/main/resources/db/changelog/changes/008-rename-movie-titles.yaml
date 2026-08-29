@@ -1,0 +1,27 @@
+# Changeset 008 — rename movie_titles to movie_projections.
+#
+# The table holds Booking's local projection of Catalog movie data. It was named for the
+# single field it currently carries (title), but the projection is the concept and the
+# title is one column on it. Renaming before more fields land (poster path, runtime)
+# keeps the entity, the table, and the concept docs honest.
+#
+# Forward-only: 005 is shipped and stays immutable, per the master changelog's own rule.
+# Safe as a plain rename because Booking OWNS this table privately (database-per-service)
+# — no other service can be reading it, so there is nothing to coordinate. Contrast the
+# RabbitMQ queue name, which sits on the shared boundary and is deliberately NOT renamed
+# (see RabbitConfig.MOVIE_PROJECTIONS_QUEUE).
+databaseChangeLog:
+  - changeSet:
+      id: 008-rename-movie-titles
+      author: mohamed
+      changes:
+        - renameTable:
+            oldTableName: movie_titles
+            newTableName: movie_projections
+        - dropPrimaryKey:
+            tableName: movie_projections
+            constraintName: pk_movie_titles
+        - addPrimaryKey:
+            tableName: movie_projections
+            columnNames: id
+            constraintName: pk_movie_projections

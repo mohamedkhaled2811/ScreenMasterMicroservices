@@ -583,7 +583,7 @@ services:
 
 ### M2 — Feel the missing JOIN
 
-Booking needs movie titles it no longer owns. Implement "my bookings" twice: (a) API composition — booking calls catalog over HTTP and merges; (b) a tiny CQRS read model — catalog publishes `MovieUpdated` events, booking maintains a local `movie_titles(id, title)` table from them and joins locally. Stop catalog; (a) breaks, (b) keeps working with possibly-stale titles. *Talk track: "I've implemented both answers to cross-service queries and can articulate the staleness tradeoff from experience."*
+Booking needs movie titles it no longer owns. Implement "my bookings" twice: (a) API composition — booking calls catalog over HTTP and merges; (b) a tiny CQRS read model — catalog publishes `MovieUpdated` events, booking maintains a local `movie_projections(id, title)` table from them and joins locally. Stop catalog; (a) breaks, (b) keeps working with possibly-stale titles. *Talk track: "I've implemented both answers to cross-service queries and can articulate the staleness tradeoff from experience."*
 
 ### M3 — The booking saga (orchestrated)
 

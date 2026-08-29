@@ -7,15 +7,15 @@ import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.gr74.booking.model.MovieTitle;
-import com.gr74.booking.repository.MovieTitleRepository;
+import com.gr74.booking.model.MovieProjection;
+import com.gr74.booking.repository.MovieProjectionRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
  * The <b>read side</b> of way B: resolve a page's movie ids to titles from Booking's own
- * {@code movie_titles} read model, calling Catalog only to <em>lazily backfill</em> a cache miss.
+ * {@code movie_projections} read model, calling Catalog only to <em>lazily backfill</em> a cache miss.
  *
  * <p>Steady state is a single local {@code WHERE id IN (…)} — no Catalog call, which is what lets "my
  * bookings (way B)" keep answering when Catalog is down. The cost of a genuinely-uncached movie is one
@@ -24,17 +24,17 @@ import lombok.extern.slf4j.Slf4j;
  * stopping Catalog. See {@code docs/concepts/cqrs-read-model.md} and {@code docs/adr/0001-...}.
  *
  * <p><b>The write is delegated on purpose.</b> This method is a query and runs read-only; the backfill's
- * INSERT is therefore handed to {@link MovieTitleBackfiller}, a separate bean whose
+ * INSERT is therefore handed to {@link MovieBackfiller}, a separate bean whose
  * {@code REQUIRES_NEW} transaction can actually commit. See that class for why an in-class write here
  * would be silently dropped.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class MovieTitleReadModel {
+public class MovieReadModel {
 
-    private final MovieTitleRepository movieTitleRepository;
-    private final MovieTitleBackfiller backfiller;
+    private final MovieProjectionRepository movieProjectionRepository;
+    private final MovieBackfiller backfiller;
 
     /**
      * Resolve {@code ids} to titles, backfilling misses. The returned map has an entry only for ids we
@@ -49,7 +49,7 @@ public class MovieTitleReadModel {
         }
 
         // 1) The local join — the fast, Catalog-free path that is the whole point of the read model.
-        for (MovieTitle cached : movieTitleRepository.findByIdIn(ids)) {
+        for (MovieProjection cached : movieProjectionRepository.findByIdIn(ids)) {
             resolved.put(cached.getId(), cached.getTitle());
         }
         int localHits = resolved.size();

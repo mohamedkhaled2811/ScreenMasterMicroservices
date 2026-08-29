@@ -24,11 +24,6 @@ The **inventory** listings are paginated and filtered by a composed JPA `Specifi
 rule that listings never dump. The seat-grid generator (`POST /screens/{id}/seats/grid`) is the one bulk
 write.
 
-> **Known gap, visible in the diagram's wording.** The *showtime* list endpoints
-> (`/showtimes/movie/{id}`, `/showtimes/movie/upcoming/{id}`, `/showtimes/screen/{id}`) still return a
-> bare `List<ShowtimeResponse>`, not a `Page`. That breaks the CLAUDE.md pagination rule
-> ("listings paginate; they never dump — no exemptions"). The Scheduling node therefore does **not**
-> claim pagination. Worth fixing before this diagram is used to describe the service as finished.
 
 ## The focal node: `POST /bookings`
 
@@ -52,8 +47,8 @@ wrap this create rather than replace it.
 - **Synchronous → Catalog** (blue). `CatalogClient` over `lb://catalog`, three call sites with three
   *different* failure contracts — the write path rejects, the read path degrades, the cache-fill
   distinguishes 404 from outage. Full breakdown in `process-booking-integration.md`.
-- **Asynchronous ← RabbitMQ** (dashed). `MovieUpsertedListener` → `MovieTitleProjector` keeps the local
-  `movie_titles` read model current; idempotent by PK, guarded on `updatedAt`.
+- **Asynchronous ← RabbitMQ** (dashed). `MovieUpsertedListener` → `MovieProjector` keeps the local
+  `movie_projections` read model current; idempotent by PK, guarded on `updatedAt`.
 
 `GET /bookings/my` forks between them on `?source=` — way A composes live from Catalog, way B joins
 locally. That fork is the M2 lesson and is drawn in detail in the integration diagram.
@@ -62,7 +57,7 @@ locally. That fork is the M2 lesson and is drawn in detail in the integration di
 
 One database, `booking-db`, Liquibase-migrated with `ddl-auto=validate`. The label worth reading is
 **no FK to catalog** — the monolith's `booking → showtime → movie` JOIN is cut. `movieId` is a snapshotted
-id, and `movie_titles` is a *cache Booking owns*, not a shared table.
+id, and `movie_projections` is a *cache Booking owns*, not a shared table.
 
 ## Icons
 
@@ -71,7 +66,7 @@ id, and `movie_titles` is a *cache Booking owns*, not a shared table.
 | theater · screen · seat | Inventory node, left to right with `>` chevrons | stroked | **custom** |
 | showtime (calendar + clock) | Scheduling node, top-right | stroked | **custom** |
 | catalog (film strip) | Catalog node, top-right | stroked | **custom** |
-| PostgreSQL | `booking-db`, `movie_titles`, legend | filled | Simple Icons (CC0) |
+| PostgreSQL | `booking-db`, `movie_projections`, legend | filled | Simple Icons (CC0) |
 | RabbitMQ | RabbitMQ node, legend | filled | Simple Icons (CC0) |
 
 The five domain icons are **not** from the skill's icon library — that set is IT/cloud only (server,
@@ -91,11 +86,6 @@ symbol.
 The theater → screen → seat chevrons encode **containment**, matching the FK chain in `001-create-inventory.yaml`:
 a theater has screens, a screen has seats.
 
-> **One deliberate style mix.** `primitive-icons.md` says not to mix stroked and filled icons
-> unnecessarily. Here it is necessary, and it is consistent: **stroked = a domain concept we built**
-> (theater, screen, seat, showtime, catalog); **filled = a real third-party product** (PostgreSQL,
-> RabbitMQ). The weight difference is the signal, and the two filled marks are exactly the two things in
-> this diagram we did not write.
 
 ## Deliberately out of scope
 
@@ -116,3 +106,7 @@ pip install playwright && playwright install chromium
 ```
 
 Then re-run the export. The `.html` and `.svg` render correctly in any modern browser as-is.
+
+> **Rendered assets are stale.** The committed `.svg`/`.png` still show the pre-rename names
+> (`movie_titles`, `MovieProjector` was `MovieTitleProjector`, `BookingService` was `MyBookingsService`).
+> The prose *and the `.html` source* are current — only the exported images need regenerating.

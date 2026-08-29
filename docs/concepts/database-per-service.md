@@ -41,7 +41,7 @@ These JPA associations cross the chosen boundaries and become **ids + API/event 
 **Snapshot immutable facts into the consumer.** Booking already snapshots `seatPrice` into `BookingSeat` and `totalAmount` into `Booking` — extend that so Booking can render and validate without a synchronous call after the fact.
 
 ## The lab (field guide M2)
-We implement "my bookings" *twice*: (a) API composition — Booking calls Catalog over HTTP and merges; (b) a tiny CQRS read model — Catalog publishes `MovieUpdated`, Booking keeps a local `movie_titles(id, title)` table and joins locally. Then stop Catalog: (a) breaks, (b) keeps serving possibly-stale titles. That's the staleness tradeoff, felt.
+We implement "my bookings" *twice*: (a) API composition — Booking calls Catalog over HTTP and merges; (b) a tiny CQRS read model — Catalog publishes `MovieUpdated`, Booking keeps a local `movie_projections(id, title)` table and joins locally. Then stop Catalog: (a) breaks, (b) keeps serving possibly-stale titles. That's the staleness tradeoff, felt.
 
 ## Eventual consistency — the scary version
 "So the user sees stale data?!" — yes, briefly, and that's a **business decision, not a bug**. The email arriving 2 s after payment is invisible; the seat map being 2 s stale is fine **because the seat-uniqueness constraint inside Booking stays strictly consistent** — the one place that must be. **Strong consistency *inside* a service boundary (one DB, real transactions); eventual consistency *between* services.** That sentence is the whole data story.

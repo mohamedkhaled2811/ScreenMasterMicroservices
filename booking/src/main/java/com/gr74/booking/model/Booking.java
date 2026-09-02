@@ -83,6 +83,16 @@ public class Booking {
     @Column(name = "total_amount", nullable = false)
     private BigDecimal totalAmount;
 
+    /**
+     * ISO-4217 code, snapshotted from the theater at booking time (changeset 009).
+     *
+     * <p>Frozen alongside {@code totalAmount} for the same reason: the amount charged must not move
+     * because someone edited the theater afterwards. Payment reads this pair to decide which gateways
+     * can settle the booking — Paymob takes EGP, Stripe test mode takes USD.
+     */
+    @Column(nullable = false, length = 3)
+    private String currency;
+
     /** The 15-min hold deadline; the Phase-3 sweeper frees seats past this. */
     @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;
@@ -103,12 +113,13 @@ public class Booking {
     private Instant lastModifiedDate;
 
     public Booking(String bookingReference, String userId, Long showtimeId, Long movieId,
-            BigDecimal totalAmount, Instant expiresAt) {
+            BigDecimal totalAmount, String currency, Instant expiresAt) {
         this.bookingReference = bookingReference;
         this.userId = userId;
         this.showtimeId = showtimeId;
         this.movieId = movieId;
         this.totalAmount = totalAmount;
+        this.currency = currency;
         this.expiresAt = expiresAt;
         this.status = BookingStatus.PENDING;        // a new booking always starts holding its seats
         this.paymentStatus = PaymentStatus.PENDING; // no Payment call yet — the saga sets this in Phase 3

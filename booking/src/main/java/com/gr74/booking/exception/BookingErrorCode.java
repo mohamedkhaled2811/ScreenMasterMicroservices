@@ -34,6 +34,12 @@ public enum BookingErrorCode {
     BOOKING_SHOWTIME_NOT_FOUND(HttpStatus.NOT_FOUND, "Showtime not found"),
 
     /**
+     * No booking exists for the requested id. Payment branches on this: a definitive "no such booking"
+     * (404) is a permanent answer, unlike an outage (503) which might resolve on retry.
+     */
+    BOOKING_NOT_FOUND(HttpStatus.NOT_FOUND, "Booking not found"),
+
+    /**
      * A showtime referenced a {@code movieId} that Catalog does not have. This is the cross-service
      * cut, validated synchronously at showtime-create time (plan option 5C) — the DB can't enforce it,
      * so the service does.

@@ -99,7 +99,7 @@ class BookingRepositoryTest {
     }
 
     private static Booking booking(String reference, String userId, long showtimeId, BookingStatus status) {
-        Booking booking = new Booking(reference, userId, showtimeId, 603L, new BigDecimal("12.00"), EXPIRES);
+        Booking booking = new Booking(reference, userId, showtimeId, 603L, new BigDecimal("12.00"), "EGP", EXPIRES);
         // The domain constructor always sets PENDING; stamp the desired status for these fixtures.
         ReflectionTestUtils.setField(booking, "status", status);
         return booking;

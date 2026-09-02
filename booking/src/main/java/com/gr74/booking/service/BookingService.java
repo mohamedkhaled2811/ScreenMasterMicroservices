@@ -78,11 +78,30 @@ public class BookingService {
     private final CatalogClient catalogClient;
     private final MovieReadModel movieReadModel;
 
+    /**
+     * The narrow read the Payment service uses before opening a checkout session (BUILD_PLAN 3.1).
+     *
+     * <p>It exists so Payment never has to trust a client for the amount: a browser that could name its
+     * own price could buy a 300 EGP ticket for 1. Booking owns pricing, so Booking answers.
+     *
+     * <p>Deliberately returns the whole {@link Booking} rather than pre-judging payability here. The
+     * <em>decision</em> ("is this payable?") belongs to Payment's guards; Booking's job is to state the
+     * facts — status, owner, hold deadline, amount, currency. Keeping the judgement out of this method
+     * is what stops the two services' rules drifting apart.
+     */
+    @Transactional(readOnly = true)
+    public Booking findForPayability(long bookingId) {
+        return bookingRepository.findById(bookingId)
+                .orElseThrow(() -> ResourceNotFoundException.booking(bookingId));
+    }
+
     @Transactional
     public Booking create(String userId, CreateBookingRequest request) {
         // 1) The showtime must exist — it carries the screen (seats must belong to it) and the movieId
         //    we snapshot onto the booking, plus the basePrice the per-seat price is derived from.
-        Showtime showtime = showtimeRepository.findById(request.showtimeId())
+        // Fetch-joined with its screen and theater: the theater carries the CURRENCY we snapshot onto
+        // the booking, and both associations are LAZY under open-in-view: false.
+        Showtime showtime = showtimeRepository.findWithScreenAndTheaterById(request.showtimeId())
                 .orElseThrow(() -> ResourceNotFoundException.showtime(request.showtimeId()));
 
         // 2) Load the requested seats WITH their seat type (for pricing), de-duping the input first.
@@ -129,13 +148,18 @@ public class BookingService {
 
         // 6) Assemble the PENDING booking with a 15-min hold; snapshot movieId from the showtime.
         Instant expiresAt = clock.instant().plus(HOLD_WINDOW);
+        // The currency is snapshotted alongside the total, from the theater this showtime runs in —
+        // frozen for the same reason the price is: editing a theater must not move an existing charge.
+        String currency = showtime.getScreen().getTheater().getCurrency();
         Booking booking = new Booking(newReference(), userId, showtime.getId(), showtime.getMovieId(),
-                total, expiresAt);
+                total, currency, expiresAt);
         lineItems.forEach(booking::addSeat);
 
         Booking saved = bookingRepository.save(booking);
-        log.info("Created booking id={} ref={} userId={} showtimeId={} seats={} total={} (PENDING, no payment yet)",
-                saved.getId(), saved.getBookingReference(), userId, showtime.getId(), seatIds.size(), total);
+        log.info("Created booking id={} ref={} userId={} showtimeId={} seats={} total={} {} (PENDING; "
+                        + "pay via POST /payments)",
+                saved.getId(), saved.getBookingReference(), userId, showtime.getId(), seatIds.size(),
+                total, currency);
         return saved;
     }
 

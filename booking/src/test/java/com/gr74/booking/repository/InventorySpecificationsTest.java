@@ -70,8 +70,8 @@ class InventorySpecificationsTest {
 
     @BeforeEach
     void seed() {
-        downtown = em.persist(new Theater("Downtown IMAX", "Cairo"));
-        Theater uptown = em.persist(new Theater("Uptown Cinema", "Alexandria"));
+        downtown = em.persist(new Theater("Downtown IMAX", "Cairo", "EGP"));
+        Theater uptown = em.persist(new Theater("Uptown Cinema", "Alexandria", "EGP"));
 
         standard = em.persist(new SeatType("STANDARD", new BigDecimal("1.00")));
         vip = em.persist(new SeatType("VIP", new BigDecimal("2.50")));

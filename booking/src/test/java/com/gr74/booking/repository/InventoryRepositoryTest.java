@@ -59,7 +59,7 @@ class InventoryRepositoryTest {
 
     @Test
     void persistsTheaterScreenSeatGraphAndFetchesSeatTypeEagerly() {
-        Theater theater = em.persist(new Theater(DOWNTOWN_IMAX, "Main St"));
+        Theater theater = em.persist(new Theater(DOWNTOWN_IMAX, "Main St", "EGP"));
         SeatType standard = em.persist(new SeatType(STANDARD, new BigDecimal("1.00")));
         Screen screen = em.persist(new Screen(SCREEN_1, ScreenType.SCREEN_3D, theater));
         em.persist(new Seat("A", 1, screen, standard));
@@ -79,19 +79,19 @@ class InventoryRepositoryTest {
 
     @Test
     void theaterNameIsUnique() {
-        em.persist(new Theater(DOWNTOWN_IMAX, "Main St"));
+        em.persist(new Theater(DOWNTOWN_IMAX, "Main St", "EGP"));
         em.flush();
 
         assertThatThrownBy(() -> {
-            theaterRepository.save(new Theater(DOWNTOWN_IMAX, "Elsewhere"));
+            theaterRepository.save(new Theater(DOWNTOWN_IMAX, "Elsewhere", "EGP"));
             em.flush();
         }).isInstanceOf(DataIntegrityViolationException.class);
     }
 
     @Test
     void screenNameIsUniqueWithinTheaterButNotAcross() {
-        Theater a = em.persist(new Theater("Theater A", null));
-        Theater b = em.persist(new Theater("Theater B", null));
+        Theater a = em.persist(new Theater("Theater A", null, "EGP"));
+        Theater b = em.persist(new Theater("Theater B", null, "EGP"));
         em.persist(new Screen(SCREEN_1, ScreenType.FRONT_SCREEN, a));
         em.flush();
 
@@ -109,7 +109,7 @@ class InventoryRepositoryTest {
 
     @Test
     void seatPositionIsUniqueWithinScreen() {
-        Theater theater = em.persist(new Theater("T", null));
+        Theater theater = em.persist(new Theater("T", null, "EGP"));
         SeatType type = em.persist(new SeatType(STANDARD, new BigDecimal("1.00")));
         Screen screen = em.persist(new Screen(SCREEN_S1, ScreenType.FRONT_SCREEN, theater));
         em.persist(new Seat("A", 1, screen, type));
@@ -123,7 +123,7 @@ class InventoryRepositoryTest {
 
     @Test
     void showtimeSlotIsUniqueAndStoresMovieIdWithoutAnFk() {
-        Theater theater = em.persist(new Theater("T", null));
+        Theater theater = em.persist(new Theater("T", null, "EGP"));
         Screen screen = em.persist(new Screen(SCREEN_S1, ScreenType.FRONT_SCREEN, theater));
         LocalDate date = LocalDate.of(2026, 7, 10);
         LocalTime time = LocalTime.of(19, 30);
@@ -140,7 +140,7 @@ class InventoryRepositoryTest {
 
     @Test
     void findsUpcomingShowtimesByMovieFromDate() {
-        Theater theater = em.persist(new Theater("T", null));
+        Theater theater = em.persist(new Theater("T", null, "EGP"));
         Screen screen = em.persist(new Screen(SCREEN_S1, ScreenType.FRONT_SCREEN, theater));
         long movieId = 550L;
         em.persist(new Showtime(movieId, screen, LocalDate.of(2026, 7, 1), LocalTime.of(18, 0), new BigDecimal("10.00")));

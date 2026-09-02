@@ -62,15 +62,16 @@ class TheaterControllerTest {
     @Test
     void createTheaterReturns201WithBody() throws Exception {
         given(theaterService.createTheater(any(CreateTheaterRequest.class)))
-                .willReturn(new Theater(DOWNTOWN_IMAX, "Main St"));
+                .willReturn(new Theater(DOWNTOWN_IMAX, "Main St", "EGP"));
 
         mockMvc.perform(post(THEATERS_PATH)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"Downtown IMAX\",\"location\":\"Main St\"}"))
+                        .content("{\"name\":\"Downtown IMAX\",\"location\":\"Main St\",\"currency\":\"EGP\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.name").value(DOWNTOWN_IMAX))
-                .andExpect(jsonPath("$.location").value("Main St"));
+                .andExpect(jsonPath("$.location").value("Main St"))
+                .andExpect(jsonPath("$.currency").value("EGP"));
     }
 
     @Test
@@ -84,13 +85,34 @@ class TheaterControllerTest {
     }
 
     @Test
+    void badCurrencyReturns400ProblemDetail() throws Exception {
+        // Currency is not free text: Payment routes gateways on it, so "egp" or "EGPP" would mean no
+        // gateway could settle this theater's bookings. Reject at the edge, with a coded error.
+        mockMvc.perform(post(THEATERS_PATH)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Downtown IMAX\",\"currency\":\"egp\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath(CODE_JSON_PATH).value(VALIDATION_ERROR_CODE));
+    }
+
+    @Test
+    void missingCurrencyReturns400ProblemDetail() throws Exception {
+        mockMvc.perform(post(THEATERS_PATH)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Downtown IMAX\",\"location\":\"Main St\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath(CODE_JSON_PATH).value(VALIDATION_ERROR_CODE));
+    }
+
+    @Test
     void duplicateTheaterReturns409ProblemDetail() throws Exception {
         given(theaterService.createTheater(any(CreateTheaterRequest.class)))
                 .willThrow(new DuplicateResourceException("A theater named 'Downtown IMAX' already exists"));
 
         mockMvc.perform(post(THEATERS_PATH)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"Downtown IMAX\"}"))
+                        .content("{\"name\":\"Downtown IMAX\",\"currency\":\"EGP\"}"))
                 .andExpect(status().isConflict())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath(CODE_JSON_PATH).value("BOOKING_DUPLICATE"));
@@ -141,7 +163,7 @@ class TheaterControllerTest {
     @Test
     void listTheatersReturnsStablePagedModelEnvelope() throws Exception {
         Pageable pageable = PageRequest.of(0, 20);
-        Page<Theater> page = new PageImpl<>(List.of(new Theater(DOWNTOWN_IMAX, "Cairo")), pageable, 1);
+        Page<Theater> page = new PageImpl<>(List.of(new Theater(DOWNTOWN_IMAX, "Cairo", "EGP")), pageable, 1);
         given(theaterService.listTheaters(any(TheaterFilter.class), any(Pageable.class))).willReturn(page);
 
         mockMvc.perform(get(THEATERS_PATH))

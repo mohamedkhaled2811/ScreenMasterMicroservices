@@ -4,7 +4,11 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
 
+import java.util.Optional;
+
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import com.gr74.booking.model.Showtime;
 
@@ -27,4 +31,21 @@ public interface ShowtimeRepository extends JpaRepository<Showtime, Long> {
 
     boolean existsByScreenIdAndMovieIdAndShowDateAndShowTime(
             Long screenId, Long movieId, LocalDate showDate, LocalTime showTime);
+
+    /**
+     * A showtime with its screen <em>and</em> that screen's theater already fetched.
+     *
+     * <p>Needed by the booking write path, which must read {@code theater.currency} to snapshot it onto
+     * the booking. Both associations are {@code LAZY} and we run {@code open-in-view: false}, so
+     * touching them outside this fetch join would throw {@code LazyInitializationException} — an
+     * explicit join is the honest fix, not widening the mapping to EAGER (which would pay the cost on
+     * every other showtime read too).
+     */
+    @Query("""
+            select s from Showtime s
+              join fetch s.screen sc
+              join fetch sc.theater
+             where s.id = :id
+            """)
+    Optional<Showtime> findWithScreenAndTheaterById(@Param("id") Long id);
 }

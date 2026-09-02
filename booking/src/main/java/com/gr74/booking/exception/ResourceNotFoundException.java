@@ -44,4 +44,9 @@ public class ResourceNotFoundException extends BookingException {
         return new ResourceNotFoundException(BookingErrorCode.BOOKING_SHOWTIME_NOT_FOUND,
                 "Showtime not found for id=" + id);
     }
+
+    public static ResourceNotFoundException booking(long id) {
+        return new ResourceNotFoundException(BookingErrorCode.BOOKING_NOT_FOUND,
+                "Booking not found for id=" + id);
+    }
 }

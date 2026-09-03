@@ -113,7 +113,12 @@ services:
     networks: [screenmaster]
 
   # ---------------------------------------------------------------------------
-  #  Payment — fake provider; owns payment-db. FAIL_RATE=0 -> always approve (M1).
+  #  Payment — real gateways (Stripe + Paymob, SANDBOX mode) behind one port;
+  #  owns payment-db. Credentials come from the root .env (never committed).
+  #  Gateways cannot reach localhost, so webhooks arrive via a tunnel:
+  #    Stripe: stripe listen --forward-to localhost:8080/api/payments/webhooks/stripe
+  #    Paymob: ngrok http 8080, then paste the URL into the Paymob dashboard
+  #  PAYMENT_PUBLIC_URL is what the service tells each gateway to call back on.
   # ---------------------------------------------------------------------------
   payment:
     build:
@@ -124,7 +129,23 @@ services:
       PAYMENT_DB_URL: jdbc:postgresql://payment-db:5432/payment
       PAYMENT_DB_USER: postgres
       PAYMENT_DB_PASSWORD: postgres
-      FAIL_RATE: "0.0"       # the provider's controllable knob; 0 = always approve until Phase 3
+      # Public base URL the gateways call back on (tunnel URL in local dev).
+      PAYMENT_PUBLIC_URL: ${PAYMENT_PUBLIC_URL:-http://localhost:8080}
+      # --- Gateway credentials: SANDBOX/TEST ONLY. Empty -> that adapter is not
+      #     registered (@ConditionalOnProperty), so it simply is not offered. ---
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      PAYMOB_API_KEY: ${PAYMOB_API_KEY:-}
+      PAYMOB_HMAC_SECRET: ${PAYMOB_HMAC_SECRET:-}
+      PAYMOB_INTEGRATION_ID: ${PAYMOB_INTEGRATION_ID:-}
+      PAYMOB_IFRAME_ID: ${PAYMOB_IFRAME_ID:-}
+      # The controllable adapter that replaces the old FAIL_RATE knob: always
+      # registered, signs its own webhooks, and drives the Phase 3.7 / Phase 5 demos.
+      PAYMENT_SANDBOX_FAILURE_RATE: ${PAYMENT_SANDBOX_FAILURE_RATE:-0.0}
+      PAYMENT_SANDBOX_UNAVAILABLE_RATE: ${PAYMENT_SANDBOX_UNAVAILABLE_RATE:-0.0}
+      PAYMENT_SANDBOX_LATENCY_MILLIS: ${PAYMENT_SANDBOX_LATENCY_MILLIS:-300}
+      PAYMENT_SANDBOX_SESSION_TTL: ${PAYMENT_SANDBOX_SESSION_TTL:-PT10M}
+      PAYMENT_SANDBOX_WEBHOOK_SECRET: ${PAYMENT_SANDBOX_WEBHOOK_SECRET:-sandbox-local-development-secret}
       EUREKA_SERVICE_URL: http://discovery:8761/eureka/
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
     depends_on:

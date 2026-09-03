@@ -3,25 +3,31 @@ package com.gr74.payment.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * Typed binding for the {@code payment.*} config keys (see {@code application.yml}).
+ * Service-wide payment config ({@code payment.*}).
  *
- * <p>{@code failRate} is wired from the {@code FAIL_RATE} env var so we can dial in payment
- * failures per run without touching code — {@code 0.0} = always approve, {@code 1.0} = always
- * decline. {@code latencyMillis} simulates a real provider's round-trip (~300ms) so Booking's
- * timeout/retry behaviour (Phase 5) has something real to bite on.
- *
- * <p>A {@code record} is the idiomatic immutable holder for config; binding is constructor-based.
- * See {@code docs/concepts/spring-boot-annotations.md} (@ConfigurationProperties).
+ * <p>{@code publicUrl} is the base a gateway sends the user back to, and the base our webhook URLs
+ * are built from. It is configuration rather than a constant because gateways cannot reach
+ * {@code localhost}: in local development this points at a Stripe CLI forward or an ngrok tunnel, and
+ * in a deployment at the real public host.
  */
 @ConfigurationProperties(prefix = "payment")
-public record PaymentProps(double failRate, long latencyMillis) {
+public record PaymentProps(String publicUrl) {
 
     public PaymentProps {
-        if (failRate < 0.0 || failRate > 1.0) {
-            throw new IllegalArgumentException("payment.fail-rate must be in [0.0, 1.0] but was " + failRate);
+        if (publicUrl == null || publicUrl.isBlank()) {
+            publicUrl = "http://localhost:8080";
         }
-        if (latencyMillis < 0) {
-            throw new IllegalArgumentException("payment.latency-millis must be >= 0 but was " + latencyMillis);
-        }
+        // Trailing slashes would produce "//payments/..." when we append paths.
+        publicUrl = publicUrl.endsWith("/") ? publicUrl.substring(0, publicUrl.length() - 1) : publicUrl;
+    }
+
+    /** Where the gateway returns a user after a completed checkout (UX only — never authoritative). */
+    public String returnUrl(Long attemptId) {
+        return publicUrl + "/api/payments/return?attemptId=" + attemptId;
+    }
+
+    /** Where the gateway returns a user who abandoned checkout. */
+    public String cancelUrl(Long attemptId) {
+        return publicUrl + "/api/payments/cancel?attemptId=" + attemptId;
     }
 }

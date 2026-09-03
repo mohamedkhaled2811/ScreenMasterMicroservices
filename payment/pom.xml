@@ -11,16 +11,14 @@
 
 	<artifactId>payment</artifactId>
 	<name>payment</name>
-	<description>Fake payment provider — controllable FAIL_RATE, idempotent, persists charges.</description>
+	<description>Payment service — real gateways (Stripe, Paymob) + a controllable sandbox, behind one port.</description>
 
 	<!--
-	  A deliberately fake provider we control: POST /payments returns 200 after ~300ms and
-	  declines at a configurable FAIL_RATE, so we can exercise the saga's compensation (Phase 3)
-	  and Booking's circuit breaker (Phase 5). The fake logic sits behind a PaymentProvider
-	  interface (@Profile("!real")) so a real StripePaymentProvider is an add-only swap later.
-	  It owns its own Postgres (payment-db) and persists every charge with an idempotency key
-	  (UNIQUE) so a retried POST replays the original result instead of charging twice — hence
-	  JPA + Liquibase here. Schema is managed by Liquibase with ddl-auto=validate.
+	  Owns payments, attempts, gateway sessions, refunds and webhooks (BUILD_PLAN Phase 3). It
+	  integrates REAL gateways — Stripe and Paymob, both sandbox/test — behind one PaymentGateway
+	  port, plus a controllable SandboxGateway whose failure rate drives the resilience demos.
+	  It owns its own Postgres (payment-db), schema managed by Liquibase with ddl-auto=validate.
+	  It publishes PaymentSucceeded/PaymentFailed to RabbitMQ and never writes to booking-db.
 	-->
 	<dependencies>
 		<dependency>
@@ -30,6 +28,23 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-data-jpa</artifactId>
+		</dependency>
+		<!--
+		  Boot 4 split RestClient out of the web starter. Needed twice over here: the load-balanced
+		  client Payment reads Booking's payability with, and the plain clients the Stripe/Paymob
+		  adapters call out to the internet with.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-restclient</artifactId>
+		</dependency>
+		<!--
+		  Publishing PaymentSucceeded / PaymentFailed onto the shared screenmaster-exchange, so
+		  Booking can decide whether to confirm. Payment never writes booking-db.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-amqp</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -80,6 +95,17 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!-- Boot 4 ships the @WebMvcTest / @DataJpaTest slices as separate test modules. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-webmvc-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-data-jpa-test</artifactId>
 			<scope>test</scope>
 		</dependency>
 		<!--

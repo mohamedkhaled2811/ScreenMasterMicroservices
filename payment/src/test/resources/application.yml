@@ -17,3 +17,18 @@ spring:
 eureka:
   client:
     enabled: false
+
+# Gateway config for tests. Stripe/Paymob credentials are deliberately ABSENT so their adapters are
+# conditioned out of the context — the hermetic suite must never be able to reach a real gateway.
+# SANDBOX is always registered (no external credentials), which is what the tests exercise.
+payment:
+  public-url: http://localhost:8080
+  gateway:
+    sandbox:
+      supported-currencies: EGP,USD
+      failure-rate: 0.0
+      unavailable-rate: 0.0
+      latency-millis: 0        # no artificial sleep in tests
+      session-ttl: PT10M
+      checkout-base-url: http://localhost:8080/api/payments/sandbox/checkout
+      webhook-secret: test-webhook-secret

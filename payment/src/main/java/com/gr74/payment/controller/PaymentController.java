@@ -3,18 +3,23 @@ package com.gr74.payment.controller;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.gr74.payment.dto.ChargeRequest;
-import com.gr74.payment.dto.ChargeResponse;
+import com.gr74.payment.dto.AvailableGatewaysResponse;
+import com.gr74.payment.dto.CreatePaymentRequest;
+import com.gr74.payment.dto.PaymentResponse;
+import com.gr74.payment.dto.PaymentSessionResponse;
 import com.gr74.payment.exception.ApiError;
-import com.gr74.payment.model.Payment;
-import com.gr74.payment.model.PaymentStatus;
+import com.gr74.payment.gateway.GatewayRegistry;
 import com.gr74.payment.service.PaymentService;
+import com.gr74.payment.service.PaymentService.SessionOutcome;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -29,63 +34,161 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * The fake provider's one endpoint.
+ * The payment API.
  *
- * <p>{@code POST /payments} with an {@code Idempotency-Key} header charges the amount and maps the
- * outcome to HTTP: <b>approved → 200</b>, <b>declined → 402 Payment Required</b>. Retrying with the
- * same key replays the original outcome (and the same status code) — the idempotency guarantee
- * lives in {@link PaymentService}; this class only translates between HTTP and the service.
+ * <p>Three read-or-create endpoints; the webhook endpoints that actually decide outcomes live
+ * separately (BUILD_PLAN 3.2) because they are authenticated by signature rather than by user.
  *
- * <p>Error outcomes (bad input, provider down, anything unexpected) are <em>not</em> handled here:
- * they are thrown and translated to an RFC 9457 {@code ProblemDetail} with a stable {@code code} by
- * {@code com.gr74.payment.exception.GlobalExceptionHandler}, so this method only describes the happy
- * path and the expected business decline.
+ * <p>{@code X-User-Id} is the same seam Booking uses: an opaque user id today, swapped for the JWT
+ * {@code sub} in Phase 7 with no controller change (see
+ * {@code docs/concepts/current-user-resolution.md}).
  *
- * <p>DTOs cross the wire, not the {@link Payment} entity (project convention,
- * {@code docs/concepts/spring-web-annotations.md}).
+ * <p>Errors are thrown, never returned: {@link com.gr74.payment.exception.GlobalExceptionHandler}
+ * renders every one as an RFC 9457 {@code ProblemDetail} with a stable {@code code}.
  */
 @Slf4j
-@Validated // enforces @NotBlank on the @RequestHeader param (method-level constraint)
+@Validated
 @RestController
 @RequestMapping("/payments")
 @RequiredArgsConstructor
-@Tag(name = "Payments", description = "Charge a payment through the fake, idempotent provider.")
+@Tag(name = "Payments", description = "Create checkout sessions and read payment state.")
 public class PaymentController {
 
     private final PaymentService paymentService;
+    private final GatewayRegistry gatewayRegistry;
 
+    /**
+     * Create — or reuse — a checkout session for a booking.
+     *
+     * <p>This one endpoint is also the "Pay Again" endpoint. Call it again after a session lapses and
+     * it opens a new attempt on the <em>same</em> payment; call it while a session is still live and
+     * it hands back the existing URL rather than opening a second one.
+     */
     @PostMapping
     @Operation(
-            summary = "Charge a payment",
+            summary = "Create or reuse a checkout session",
             description = """
-                    Charges the amount and returns the outcome. Requires an Idempotency-Key header:
-                    retrying with the same key replays the original outcome (and status) without charging
-                    twice. Approved -> 200; declined -> 402 (a normal business outcome, not an error).""")
+                    Validates the booking (exists, yours, PENDING, hold not lapsed, not already paid) and \
+                    that the chosen gateway can settle its currency, then returns a checkout URL to \
+                    redirect the user to.
+
+                    This is also the "Pay Again" endpoint: if a live session already exists it is reused \
+                    (200); if the previous attempt lapsed or failed, a new attempt is created on the same \
+                    payment (201). A booking is never charged twice, and a lapsed session never costs the \
+                    user their seats.
+
+                    The amount is NOT accepted from the client — it is read from the Booking service.""")
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Charge approved.",
-                    content = @Content(schema = @Schema(implementation = ChargeResponse.class))),
-            @ApiResponse(responseCode = "402", description = "Charge declined — a normal business outcome; the body is a ChargeResponse with status=DECLINED, not an error.",
-                    content = @Content(schema = @Schema(implementation = ChargeResponse.class))),
-            @ApiResponse(responseCode = "400", description = "Validation failed — missing Idempotency-Key header, or a non-positive / malformed amount. code = PAYMENT_VALIDATION_ERROR.",
+            @ApiResponse(responseCode = "201", description = "A new attempt and gateway session were created.",
+                    content = @Content(schema = @Schema(implementation = PaymentSessionResponse.class))),
+            @ApiResponse(responseCode = "200", description = "An existing live session was reused.",
+                    content = @Content(schema = @Schema(implementation = PaymentSessionResponse.class))),
+            @ApiResponse(responseCode = "400", description = """
+                    PAYMENT_VALIDATION_ERROR (bad body or missing header), \
+                    PAYMENT_GATEWAY_NOT_AVAILABLE (gateway not configured here), \
+                    PAYMENT_CURRENCY_NOT_SUPPORTED (gateway cannot settle this currency).""",
                     content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ApiError.class))),
-            @ApiResponse(responseCode = "503", description = "The downstream provider could not be reached. code = PAYMENT_PROVIDER_UNAVAILABLE.",
+            @ApiResponse(responseCode = "403", description = "PAYMENT_FORBIDDEN — the booking belongs to another user.",
+                    content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "404", description = "PAYMENT_BOOKING_NOT_FOUND — no such booking.",
+                    content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "409", description = """
+                    PAYMENT_BOOKING_NOT_PAYABLE (wrong state), \
+                    PAYMENT_BOOKING_EXPIRED (seat hold lapsed — create a new booking), \
+                    PAYMENT_ALREADY_PAID.""",
+                    content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "503", description = """
+                    PAYMENT_GATEWAY_UNAVAILABLE (gateway unreachable; the attempt is left for reconciliation), \
+                    PAYMENT_BOOKING_SERVICE_UNAVAILABLE (could not verify the amount — we fail closed).""",
                     content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ApiError.class)))
     })
-    public ResponseEntity<ChargeResponse> charge(
-            @Parameter(description = "Idempotency key — reuse the same value to replay a prior outcome.", required = true, example = "booking-42-attempt-1")
-            @RequestHeader("Idempotency-Key") @NotBlank String idempotencyKey,
-            @Valid @RequestBody ChargeRequest request) {
+    public ResponseEntity<PaymentSessionResponse> createSession(
+            @Parameter(description = "The acting user; becomes the JWT sub in Phase 7.", required = true)
+            @RequestHeader("X-User-Id") @NotBlank String userId,
+            @Valid @RequestBody CreatePaymentRequest request) {
 
-        Payment payment = paymentService.charge(idempotencyKey, request.amount());
-        ChargeResponse body = ChargeResponse.from(payment);
+        SessionOutcome outcome = paymentService.createSession(request, userId);
 
-        // Declined is a normal, expected business outcome — not a server error. 402 lets callers
-        // (Booking's saga) branch on it cleanly without parsing a 200 body for failure.
-        HttpStatus status = payment.getStatus() == PaymentStatus.APPROVED
-                ? HttpStatus.OK
-                : HttpStatus.PAYMENT_REQUIRED;
+        log.info("POST /payments bookingId={} gateway={} -> paymentId={} attemptId={} ({})",
+                request.bookingId(), request.gateway(),
+                outcome.session().paymentId(), outcome.session().attemptId(),
+                outcome.created() ? "created" : "reused");
 
-        log.info("POST /payments idempotencyKey={} -> {} ({})", idempotencyKey, payment.getStatus(), status.value());
-        return ResponseEntity.status(status).body(body);
+        // 201 for a new attempt, 200 for a reused one — so a client can tell whether it just caused a
+        // new gateway session or was handed the one it already had.
+        return ResponseEntity
+                .status(outcome.created() ? HttpStatus.CREATED : HttpStatus.OK)
+                .body(outcome.session());
+    }
+
+    /**
+     * Which gateways this deployment can use — what a client builds its picker from.
+     *
+     * <p>Pass the booking's currency to filter out gateways that cannot settle it, so a user is never
+     * offered Paymob for a USD booking and told "no" only after being redirected.
+     */
+    @GetMapping("/gateways")
+    @Operation(
+            summary = "List usable payment gateways",
+            description = """
+                    Returns the gateways registered in this deployment. A gateway with no configured \
+                    credentials is absent entirely, never listed-but-broken. Supply `currency` to \
+                    filter to gateways that can actually settle it.""")
+    @ApiResponse(responseCode = "200", description = "The usable gateways.",
+            content = @Content(schema = @Schema(implementation = AvailableGatewaysResponse.class)))
+    public AvailableGatewaysResponse gateways(
+            @Parameter(description = "ISO-4217 code, e.g. EGP or USD. Omit for all registered gateways.")
+            @RequestParam(required = false) String currency) {
+
+        return currency == null || currency.isBlank()
+                ? new AvailableGatewaysResponse(null, gatewayRegistry.available())
+                : new AvailableGatewaysResponse(currency.toUpperCase(),
+                        gatewayRegistry.availableFor(currency.toUpperCase()));
+    }
+
+    /** Read one payment and its attempt history. */
+    @GetMapping("/{paymentId}")
+    @Operation(summary = "Read a payment",
+            description = "Returns the payment with every attempt made against it, oldest first.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "The payment.",
+                    content = @Content(schema = @Schema(implementation = PaymentResponse.class))),
+            @ApiResponse(responseCode = "403", description = "PAYMENT_FORBIDDEN — not your payment.",
+                    content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "404", description = "PAYMENT_NOT_FOUND.",
+                    content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ApiError.class)))
+    })
+    public PaymentResponse findById(
+            @RequestHeader("X-User-Id") @NotBlank String userId,
+            @PathVariable Long paymentId) {
+        return paymentService.findById(paymentId, userId);
+    }
+
+    /**
+     * Read the payment for a booking — how a client checks state after returning from checkout.
+     *
+     * <p>Note this is a <em>read</em>, not a confirmation: the returned status reflects what the
+     * webhook has already told us. A client polling here after being redirected may briefly see
+     * {@code PENDING}, which is correct — the gateway's webhook is what makes it {@code PAID}, and it
+     * arrives on its own schedule.
+     */
+    @GetMapping("/by-booking/{bookingId}")
+    @Operation(summary = "Read the payment for a booking",
+            description = """
+                    Returns the payment covering a booking. Use this to poll after the user returns from \
+                    the gateway — but note that PENDING is a normal answer for a moment, because the \
+                    authoritative confirmation is the gateway's webhook, not the redirect.""")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "The payment.",
+                    content = @Content(schema = @Schema(implementation = PaymentResponse.class))),
+            @ApiResponse(responseCode = "403", description = "PAYMENT_FORBIDDEN — not your booking.",
+                    content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "404", description = "PAYMENT_NOT_FOUND — no payment for that booking yet.",
+                    content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ApiError.class)))
+    })
+    public PaymentResponse findByBooking(
+            @RequestHeader("X-User-Id") @NotBlank String userId,
+            @PathVariable Long bookingId) {
+        return paymentService.findByBookingId(bookingId, userId);
     }
 }

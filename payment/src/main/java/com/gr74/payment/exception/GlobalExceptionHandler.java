@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.context.MessageSourceResolvable;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -109,7 +110,30 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     /**
-     * A required header is absent altogether (e.g. no {@code Idempotency-Key}). Treated as the
+     * The request body could not be parsed at all — malformed JSON, or a value that cannot be bound
+     * to its target type (e.g. {@code "gateway":"NOT_A_GATEWAY"} for the
+     * {@link com.gr74.payment.model.PaymentGatewayType} enum).
+     *
+     * <p>Spring's own handling produces a {@code ProblemDetail} with <b>no {@code code}</b>, which
+     * quietly breaks this service's contract: a client that branches on {@code code} would see the
+     * field simply missing. Overriding the hook keeps every error — ours and the framework's —
+     * speaking the same shape.
+     *
+     * <p>The detail is deliberately generic. Jackson's own message names internal class and field
+     * paths, which is information the caller neither needs nor should see.
+     */
+    @Override
+    protected ResponseEntity<Object> handleHttpMessageNotReadable(
+            HttpMessageNotReadableException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+
+        ProblemDetail body = problemDetail(PaymentErrorCode.PAYMENT_VALIDATION_ERROR,
+                "Request body is malformed or contains an unsupported value");
+        log.warn("Unreadable request body: {}", ex.getMessage());
+        return ResponseEntity.status(body.getStatus()).body(body);
+    }
+
+    /**
+     * A required header is absent altogether (e.g. no {@code X-User-Id}). Treated as the
      * caller's validation error so it carries {@code PAYMENT_VALIDATION_ERROR} like the others.
      */
     @ExceptionHandler(MissingRequestHeaderException.class)

@@ -28,11 +28,60 @@ eureka:
     service-url:
       defaultZone: ${EUREKA_SERVICE_URL:http://localhost:8761/eureka/}
 
-# The fake provider's controllable knobs. FAIL_RATE wires straight to the env var (0.0 = always
-# approve); latency simulates a real provider round-trip.
 payment:
-  fail-rate: ${FAIL_RATE:0.0}
-  latency-millis: ${PAYMENT_LATENCY_MILLIS:300}
+  # The public base URL gateways send users and webhooks back to. Gateways CANNOT reach localhost,
+  # so in local dev this is a tunnel: `stripe listen --forward-to ...` for Stripe, `ngrok http 8080`
+  # for Paymob. See docs/concepts/payment-gateway-integration.md.
+  public-url: ${PAYMENT_PUBLIC_URL:http://localhost:8080}
+
+  gateway:
+    # ---------------------------------------------------------------------------------------------
+    # SANDBOX — our own controllable gateway. Always registered (no external credentials to be
+    # missing), so there is always at least one usable gateway. This is the successor to the old
+    # FAIL_RATE knob: failure-rate and unavailable-rate drive the Phase 3.7 failure script and the
+    # Phase 5 circuit-breaker demo. It is a real adapter, not a test mock — it signs its own webhooks.
+    # ---------------------------------------------------------------------------------------------
+    sandbox:
+      supported-currencies: ${PAYMENT_SANDBOX_CURRENCIES:EGP,USD}
+      failure-rate: ${PAYMENT_SANDBOX_FAILURE_RATE:0.0}          # 0.0 = every checkout succeeds
+      unavailable-rate: ${PAYMENT_SANDBOX_UNAVAILABLE_RATE:0.0}  # simulated outages for the breaker
+      latency-millis: ${PAYMENT_SANDBOX_LATENCY_MILLIS:300}
+      session-ttl: ${PAYMENT_SANDBOX_SESSION_TTL:PT10M}
+      checkout-base-url: ${PAYMENT_SANDBOX_CHECKOUT_URL:http://localhost:8080/api/payments/sandbox/checkout}
+      webhook-secret: ${PAYMENT_SANDBOX_WEBHOOK_SECRET:sandbox-local-development-secret}
+
+    # ---------------------------------------------------------------------------------------------
+    # STRIPE — test mode. The adapter is @ConditionalOnGatewayCredentials on secret-key, so with no key the
+    # bean is never created and Stripe simply isn't offered. A live sk_live_ key is REJECTED at
+    # startup unless allow-live-key=true, so this lab cannot move real money by accident.
+    # ---------------------------------------------------------------------------------------------
+    stripe:
+      # Empty default is fine here: the adapter is gated by @ConditionalOnGatewayCredentials, which
+      # treats a BLANK value as absent. (Plain @ConditionalOnProperty would not — it counts an empty
+      # string as "present" and would register a credential-less gateway.)
+      secret-key: ${STRIPE_SECRET_KEY:}
+      webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
+      api-base-url: ${STRIPE_API_BASE_URL:https://api.stripe.com}
+      supported-currencies: ${STRIPE_CURRENCIES:USD}
+      session-ttl: ${STRIPE_SESSION_TTL:PT30M}
+      signature-tolerance-seconds: ${STRIPE_SIGNATURE_TOLERANCE:300}
+      allow-live-key: ${STRIPE_ALLOW_LIVE_KEY:false}
+
+    # ---------------------------------------------------------------------------------------------
+    # PAYMOB — sandbox. Also @ConditionalOnGatewayCredentials (on api-key). integration-id and iframe-id come
+    # from the Paymob dashboard; Paymob has no single "Checkout" endpoint like Stripe, so both must
+    # be configured explicitly.
+    # ---------------------------------------------------------------------------------------------
+    paymob:
+      # Same gating as Stripe above — blank counts as absent.
+      api-key: ${PAYMOB_API_KEY:}
+      hmac-secret: ${PAYMOB_HMAC_SECRET:}
+      integration-id: ${PAYMOB_INTEGRATION_ID:}
+      iframe-id: ${PAYMOB_IFRAME_ID:}
+      api-base-url: ${PAYMOB_API_BASE_URL:https://accept.paymob.com}
+      iframe-base-url: ${PAYMOB_IFRAME_BASE_URL:https://accept.paymob.com/api/acceptance/iframes}
+      supported-currencies: ${PAYMOB_CURRENCIES:EGP}
+      session-ttl: ${PAYMOB_SESSION_TTL:PT15M}
 
 # OpenAPI / Swagger UI (see docs/concepts/openapi-springdoc.md). The spec is served at /v3/api-docs
 # and the UI at /swagger-ui.html; the gateway aggregates all services' specs into one UI at :8080.

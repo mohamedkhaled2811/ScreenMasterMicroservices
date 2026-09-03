@@ -1,91 +1,187 @@
 package com.gr74.payment.service;
 
-import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.gr74.payment.exception.PaymentProviderException;
+import com.gr74.payment.client.BookingClient;
+import com.gr74.payment.client.BookingPayability;
+import com.gr74.payment.dto.CreatePaymentRequest;
+import com.gr74.payment.dto.PaymentAttemptResponse;
+import com.gr74.payment.dto.PaymentResponse;
+import com.gr74.payment.dto.PaymentSessionResponse;
+import com.gr74.payment.exception.BookingNotPayableException;
+import com.gr74.payment.exception.ForbiddenBookingException;
+import com.gr74.payment.exception.PaymentNotFoundException;
 import com.gr74.payment.model.Payment;
-import com.gr74.payment.provider.ChargeCommand;
-import com.gr74.payment.provider.PaymentProvider;
-import com.gr74.payment.provider.ProviderResult;
+import com.gr74.payment.model.PaymentAttempt;
+import com.gr74.payment.model.PaymentAttemptStatus;
+import com.gr74.payment.model.PaymentStatus;
+import com.gr74.payment.repository.PaymentAttemptRepository;
 import com.gr74.payment.repository.PaymentRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Idempotent charge orchestration.
+ * Creating a checkout session — the write path behind {@code POST /payments}, and the same path
+ * "Pay Again" takes.
  *
- * <p>The contract: charging the <em>same</em> idempotency key twice must charge the provider
- * <em>once</em> and return the <em>same</em> stored result. This matters because a saga (Phase 3)
- * or a flaky network will retry {@code POST /payments}, and we must never double-charge.
+ * <p><b>The endpoint is idempotent at the business level.</b> Called repeatedly for one booking it
+ * returns a usable checkout URL, and only opens a <em>new</em> gateway session when there isn't a
+ * live one. That is why "Pay Again" is not a special case with its own code: it is this method,
+ * called a second time, finding a lapsed attempt instead of a live one.
  *
- * <p>Two layers enforce it:
- * <ol>
- *   <li><b>Pre-read</b> ({@code findByIdempotencyKey}) short-circuits the common case — a key
- *       we've already seen returns its stored {@link Payment} without touching the provider.</li>
- *   <li><b>The DB {@code UNIQUE} constraint</b> is the source of truth for the race the pre-read
- *       can't cover: two concurrent first-time requests with the same key both miss the read, both
- *       call the provider, but only one {@code save} succeeds — the loser catches
- *       {@link DataIntegrityViolationException} and re-reads the winner's row.</li>
- * </ol>
- *
- * <p>This is the synchronous twin of the Phase-4 idempotent <i>consumer</i> (dedupe an event by
- * id); same lesson, different trigger. See {@code docs/concepts/idempotent-consumer.md}.
+ * <h2>Why this is not one transaction</h2>
+ * The gateway call sits <b>outside</b> the transaction that creates the attempt, and that ordering is
+ * the whole lesson (see {@code docs/concepts/payment-gateway-integration.md}). A database transaction
+ * cannot span an external gateway: if we called the gateway inside one and the commit then failed,
+ * the user could be charged for a session we have no record of, and no rollback could undo it. So we
+ * <b>commit the attempt row first</b>, then call the gateway. If that call times out, the row already
+ * exists as evidence and reconciliation can resolve it — the failure mode is a stranded PENDING
+ * attempt, which is recoverable, rather than an untracked charge, which is not.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class PaymentService {
 
-    private final PaymentProvider provider;
-    private final PaymentRepository repository;
+    private final PaymentRepository payments;
+    private final PaymentAttemptRepository attempts;
+    private final BookingClient bookingClient;
+    private final PaymentSessionFactory sessionFactory;
 
     /**
-     * Charge {@code amount} under {@code idempotencyKey}, returning the (possibly pre-existing)
-     * persisted charge. Runs in a transaction so the provider call and the row insert commit
-     * together.
+     * Create or reuse a checkout session for a booking.
+     *
+     * <p>Runs the six guards, gets-or-creates the obligation, then either hands back a live attempt
+     * or opens a new one.
+     *
+     * @return the session, and whether it was newly created (201) or reused (200)
+     */
+    public SessionOutcome createSession(CreatePaymentRequest request, String userId) {
+        Instant now = Instant.now();
+
+        // --- Guards 1-4: everything we cannot answer without Booking -----------------------------
+        // Booking owns the booking, so this is where the amount comes from too. Fails closed: a
+        // Booking outage throws 503 rather than letting us invent a price.
+        BookingPayability booking = bookingClient.fetchPayability(request.bookingId());
+
+        if (!userId.equals(booking.userId())) {
+            // Checked even though a booking id is not secret: without it, anyone could enumerate ids
+            // and open checkouts against other people's bookings.
+            throw new ForbiddenBookingException(request.bookingId());
+        }
+        if (!booking.isPending()) {
+            throw BookingNotPayableException.notPayable(request.bookingId(), booking.status());
+        }
+        if (!booking.isHoldLive(now)) {
+            // The SEAT HOLD has lapsed — unrecoverable, unlike a lapsed gateway session. The seats
+            // may already belong to someone else, so no new attempt may be created.
+            throw BookingNotPayableException.expired(request.bookingId());
+        }
+
+        // --- Get or create the obligation --------------------------------------------------------
+        Payment payment = getOrCreatePayment(booking);
+
+        // --- Guard 5: already settled ------------------------------------------------------------
+        if (payment.getStatus() == PaymentStatus.PAID) {
+            throw BookingNotPayableException.alreadyPaid(request.bookingId());
+        }
+        if (payment.getStatus().isTerminal()) {
+            throw BookingNotPayableException.notPayable(request.bookingId(),
+                    "payment " + payment.getStatus());
+        }
+
+        // --- Reuse a live attempt if there is one ------------------------------------------------
+        // This is what makes a double-clicked "Pay" button harmless, and what "Pay Again" hits when
+        // the user simply reopens a still-valid checkout.
+        Optional<PaymentAttempt> live = findLiveAttempt(payment.getId(), now);
+        if (live.isPresent()) {
+            PaymentAttempt reused = live.get();
+            log.info("Reusing live attempt id={} paymentId={} gateway={} expiresAt={}",
+                    reused.getId(), payment.getId(), reused.getGateway(), reused.getExpiresAt());
+            return new SessionOutcome(PaymentSessionResponse.of(payment, reused), false);
+        }
+
+        // --- Guard 6 + create a new attempt ------------------------------------------------------
+        // Guard 6 (gateway registered AND settles this currency) lives in the factory, next to the
+        // gateway call it protects.
+        PaymentAttempt created = sessionFactory.openNewSession(payment, request.gateway(), booking.currency());
+        return new SessionOutcome(PaymentSessionResponse.of(payment, created), true);
+    }
+
+    /**
+     * The obligation for a booking, created on first sight.
+     *
+     * <p>Read-then-insert with the {@code UNIQUE booking_id} constraint as the real guard: two
+     * concurrent first-time requests both miss the read, both insert, and the loser catches the
+     * violation and re-reads the winner's row. The constraint — not the read — is what guarantees one
+     * obligation per booking. (Same shape as the old idempotency-key guard, applied to a better key.)
      */
     @Transactional
-    public Payment charge(String idempotencyKey, BigDecimal amount) {
-        return repository.findByIdempotencyKey(idempotencyKey)
-                .map(existing -> {
-                    log.info("Replaying stored charge for idempotencyKey={} -> {}",
-                            idempotencyKey, existing.getStatus());
-                    return existing;
-                })
-                .orElseGet(() -> chargeAndPersist(idempotencyKey, amount));
+    protected Payment getOrCreatePayment(BookingPayability booking) {
+        return payments.findByBookingId(booking.bookingId())
+                .orElseGet(() -> insertPayment(booking));
     }
 
-    private Payment chargeAndPersist(String idempotencyKey, BigDecimal amount) {
-        ProviderResult result = callProvider(idempotencyKey, amount);
-        Payment payment = new Payment(idempotencyKey, result.status(), result.providerReference(), amount);
+    private Payment insertPayment(BookingPayability booking) {
+        Payment payment = new Payment(
+                booking.bookingId(),
+                booking.userId(),
+                booking.totalAmount(),   // authoritative: from Booking, never the client
+                booking.currency());
         try {
-            return repository.saveAndFlush(payment);
+            Payment saved = payments.saveAndFlush(payment);
+            log.info("Created payment id={} bookingId={} amount={} {}",
+                    saved.getId(), saved.getBookingId(), saved.getAmount(), saved.getCurrency());
+            return saved;
         } catch (DataIntegrityViolationException race) {
-            // A concurrent request with the same key won the UNIQUE insert between our read and
-            // our save. Its row is authoritative — return it so both callers see one charge.
-            log.warn("Concurrent duplicate for idempotencyKey={}; returning the winning row", idempotencyKey);
-            return repository.findByIdempotencyKey(idempotencyKey)
-                    .orElseThrow(() -> race); // genuinely unexpected: violation but no row to find
+            log.warn("Concurrent create for bookingId={}; returning the winning row", booking.bookingId());
+            return payments.findByBookingId(booking.bookingId()).orElseThrow(() -> race);
         }
     }
 
     /**
-     * Call the provider, translating an <em>infrastructural</em> failure (unreachable, timed out,
-     * interrupted) into a {@link PaymentProviderException} so the caller sees
-     * {@code PAYMENT_PROVIDER_UNAVAILABLE} (503) — distinct from a normal {@code DECLINED}, which is
-     * a successful call the provider returns as a {@link ProviderResult}, not an exception.
+     * The one attempt that could still be paid: PENDING, with a checkout URL, and not past its
+     * session deadline. Anything else needs a fresh session.
      */
-    private ProviderResult callProvider(String idempotencyKey, BigDecimal amount) {
-        try {
-            return provider.charge(new ChargeCommand(idempotencyKey, amount));
-        } catch (RuntimeException ex) {
-            throw new PaymentProviderException(
-                    "Provider failed to process charge for idempotencyKey=" + idempotencyKey, ex);
+    private Optional<PaymentAttempt> findLiveAttempt(Long paymentId, Instant now) {
+        return attempts.findByPaymentIdAndStatus(paymentId, PaymentAttemptStatus.PENDING)
+                .filter(attempt -> attempt.isLiveAt(now));
+    }
+
+    /** Read a payment with its attempt history. */
+    @Transactional(readOnly = true)
+    public PaymentResponse findById(Long paymentId, String userId) {
+        Payment payment = payments.findById(paymentId)
+                .orElseThrow(() -> new PaymentNotFoundException("Payment " + paymentId + " not found"));
+        if (!userId.equals(payment.getUserId())) {
+            throw new ForbiddenBookingException(payment.getBookingId());
         }
+        List<PaymentAttemptResponse> history = attempts
+                .findByPaymentIdOrderByCreatedAtAsc(paymentId).stream()
+                .map(PaymentAttemptResponse::of)
+                .toList();
+        return PaymentResponse.of(payment, history);
+    }
+
+    /** Read a payment by the booking it belongs to — how a client polls after checkout. */
+    @Transactional(readOnly = true)
+    public PaymentResponse findByBookingId(Long bookingId, String userId) {
+        Payment payment = payments.findByBookingId(bookingId)
+                .orElseThrow(() -> new PaymentNotFoundException("No payment for booking " + bookingId));
+        return findById(payment.getId(), userId);
+    }
+
+    /**
+     * The result of {@link #createSession}: the session plus whether a new attempt was opened, so the
+     * controller can answer 201 (created) or 200 (reused) rather than guessing.
+     */
+    public record SessionOutcome(PaymentSessionResponse session, boolean created) {
     }
 }

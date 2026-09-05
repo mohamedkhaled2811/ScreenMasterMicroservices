@@ -53,6 +53,7 @@ class PaymentServiceTest {
     @Mock private PaymentRepository payments;
     @Mock private PaymentAttemptRepository attempts;
     @Mock private BookingClient bookingClient;
+    @Mock private PaymentWriter paymentWriter;
     @Mock private PaymentSessionFactory sessionFactory;
 
     @InjectMocks private PaymentService service;
@@ -101,7 +102,7 @@ class PaymentServiceTest {
                 .isInstanceOf(ForbiddenBookingException.class);
 
         // Nothing was written, and no gateway was contacted.
-        verify(payments, never()).saveAndFlush(any());
+        verify(paymentWriter, never()).getOrCreatePayment(any());
         verify(sessionFactory, never()).openNewSession(any(), any(), any());
     }
 
@@ -140,7 +141,7 @@ class PaymentServiceTest {
         Payment paid = persistedPayment();
         paid.markPaid();
         given(bookingClient.fetchPayability(BOOKING_ID)).willReturn(payableBooking());
-        given(payments.findByBookingId(BOOKING_ID)).willReturn(Optional.of(paid));
+        given(paymentWriter.getOrCreatePayment(any(BookingPayability.class))).willReturn(paid);
 
         assertThatThrownBy(() -> service.createSession(request, USER))
                 .isInstanceOf(BookingNotPayableException.class)
@@ -163,7 +164,7 @@ class PaymentServiceTest {
                 Instant.now().plus(5, ChronoUnit.MINUTES), "https://pay.example/live");
 
         given(bookingClient.fetchPayability(BOOKING_ID)).willReturn(payableBooking());
-        given(payments.findByBookingId(BOOKING_ID)).willReturn(Optional.of(payment));
+        given(paymentWriter.getOrCreatePayment(any(BookingPayability.class))).willReturn(payment);
         given(attempts.findByPaymentIdAndStatus(500L, PaymentAttemptStatus.PENDING))
                 .willReturn(Optional.of(live));
 
@@ -188,7 +189,7 @@ class PaymentServiceTest {
         payment.addAttempt(fresh);
 
         given(bookingClient.fetchPayability(BOOKING_ID)).willReturn(payableBooking());
-        given(payments.findByBookingId(BOOKING_ID)).willReturn(Optional.of(payment));
+        given(paymentWriter.getOrCreatePayment(any(BookingPayability.class))).willReturn(payment);
         given(attempts.findByPaymentIdAndStatus(500L, PaymentAttemptStatus.PENDING))
                 .willReturn(Optional.of(lapsed));   // present, but past its expiry -> not live
         given(sessionFactory.openNewSession(payment, PaymentGatewayType.PAYMOB, "EGP"))
@@ -200,7 +201,8 @@ class PaymentServiceTest {
         assertThat(outcome.session().attemptId()).isEqualTo(901L);
         // The obligation is unchanged — this is the point. No second Payment was created.
         assertThat(outcome.session().paymentId()).isEqualTo(500L);
-        verify(payments, never()).saveAndFlush(any());
+        // One get-or-create, on the same obligation — no second Payment was created for the retry.
+        verify(paymentWriter).getOrCreatePayment(any(BookingPayability.class));
     }
 
     @Test
@@ -212,7 +214,7 @@ class PaymentServiceTest {
         ReflectionTestUtils.setField(fresh, "id", 902L);
 
         given(bookingClient.fetchPayability(BOOKING_ID)).willReturn(payableBooking());
-        given(payments.findByBookingId(BOOKING_ID)).willReturn(Optional.of(payment));
+        given(paymentWriter.getOrCreatePayment(any(BookingPayability.class))).willReturn(payment);
         // No PENDING attempt at all — the previous one FAILED and is therefore terminal.
         given(attempts.findByPaymentIdAndStatus(500L, PaymentAttemptStatus.PENDING))
                 .willReturn(Optional.empty());
@@ -230,8 +232,7 @@ class PaymentServiceTest {
                 Instant.now().plus(10, ChronoUnit.MINUTES), "https://pay.example/new");
 
         given(bookingClient.fetchPayability(BOOKING_ID)).willReturn(payableBooking());
-        given(payments.findByBookingId(BOOKING_ID)).willReturn(Optional.empty());
-        given(payments.saveAndFlush(any(Payment.class))).willReturn(fresh);
+        given(paymentWriter.getOrCreatePayment(any(BookingPayability.class))).willReturn(fresh);
         given(attempts.findByPaymentIdAndStatus(any(), any())).willReturn(Optional.empty());
         given(sessionFactory.openNewSession(any(), any(), any())).willReturn(attempt);
 
@@ -252,7 +253,7 @@ class PaymentServiceTest {
         given(bookingClient.fetchPayability(BOOKING_ID)).willReturn(
                 new BookingPayability(BOOKING_ID, USER, "PENDING",
                         Instant.now().plus(10, ChronoUnit.MINUTES), AMOUNT, "USD"));
-        given(payments.findByBookingId(BOOKING_ID)).willReturn(Optional.of(payment));
+        given(paymentWriter.getOrCreatePayment(any(BookingPayability.class))).willReturn(payment);
         given(attempts.findByPaymentIdAndStatus(any(), any())).willReturn(Optional.empty());
         given(sessionFactory.openNewSession(any(), any(), any())).willReturn(attempt);
 

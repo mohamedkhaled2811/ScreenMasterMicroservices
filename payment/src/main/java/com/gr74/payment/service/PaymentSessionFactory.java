@@ -1,16 +1,10 @@
 package com.gr74.payment.service;
 
 import java.time.Instant;
-import java.util.UUID;
 
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
 
 import com.gr74.payment.config.PaymentProps;
-import com.gr74.payment.exception.PaymentErrorCode;
-import com.gr74.payment.exception.PaymentException;
 import com.gr74.payment.gateway.GatewaySession;
 import com.gr74.payment.gateway.GatewaySessionRequest;
 import com.gr74.payment.gateway.GatewaySelector;
@@ -19,7 +13,6 @@ import com.gr74.payment.model.Payment;
 import com.gr74.payment.model.PaymentAttempt;
 import com.gr74.payment.model.PaymentAttemptStatus;
 import com.gr74.payment.model.PaymentGatewayType;
-import com.gr74.payment.repository.PaymentAttemptRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,11 +20,14 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * Opens one new gateway checkout session, in the only order that is safe.
  *
- * <p>This is a separate bean from {@link PaymentService} for a specific reason: the attempt row must
- * be <b>committed before the gateway is called</b>, and a {@code @Transactional} method calling
- * another method on {@code this} would not start a new transaction (Spring's proxy is bypassed on
- * self-invocation — the same trap {@code CatalogUpserter} exists to avoid in the catalog service).
- * Putting the committed insert on a different bean makes the boundary real rather than decorative.
+ * <p>This bean orchestrates the <em>conversation</em> with the gateway; every database write around
+ * it is delegated to {@link PaymentWriter}, a separate bean. That separation is what makes the
+ * transaction boundaries real: a {@code @Transactional} method invoked on {@code this} is not
+ * transactional at all (Spring's proxy is bypassed on self-invocation — the same trap
+ * {@code CatalogUpserter} exists to avoid in the catalog service), and an earlier version of this
+ * class declared its writes {@code REQUIRES_NEW} and then called them on {@code this}, silently
+ * inert. Delegating to an injected bean makes every proxy hop — and therefore every boundary —
+ * real.
  *
  * <p>The ordering matters because a database transaction cannot span an external gateway:
  *
@@ -51,7 +47,7 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public class PaymentSessionFactory {
 
-    private final PaymentAttemptRepository attempts;
+    private final PaymentWriter paymentWriter;
     private final GatewaySelector gatewaySelector;
     private final PaymentProps paymentProps;
 
@@ -67,7 +63,7 @@ public class PaymentSessionFactory {
         // currency, must be rejected without leaving a dead attempt row behind.
         PaymentGateway gateway = gatewaySelector.select(gatewayType, currency);
 
-        PaymentAttempt attempt = insertPendingAttempt(payment, gatewayType);
+        PaymentAttempt attempt = paymentWriter.insertPendingAttempt(payment, gatewayType);
 
         GatewaySession session;
         try {
@@ -90,59 +86,7 @@ public class PaymentSessionFactory {
             throw e;
         }
 
-        return recordSession(attempt.getId(), session);
-    }
-
-    /**
-     * Insert the attempt in its own committed transaction.
-     *
-     * <p>{@code REQUIRES_NEW} so the row survives independently of whatever the caller is doing — the
-     * evidence must outlive a later failure, which is the same reasoning the webhook store uses.
-     *
-     * <p>A {@link DataIntegrityViolationException} here means the partial unique index
-     * ({@code uq_active_attempt_per_payment}) rejected a second live attempt: two "Pay" clicks raced
-     * and this one lost. That is a correct outcome, not an error to leak as a 500 — the loser is told
-     * to retry, and will then find the winner's live attempt and reuse it.
-     */
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    protected PaymentAttempt insertPendingAttempt(Payment payment, PaymentGatewayType gatewayType) {
-        PaymentAttempt attempt = new PaymentAttempt(gatewayType, newIdempotencyKey(payment));
-        payment.addAttempt(attempt);
-        try {
-            PaymentAttempt saved = attempts.saveAndFlush(attempt);
-            log.info("Created attempt id={} paymentId={} gateway={}",
-                    saved.getId(), payment.getId(), gatewayType);
-            return saved;
-        } catch (DataIntegrityViolationException race) {
-            log.warn("Concurrent attempt creation for paymentId={} — another live attempt won",
-                    payment.getId(), race);
-            throw new PaymentException(PaymentErrorCode.PAYMENT_VALIDATION_ERROR,
-                    "A payment session for this booking is already being created; retry to reuse it",
-                    race);
-        }
-    }
-
-    /** Save what the gateway returned, in its own committed transaction. */
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    protected PaymentAttempt recordSession(Long attemptId, GatewaySession session) {
-        PaymentAttempt attempt = attempts.findById(attemptId).orElseThrow(
-                () -> new PaymentException(PaymentErrorCode.PAYMENT_INTERNAL_ERROR,
-                        "Attempt " + attemptId + " vanished between creation and session recording"));
-        attempt.recordSession(session.gatewaySessionId(), session.checkoutUrl(), session.expiresAt());
-        PaymentAttempt saved = attempts.saveAndFlush(attempt);
-        log.info("Attempt id={} now has session {} expiring {}",
-                saved.getId(), saved.getGatewaySessionId(), saved.getExpiresAt());
-        return saved;
-    }
-
-    /**
-     * The key forwarded to the gateway. Includes the payment id and a random component: it must be
-     * unique per <em>attempt</em> (a deliberate retry after a lapsed session is a genuinely new
-     * charge attempt and must not be deduped against the old one), while still being the token that
-     * makes a <em>transport-level</em> retry of one attempt safe.
-     */
-    private String newIdempotencyKey(Payment payment) {
-        return "pay-" + payment.getId() + "-" + UUID.randomUUID();
+        return paymentWriter.recordSession(attempt.getId(), session);
     }
 
     /** Whether an attempt is still usable — exposed for the sweeper and tests. */

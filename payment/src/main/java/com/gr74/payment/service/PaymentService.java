@@ -4,7 +4,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -53,6 +52,7 @@ public class PaymentService {
     private final PaymentRepository payments;
     private final PaymentAttemptRepository attempts;
     private final BookingClient bookingClient;
+    private final PaymentWriter paymentWriter;
     private final PaymentSessionFactory sessionFactory;
 
     /**
@@ -86,7 +86,9 @@ public class PaymentService {
         }
 
         // --- Get or create the obligation --------------------------------------------------------
-        Payment payment = getOrCreatePayment(booking);
+        // The obligation row is committed on its own (REQUIRES_NEW in PaymentWriter) — it must not
+        // join a caller's transaction, or the attempt's FK to it would block on an uncommitted row.
+        Payment payment = paymentWriter.getOrCreatePayment(booking);
 
         // --- Guard 5: already settled ------------------------------------------------------------
         if (payment.getStatus() == PaymentStatus.PAID) {
@@ -113,37 +115,6 @@ public class PaymentService {
         // gateway call it protects.
         PaymentAttempt created = sessionFactory.openNewSession(payment, request.gateway(), booking.currency());
         return new SessionOutcome(PaymentSessionResponse.of(payment, created), true);
-    }
-
-    /**
-     * The obligation for a booking, created on first sight.
-     *
-     * <p>Read-then-insert with the {@code UNIQUE booking_id} constraint as the real guard: two
-     * concurrent first-time requests both miss the read, both insert, and the loser catches the
-     * violation and re-reads the winner's row. The constraint — not the read — is what guarantees one
-     * obligation per booking. (Same shape as the old idempotency-key guard, applied to a better key.)
-     */
-    @Transactional
-    protected Payment getOrCreatePayment(BookingPayability booking) {
-        return payments.findByBookingId(booking.bookingId())
-                .orElseGet(() -> insertPayment(booking));
-    }
-
-    private Payment insertPayment(BookingPayability booking) {
-        Payment payment = new Payment(
-                booking.bookingId(),
-                booking.userId(),
-                booking.totalAmount(),   // authoritative: from Booking, never the client
-                booking.currency());
-        try {
-            Payment saved = payments.saveAndFlush(payment);
-            log.info("Created payment id={} bookingId={} amount={} {}",
-                    saved.getId(), saved.getBookingId(), saved.getAmount(), saved.getCurrency());
-            return saved;
-        } catch (DataIntegrityViolationException race) {
-            log.warn("Concurrent create for bookingId={}; returning the winning row", booking.bookingId());
-            return payments.findByBookingId(booking.bookingId()).orElseThrow(() -> race);
-        }
     }
 
     /**

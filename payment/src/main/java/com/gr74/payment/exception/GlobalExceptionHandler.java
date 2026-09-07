@@ -92,7 +92,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     /**
      * Method-level constraint failures on controller parameters — here, the
-     * {@code @NotBlank Idempotency-Key} header (Spring 6.1+ raises this rather than
+     * {@code @NotBlank X-User-Id} header (Spring 6.1+ raises this rather than
      * {@link MethodArgumentNotValidException} for non-body params). Same {@code code}, same shape.
      */
     @Override

@@ -42,7 +42,18 @@ public record ApiError(
                 allowableValues = {
                         "PAYMENT_VALIDATION_ERROR",
                         "PAYMENT_NOT_FOUND",
-                        "PAYMENT_PROVIDER_UNAVAILABLE",
+                        "PAYMENT_BOOKING_NOT_FOUND",
+                        "PAYMENT_FORBIDDEN",
+                        "PAYMENT_BOOKING_NOT_PAYABLE",
+                        "PAYMENT_BOOKING_EXPIRED",
+                        "PAYMENT_ALREADY_PAID",
+                        "PAYMENT_GATEWAY_NOT_AVAILABLE",
+                        "PAYMENT_CURRENCY_NOT_SUPPORTED",
+                        "PAYMENT_GATEWAY_UNAVAILABLE",
+                        "PAYMENT_BOOKING_SERVICE_UNAVAILABLE",
+                        "PAYMENT_WEBHOOK_SIGNATURE_INVALID",
+                        "PAYMENT_REFUND_EXCEEDS_REMAINING",
+                        "PAYMENT_NOT_REFUNDABLE",
                         "PAYMENT_INTERNAL_ERROR"
                 })
         String code) {

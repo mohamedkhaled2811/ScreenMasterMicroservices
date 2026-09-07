@@ -18,5 +18,12 @@ public interface RefundRepository extends JpaRepository<Refund, Long> {
 
     Optional<Refund> findByIdempotencyKey(String idempotencyKey);
 
+    /**
+     * The refund-webhook correlation: a refund event names the gateway's refund id, never our row.
+     * This is the ONLY refund lookup a webhook may use — Stripe's {@code charge.refunded} carries
+     * no checkout-session id, so the attempt-session lookup the payment path uses cannot work here.
+     */
+    Optional<Refund> findByGatewayRefundId(String gatewayRefundId);
+
     List<Refund> findByPaymentIdOrderByCreatedAtAsc(Long paymentId);
 }

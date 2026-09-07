@@ -82,6 +82,17 @@ public class Refund {
     }
 
     /**
+     * Record what the gateway accepted, without moving money. The refund stays {@code PENDING}:
+     * only its webhook promotes it to {@code SUCCEEDED} (see {@link #markSucceeded}), because the
+     * API response is provisional — the money has not demonstrably moved until the gateway says so
+     * out-of-band.
+     */
+    public void recordAcceptance(String gatewayRefundId) {
+        this.gatewayRefundId = gatewayRefundId;
+        touch();
+    }
+
+    /**
      * Confirm this refund from its gateway webhook. Returns {@code false} if it is already terminal,
      * so a redelivered refund webhook cannot add the same amount to the payment's total twice.
      */

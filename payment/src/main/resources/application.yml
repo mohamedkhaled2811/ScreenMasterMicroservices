@@ -20,6 +20,14 @@ spring:
       ddl-auto: validate
     open-in-view: false   # no lazy loading in the view layer; keep the tx boundary in the service
 
+  # The broker behind screenmaster-exchange (BUILD_PLAN 3.2). Compose injects RABBITMQ_* env vars
+  # (service name = DNS name); local defaults point at a bare-metal broker on the host.
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+
 # A Eureka CLIENT: it registers with the discovery server on startup. We do NOT set
 # register-with-eureka/fetch-registry to false — those are server-only (the discovery node sets
 # them because it has no peers). See docs/concepts/service-discovery.md.
@@ -33,6 +41,30 @@ payment:
   # so in local dev this is a tunnel: `stripe listen --forward-to ...` for Stripe, `ngrok http 8080`
   # for Paymob. See docs/concepts/payment-gateway-integration.md.
   public-url: ${PAYMENT_PUBLIC_URL:http://localhost:8080}
+
+  # Transactional-outbox relay (BUILD_PLAN 3.2): how often the drain tick runs and how many rows one
+  # tick claims. Short enough that a confirmed payment feels instant; bounded so the first tick
+  # after an outage walks the backlog over several passes.
+  outbox:
+    relay-interval-millis: ${PAYMENT_OUTBOX_RELAY_INTERVAL_MILLIS:2000}
+    relay-batch-size: ${PAYMENT_OUTBOX_RELAY_BATCH_SIZE:50}
+
+  # Attempt-expiry sweeper (BUILD_PLAN 3.4): how often the tick closes lapsed gateway sessions.
+  # Expiring a session only closes a dead checkout — the payment stays PENDING for Pay Again.
+  expiry:
+    sweep-interval-millis: ${PAYMENT_EXPIRY_SWEEP_INTERVAL_MILLIS:60000}
+
+  # The shared definition of "old enough that the gateway has had its chance" (BUILD_PLAN 3.4).
+  # The attempt-expiry sweeper above SKIPS PENDING attempts younger than this (reconciliation
+  # decides first); step 3.6's reconciliation sweep probes attempts stale for longer than this
+  # against the gateway. One property, two readers — 3.6 reuses this exact value.
+  reconciliation:
+    stale-after: ${PAYMENT_RECONCILIATION_STALE_AFTER:PT10M}
+    # How often the reconciliation sweep asks the gateway about stale attempts, and how many
+    # attempts one sweep probes. Short enough to recover a missed webhook within minutes;
+    # bounded so the first tick after an outage walks the backlog over several passes.
+    sweep-interval-millis: ${PAYMENT_RECONCILIATION_SWEEP_INTERVAL_MILLIS:300000}
+    batch-size: ${PAYMENT_RECONCILIATION_BATCH_SIZE:100}
 
   gateway:
     # ---------------------------------------------------------------------------------------------

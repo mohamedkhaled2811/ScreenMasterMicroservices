@@ -41,6 +41,13 @@ springdoc:
 openapi:
   public-url: ${OPENAPI_PUBLIC_URL:http://localhost:8080}
 
+# Hold-expiry sweeper (BUILD_PLAN 3.4): how often the tick scans for PENDING bookings past
+# their hold. A missed hold simply waits for the next tick — cadence is a freshness knob, not a
+# correctness one, because the confirm's conditional update guards the race either way.
+booking:
+  expiry:
+    sweep-interval-millis: ${BOOKING_EXPIRY_SWEEP_INTERVAL_MILLIS:60000}
+
 # A Eureka CLIENT: registers with the discovery server on startup.
 eureka:
   client:

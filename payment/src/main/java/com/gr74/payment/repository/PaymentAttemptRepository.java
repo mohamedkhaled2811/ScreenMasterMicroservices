@@ -22,6 +22,13 @@ public interface PaymentAttemptRepository extends JpaRepository<PaymentAttempt, 
     Optional<PaymentAttempt> findByGatewayAndGatewaySessionId(PaymentGatewayType gateway, String sessionId);
 
     /**
+     * Lookup by the gateway's transaction id — used only for refund correlation fallback (a Paymob
+     * "original transaction reports refunded" callback names the transaction but no refund id).
+     * Never used for payment outcomes: those correlate by session id.
+     */
+    Optional<PaymentAttempt> findByGatewayAndGatewayPaymentId(PaymentGatewayType gateway, String gatewayPaymentId);
+
+    /**
      * The live attempt for a payment, if any — what "Pay Again" reuses instead of opening a second
      * session. At most one can exist (partial unique index {@code uq_active_attempt_per_payment}).
      */

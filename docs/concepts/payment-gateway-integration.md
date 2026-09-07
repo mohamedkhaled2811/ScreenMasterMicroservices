@@ -77,7 +77,7 @@ public interface PaymentGateway {
     PaymentGatewayType type();
     Set<String> supportedCurrencies();
     GatewaySession createSession(GatewaySessionRequest request);
-    GatewayPaymentStatus fetchStatus(String gatewayPaymentId);
+    GatewayPaymentStatus fetchStatus(GatewayStatusQuery query);
     RefundResult refund(GatewayRefundRequest request);
     GatewayEvent parseAndVerifyWebhook(String rawPayload, Map<String, String> headers);
 }

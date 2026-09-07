@@ -21,11 +21,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gr74.payment.config.ConditionalOnGatewayCredentials;
 import com.gr74.payment.config.PaymobGatewayProps;
 import com.gr74.payment.gateway.GatewayEvent;
+import com.gr74.payment.gateway.GatewayEventKind;
 import com.gr74.payment.gateway.GatewayException;
 import com.gr74.payment.gateway.GatewayPaymentStatus;
 import com.gr74.payment.gateway.GatewayRefundRequest;
 import com.gr74.payment.gateway.GatewaySession;
 import com.gr74.payment.gateway.GatewaySessionRequest;
+import com.gr74.payment.gateway.GatewayStatusQuery;
 import com.gr74.payment.gateway.MoneyConverter;
 import com.gr74.payment.gateway.PaymentGateway;
 import com.gr74.payment.gateway.RefundResult;
@@ -144,10 +146,18 @@ public class PaymobGateway implements PaymentGateway {
         return new GatewaySession(orderId, checkoutUrl, expiresAt);
     }
 
+    /**
+     * Ask Paymob about a transaction. Keyed by the <b>transaction</b> id — Paymob's lookup answers
+     * per transaction, not per order — so this adapter reads {@code query.gatewayPaymentId()} and
+     * only falls back to the session (order) id when no transaction was ever reported.
+     */
     @Override
-    public GatewayPaymentStatus fetchStatus(String gatewayPaymentId) {
+    public GatewayPaymentStatus fetchStatus(GatewayStatusQuery query) {
+        String transactionId = query.gatewayPaymentId() != null && !query.gatewayPaymentId().isBlank()
+                ? query.gatewayPaymentId()
+                : query.gatewaySessionId();
         String authToken = text(post("/api/auth/tokens", Map.of("api_key", props.apiKey())), "token");
-        JsonNode transaction = getWithToken("/api/acceptance/transactions/" + gatewayPaymentId, authToken);
+        JsonNode transaction = getWithToken("/api/acceptance/transactions/" + transactionId, authToken);
 
         boolean success = transaction.path("success").asBoolean(false);
         boolean pending = transaction.path("pending").asBoolean(false);
@@ -218,12 +228,39 @@ public class PaymobGateway implements PaymentGateway {
         boolean success = obj.path("success").asBoolean(false);
         boolean pending = obj.path("pending").asBoolean(false);
         boolean refunded = obj.path("is_refunded").asBoolean(false);
+        boolean isRefundTxn = obj.path("is_refund").asBoolean(false)
+                || (text(root, "type") != null && text(root, "type").toLowerCase().contains("refund"));
+
+        if (isRefundTxn) {
+            RefundStatus refundStatus = pending ? null
+                    : success ? RefundStatus.SUCCEEDED : RefundStatus.FAILED;
+            return new GatewayEvent(
+                    text(obj, "id"),
+                    text(root, "type"),
+                    text(obj.path("order"), "id"),
+                    text(obj, "id"),
+                    null,
+                    refundStatus == RefundStatus.FAILED ? text(obj.path("data"), "message") : null,
+                    GatewayEventKind.REFUND,
+                    refundStatus,
+                    text(obj, "id"));
+        }
+        if (refunded) {
+            return new GatewayEvent(
+                    text(obj, "id"),
+                    text(root, "type"),
+                    text(obj.path("order"), "id"),
+                    text(obj, "id"),
+                    null,
+                    null,
+                    GatewayEventKind.REFUND,
+                    RefundStatus.SUCCEEDED,
+                    null); // the original txn's callback carries no refund id; 3.5 correlates by txn
+        }
 
         PaymentAttemptStatus status;
         if (pending) {
             status = null;                                  // not yet an outcome: store and IGNORE
-        } else if (refunded) {
-            status = null;                                  // refund callbacks are handled separately
         } else {
             status = success ? PaymentAttemptStatus.SUCCEEDED : PaymentAttemptStatus.FAILED;
         }

@@ -47,7 +47,7 @@ class GatewayRegistryTest {
             }
 
             @Override
-            public GatewayPaymentStatus fetchStatus(String gatewayPaymentId) {
+            public GatewayPaymentStatus fetchStatus(GatewayStatusQuery query) {
                 throw new UnsupportedOperationException();
             }
 

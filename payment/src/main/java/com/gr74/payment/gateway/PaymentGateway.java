@@ -53,9 +53,13 @@ public interface PaymentGateway {
      * the page the user lands on after checkout. Without this, a webhook we never received is
      * unrecoverable.
      *
+     * <p>Takes both ids because adapters disagree on which one keys their status API (Stripe: the
+     * checkout-session id; Paymob: the transaction id) — each adapter picks the one it needs, so no
+     * caller ever branches on gateway type.
+     *
      * @throws GatewayException when the gateway is unreachable
      */
-    GatewayPaymentStatus fetchStatus(String gatewayPaymentId);
+    GatewayPaymentStatus fetchStatus(GatewayStatusQuery query);
 
     /**
      * Refund all or part of a captured payment. Most gateways confirm asynchronously, so a

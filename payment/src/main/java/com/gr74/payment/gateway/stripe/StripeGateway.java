@@ -22,11 +22,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gr74.payment.config.ConditionalOnGatewayCredentials;
 import com.gr74.payment.config.StripeGatewayProps;
 import com.gr74.payment.gateway.GatewayEvent;
+import com.gr74.payment.gateway.GatewayEventKind;
 import com.gr74.payment.gateway.GatewayException;
 import com.gr74.payment.gateway.GatewayPaymentStatus;
 import com.gr74.payment.gateway.GatewayRefundRequest;
 import com.gr74.payment.gateway.GatewaySession;
 import com.gr74.payment.gateway.GatewaySessionRequest;
+import com.gr74.payment.gateway.GatewayStatusQuery;
 import com.gr74.payment.gateway.MoneyConverter;
 import com.gr74.payment.gateway.PaymentGateway;
 import com.gr74.payment.gateway.RefundResult;
@@ -134,9 +136,18 @@ public class StripeGateway implements PaymentGateway {
         return new GatewaySession(sessionId, checkoutUrl, expiresAt);
     }
 
+    /**
+     * Ask Stripe about a checkout session. Keyed by the <b>session</b> id — Stripe's status API
+     * answers per session, not per payment intent — so this adapter reads
+     * {@code query.gatewaySessionId()} and only falls back to the payment id when no session was
+     * ever recorded.
+     */
     @Override
-    public GatewayPaymentStatus fetchStatus(String gatewayPaymentId) {
-        JsonNode session = get("/v1/checkout/sessions/" + gatewayPaymentId);
+    public GatewayPaymentStatus fetchStatus(GatewayStatusQuery query) {
+        String sessionId = query.gatewaySessionId() != null && !query.gatewaySessionId().isBlank()
+                ? query.gatewaySessionId()
+                : query.gatewayPaymentId();
+        JsonNode session = get("/v1/checkout/sessions/" + sessionId);
         String paymentStatus = text(session, "payment_status");
         String sessionStatus = text(session, "status");
         String paymentIntent = text(session, "payment_intent");
@@ -217,6 +228,30 @@ public class StripeGateway implements PaymentGateway {
             JsonNode root = objectMapper.readTree(rawPayload);
             String rawType = text(root, "type");
             JsonNode object = root.path("data").path("object");
+            if ("charge.refunded".equals(rawType)) {
+                return new GatewayEvent(
+                        text(root, "id"),
+                        rawType,
+                        null,
+                        firstNonNull(text(object, "payment_intent"), text(object, "id")),
+                        null,
+                        null,
+                        GatewayEventKind.REFUND,
+                        RefundStatus.SUCCEEDED,
+                        firstRefundId(object));
+            }
+            if ("refund.failed".equals(rawType)) {
+                return new GatewayEvent(
+                        text(root, "id"),
+                        rawType,
+                        null,
+                        text(object, "payment_intent"),
+                        null,
+                        "stripe_refund_failed",
+                        GatewayEventKind.REFUND,
+                        RefundStatus.FAILED,
+                        text(object, "id"));
+            }
             return new GatewayEvent(
                     text(root, "id"),
                     rawType,
@@ -231,6 +266,19 @@ public class StripeGateway implements PaymentGateway {
         }
     }
 
+    /** The first refund id on a refunded charge, when Stripe itemized any. */
+    private static String firstRefundId(JsonNode charge) {
+        JsonNode data = charge.path("refunds").path("data");
+        if (data.isArray() && !data.isEmpty()) {
+            return text(data.get(0), "id");
+        }
+        return null;
+    }
+
+    private static String firstNonNull(String primary, String fallback) {
+        return primary != null ? primary : fallback;
+    }
+
     /** Stripe's event vocabulary → ours. Anything else is stored but not acted on. */
     private PaymentAttemptStatus normalizeEventType(String rawType) {
         if (rawType == null) {
@@ -242,6 +290,7 @@ public class StripeGateway implements PaymentGateway {
             case "checkout.session.async_payment_failed", "payment_intent.payment_failed" ->
                     PaymentAttemptStatus.FAILED;
             case "checkout.session.expired" -> PaymentAttemptStatus.EXPIRED;
+            // Refund vocabulary never reaches here — it returns early above as GatewayEventKind.REFUND.
             default -> null;
         };
     }

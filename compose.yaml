@@ -148,11 +148,17 @@ services:
       PAYMENT_SANDBOX_WEBHOOK_SECRET: ${PAYMENT_SANDBOX_WEBHOOK_SECRET:-sandbox-local-development-secret}
       EUREKA_SERVICE_URL: http://discovery:8761/eureka/
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+      # Payment PUBLISHES PaymentSucceeded/PaymentFailed to the broker (transactional outbox, 3.2).
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
     depends_on:
       payment-db:
         condition: service_healthy
       discovery:
         condition: service_started
+      rabbitmq:
+        condition: service_healthy
     networks: [screenmaster]
 
   # ---------------------------------------------------------------------------

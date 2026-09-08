@@ -18,17 +18,20 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gr74.payment.config.SandboxGatewayProps;
 import com.gr74.payment.gateway.GatewayEvent;
+import com.gr74.payment.gateway.GatewayEventKind;
 import com.gr74.payment.gateway.GatewayException;
 import com.gr74.payment.gateway.GatewayPaymentStatus;
 import com.gr74.payment.gateway.GatewayRefundRequest;
 import com.gr74.payment.gateway.GatewaySession;
 import com.gr74.payment.gateway.GatewaySessionRequest;
+import com.gr74.payment.gateway.GatewayStatusQuery;
 import com.gr74.payment.gateway.PaymentGateway;
 import com.gr74.payment.gateway.RefundResult;
 import com.gr74.payment.gateway.WebhookSignatureException;
 import com.gr74.payment.model.PaymentAttemptStatus;
 import com.gr74.payment.model.PaymentGatewayType;
 import com.gr74.payment.model.RefundStatus;
+import com.gr74.payment.repository.SandboxChargeRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -60,6 +63,18 @@ public class SandboxGateway implements PaymentGateway {
 
     private final SandboxGatewayProps props;
     private final ObjectMapper objectMapper;
+    /**
+     * The sandbox's own ledger — the fake third party's memory, parked in payment-db for the lab.
+     * Payment domain code never reads this; only this gateway ({@link #fetchStatus}) and its
+     * checkout controller (recording the drawn outcome) touch it.
+     */
+    private final SandboxChargeRepository charges;
+    /**
+     * How this gateway "calls back": signed HTTP through the front door, never an in-process
+     * call — so the refund path below exercises the same evidence store, dedupe, and correlation
+     * as Stripe's {@code charge.refunded}.
+     */
+    private final SandboxWebhookClient webhookClient;
 
     @Override
     public PaymentGatewayType type() {
@@ -97,26 +112,66 @@ public class SandboxGateway implements PaymentGateway {
     }
 
     /**
-     * Reconciliation's view. Draws against the configured failure rate so a reconciliation run over
-     * stranded attempts produces a realistic mix of outcomes rather than a uniform success.
+     * Reconciliation's view: the outcome <b>recorded</b> when the user paid — never a fresh draw.
+     *
+     * <p>An earlier version drew against the failure rate on every call, so asking twice about the
+     * same payment could give two different answers, and reconciliation could confirm a booking that
+     * was never paid for. The failure-rate knob now applies exactly once, at pay time (see
+     * {@link #shouldSucceed()} and the checkout controller that records its answer); this method
+     * only reports what was recorded, or {@code PENDING} when the user never paid.
      */
     @Override
-    public GatewayPaymentStatus fetchStatus(String gatewayPaymentId) {
+    public GatewayPaymentStatus fetchStatus(GatewayStatusQuery query) {
         simulateLatency();
-        boolean failed = draw() < props.failureRate();
-        return failed
-                ? new GatewayPaymentStatus(PaymentAttemptStatus.FAILED, gatewayPaymentId, "simulated_decline")
-                : new GatewayPaymentStatus(PaymentAttemptStatus.SUCCEEDED, gatewayPaymentId, null);
+        // Both ids identify the same ledger row; the caller may hold either. Session id first —
+        // it is the id every attempt carries — then the payment id a webhook may have reported.
+        String sessionId = firstNonBlank(query.gatewaySessionId(), query.gatewayPaymentId());
+        return charges.findBySessionId(sessionId)
+                .or(() -> charges.findByGatewayPaymentId(sessionId))
+                .map(charge -> new GatewayPaymentStatus(
+                        charge.getOutcome(), charge.getGatewayPaymentId(), charge.getFailureReason()))
+                .orElseGet(() -> new GatewayPaymentStatus(
+                        PaymentAttemptStatus.PENDING, query.gatewayPaymentId(), null));
     }
 
+    /**
+     * Ask the sandbox to return money. Provisional by design: returns {@code PENDING} with the
+     * gateway's refund id, then delivers a signed {@code refund.succeeded} webhook through the
+     * front door — and only that webhook promotes the refund to {@code SUCCEEDED} (see
+     * {@code PaymentWriter.markRefundReceived}). A synchronous "succeeded" answer here would be
+     * the old fake-provider shape the checkout path deliberately unlearned.
+     *
+     * <p>No separate sandbox refund ledger is kept: unlike payments, refunds have no
+     * poll-for-status port method, so nothing would ever read such a table. The record of the
+     * refund is the {@code refunds} row tx 2 writes; the webhook (or its redelivery) is the
+     * confirmation. A failed delivery is exactly the network partition the payment path already
+     * models — loud log, no throw, the refund simply stays PENDING.
+     */
     @Override
     public RefundResult refund(GatewayRefundRequest request) {
         simulateLatency();
-        log.info("SANDBOX refund gatewayPaymentId={} amount={} {} reason={}",
-                request.gatewayPaymentId(), request.amount(), request.currency(), request.reason());
-        // Confirmed immediately: this gateway is the one place we can be sure, and it keeps the
-        // compensation demo (paid-after-expiry -> auto-refund) observable without a webhook round-trip.
-        return new RefundResult(RefundStatus.SUCCEEDED, "sbx_ref_" + UUID.randomUUID(), null);
+        String refundId = "sbx_ref_" + UUID.randomUUID();
+        log.info("SANDBOX refund accepted gatewayPaymentId={} amount={} {} reason={} refundId={}",
+                request.gatewayPaymentId(), request.amount(), request.currency(), request.reason(),
+                refundId);
+        String payload = refundPayload(request.gatewayPaymentId(), refundId);
+        webhookClient.deliver("sandbox", payload, sign(payload),
+                SandboxCheckoutController.SIGNATURE_HEADER);
+        return new RefundResult(RefundStatus.PENDING, refundId, null);
+    }
+
+    /** The signed body the confirming refund webhook carries — also what tests feed back manually. */
+    String refundPayload(String gatewayPaymentId, String refundId) {
+        try {
+            Map<String, Object> payload = new java.util.LinkedHashMap<>();
+            payload.put("id", "evt_" + UUID.randomUUID());
+            payload.put("type", "refund.succeeded");
+            payload.put("paymentId", gatewayPaymentId);
+            payload.put("refundId", refundId);
+            return objectMapper.writeValueAsString(payload);
+        } catch (Exception e) {
+            throw new GatewayException(type(), "could not build refund webhook payload", e);
+        }
     }
 
     /**
@@ -142,11 +197,26 @@ public class SandboxGateway implements PaymentGateway {
         try {
             JsonNode root = objectMapper.readTree(rawPayload);
             String rawType = root.path("type").asText(null);
+            String eventId = root.path("id").asText(null);
+            String sessionId = root.path("sessionId").asText(null);
+            String paymentId = root.path("paymentId").asText(null);
+            // The refund vocabulary shares the pipe, the evidence store, and the dedupe — only the
+            // terminal handler differs (the refund ledger, correlated by refund id).
+            if ("refund.succeeded".equals(rawType)) {
+                return new GatewayEvent(eventId, rawType, sessionId, paymentId,
+                        null, null, GatewayEventKind.REFUND,
+                        RefundStatus.SUCCEEDED, root.path("refundId").asText(null));
+            }
+            if ("refund.failed".equals(rawType)) {
+                return new GatewayEvent(eventId, rawType, sessionId, paymentId,
+                        null, null, GatewayEventKind.REFUND,
+                        RefundStatus.FAILED, root.path("refundId").asText(null));
+            }
             return new GatewayEvent(
-                    root.path("id").asText(null),
+                    eventId,
                     rawType,
-                    root.path("sessionId").asText(null),
-                    root.path("paymentId").asText(null),
+                    sessionId,
+                    paymentId,
                     normalize(rawType),
                     root.path("failureReason").asText(null));
         } catch (Exception e) {
@@ -182,6 +252,13 @@ public class SandboxGateway implements PaymentGateway {
     /** Whether a checkout at this gateway should succeed, per the configured failure rate. */
     public boolean shouldSucceed() {
         return draw() >= props.failureRate();
+    }
+
+    private static String firstNonBlank(String primary, String fallback) {
+        if (primary != null && !primary.isBlank()) {
+            return primary;
+        }
+        return fallback;
     }
 
     private double draw() {

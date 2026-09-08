@@ -3,6 +3,8 @@ package com.gr74.payment.gateway;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import static org.mockito.Mockito.mock;
+
 import java.time.Duration;
 import java.util.Map;
 import java.util.Set;
@@ -15,6 +17,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gr74.payment.config.SandboxGatewayProps;
 import com.gr74.payment.gateway.sandbox.SandboxGateway;
 import com.gr74.payment.model.PaymentAttemptStatus;
+import com.gr74.payment.model.RefundStatus;
+import com.gr74.payment.repository.SandboxChargeRepository;
 
 /**
  * Webhook signature verification and status normalization.
@@ -36,7 +40,10 @@ class SandboxGatewayWebhookTest {
         gateway = new SandboxGateway(
                 new SandboxGatewayProps(Set.of("EGP", "USD"), 0.0, 0.0, 0L,
                         Duration.ofMinutes(10), "http://localhost/checkout", SECRET),
-                new ObjectMapper());
+                new ObjectMapper(),
+                // fetchStatus's ledger is irrelevant here — signature and vocabulary are.
+                mock(SandboxChargeRepository.class),
+                mock(com.gr74.payment.gateway.sandbox.SandboxWebhookClient.class));
     }
 
     private Map<String, String> signed(String payload) {
@@ -112,6 +119,28 @@ class SandboxGatewayWebhookTest {
 
         assertThat(event.status()).isNull();
         assertThat(event.isActionable()).isFalse();
+    }
+
+    @Test
+    @DisplayName("refund.succeeded parses as a REFUND event carrying the gateway refund id")
+    void refundSucceededIsARefundEvent() {
+        GatewayEvent event = parse("""
+                {"id":"evt_r1","type":"refund.succeeded","sessionId":"s1","paymentId":"pay_1","refundId":"sbx_ref_1"}""");
+
+        assertThat(event.isRefund()).isTrue();
+        assertThat(event.isActionable()).isFalse();
+        assertThat(event.refundStatus()).isEqualTo(RefundStatus.SUCCEEDED);
+        assertThat(event.gatewayRefundId()).isEqualTo("sbx_ref_1");
+    }
+
+    @Test
+    @DisplayName("refund.failed parses as a REFUND event")
+    void refundFailedIsARefundEvent() {
+        GatewayEvent event = parse("""
+                {"id":"evt_r2","type":"refund.failed","sessionId":"s1","paymentId":"pay_1","refundId":"sbx_ref_2"}""");
+
+        assertThat(event.isRefund()).isTrue();
+        assertThat(event.refundStatus()).isEqualTo(RefundStatus.FAILED);
     }
 
     private PaymentAttemptStatus parseType(String type) {

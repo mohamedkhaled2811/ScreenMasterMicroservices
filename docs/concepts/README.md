@@ -36,6 +36,7 @@ Each concept file follows the same shape so they're predictable:
 | [cqrs-read-model.md](cqrs-read-model.md) | Local event-fed replica of another service's data, eventual consistency, lazy backfill, the ordering guard — Booking's movie-title cache |
 | [saga-pattern.md](saga-pattern.md) | Local transactions + compensation, choreography vs orchestration, the booking saga |
 | [transactional-outbox.md](transactional-outbox.md) | Dual-write problem, outbox table, relay, at-least-once delivery |
+| [pessimistic-locking.md](pessimistic-locking.md) | `SELECT ... FOR UPDATE`, check-then-insert without races, never hold a lock across I/O |
 | [idempotent-consumer.md](idempotent-consumer.md) | Dedupe by event id, exactly-once *effect* |
 | [payment-gateway-integration.md](payment-gateway-integration.md) | Hosted checkout sessions vs charges, Payment vs PaymentAttempt, the gateway port + registry, webhook verification/storage/idempotency, money in minor units, refunds, reconciliation |
 | [api-gateway-and-bff.md](api-gateway-and-bff.md) | Single front door, routing, edge auth, BFF variant |

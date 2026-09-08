@@ -21,6 +21,7 @@ import com.gr74.booking.config.JpaAuditingConfig;
 import com.gr74.booking.model.Booking;
 import com.gr74.booking.model.BookingSeat;
 import com.gr74.booking.model.BookingStatus;
+import com.gr74.booking.model.PaymentStatus;
 
 /**
  * Persistence slice for {@link BookingRepository} on H2. Proves the two queries the read + create paths
@@ -103,5 +104,69 @@ class BookingRepositoryTest {
         // The domain constructor always sets PENDING; stamp the desired status for these fixtures.
         ReflectionTestUtils.setField(booking, "status", status);
         return booking;
+    }
+
+    // ===== Step 3.3/3.4 conditional updates: one statement, guards in the WHERE =====
+
+    @Test
+    void confirmMatchesOnlyPendingWithLiveHold() {
+        Booking live = em.persist(booking("BK-CU-LIVE01", USER_A, SHOWTIME, BookingStatus.PENDING));
+        Booking lapsed = em.persist(booking("BK-CU-LAPSE01", USER_A, SHOWTIME, BookingStatus.PENDING));
+        ReflectionTestUtils.setField(lapsed, "expiresAt", EXPIRES.minusSeconds(3600));
+        Booking already = em.persist(booking("BK-CU-DONE01", USER_A, SHOWTIME, BookingStatus.CONFIRMED));
+        em.flush();
+
+        Instant now = Instant.parse("2026-07-08T12:00:00Z"); // 15 min before EXPIRES
+        int liveRows = bookingRepository.confirmIfStillPending(
+                live.getId(), now, BookingStatus.PENDING, BookingStatus.CONFIRMED, PaymentStatus.PAID);
+        int lapsedRows = bookingRepository.confirmIfStillPending(
+                lapsed.getId(), now, BookingStatus.PENDING, BookingStatus.CONFIRMED, PaymentStatus.PAID);
+        int alreadyRows = bookingRepository.confirmIfStillPending(
+                already.getId(), now, BookingStatus.PENDING, BookingStatus.CONFIRMED, PaymentStatus.PAID);
+
+        assertThat(liveRows).isEqualTo(1);
+        assertThat(lapsedRows).isZero();
+        assertThat(alreadyRows).isZero();
+        em.clear();
+        Booking reloaded = bookingRepository.findById(live.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(BookingStatus.CONFIRMED);
+        assertThat(reloaded.getPaymentStatus()).isEqualTo(PaymentStatus.PAID);
+    }
+
+    @Test
+    void expireAndMirrorAreGuardedTheSameWay() {
+        Booking pending = em.persist(booking("BK-CU-EXP01", USER_A, SHOWTIME, BookingStatus.PENDING));
+        Booking confirmed = em.persist(booking("BK-CU-EXP02", USER_A, SHOWTIME, BookingStatus.CONFIRMED));
+        em.flush();
+
+        assertThat(bookingRepository.expireIfStillPending(
+                pending.getId(), BookingStatus.PENDING, BookingStatus.EXPIRED)).isEqualTo(1);
+        // Second run is a no-op — the terminal-state guard makes re-runs safe.
+        assertThat(bookingRepository.expireIfStillPending(
+                pending.getId(), BookingStatus.PENDING, BookingStatus.EXPIRED)).isZero();
+        assertThat(bookingRepository.expireIfStillPending(
+                confirmed.getId(), BookingStatus.PENDING, BookingStatus.EXPIRED)).isZero();
+
+        assertThat(bookingRepository.mirrorPaymentFailure(
+                pending.getId(), BookingStatus.PENDING, PaymentStatus.FAILED)).isZero(); // now EXPIRED
+        assertThat(bookingRepository.mirrorPaymentFailure(
+                confirmed.getId(), BookingStatus.PENDING, PaymentStatus.FAILED)).isZero(); // never PENDING
+    }
+
+    @Test
+    void expiryFinderReturnsOnlyPendingPastTheCutoff() {
+        Booking lapsedPending =
+                em.persist(booking("BK-CU-FND01", USER_A, SHOWTIME, BookingStatus.PENDING));
+        ReflectionTestUtils.setField(lapsedPending, "expiresAt", EXPIRES.minusSeconds(3600));
+        em.persist(booking("BK-CU-FND02", USER_A, SHOWTIME, BookingStatus.PENDING)); // live hold
+        Booking lapsedConfirmed =
+                em.persist(booking("BK-CU-FND03", USER_A, SHOWTIME, BookingStatus.CONFIRMED));
+        ReflectionTestUtils.setField(lapsedConfirmed, "expiresAt", EXPIRES.minusSeconds(3600));
+        em.flush();
+
+        var found = bookingRepository.findByStatusAndExpiresAtBefore(
+                BookingStatus.PENDING, Instant.parse("2026-07-08T12:00:00Z"));
+
+        assertThat(found).extracting(Booking::getBookingReference).containsExactly("BK-CU-FND01");
     }
 }

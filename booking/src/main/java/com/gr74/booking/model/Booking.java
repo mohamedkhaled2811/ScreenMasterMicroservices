@@ -76,6 +76,15 @@ public class Booking {
     @Column(nullable = false, length = 20)
     private BookingStatus status;
 
+    /**
+     * Mirror of Payment's answer for this booking — <b>displayed, never a decision input</b>.
+     *
+     * <p>Nothing is ever decided from this field: the seat guard looks at {@code status} only, and
+     * the saga's confirm/mirror paths write it as a side effect, never read it as a condition. A
+     * booking can sit at {@code PENDING}/{@code FAILED} while the user retries, and a late failure
+     * arriving after {@code PAID} is dropped rather than mirrored. Kept so "my bookings" can show
+     * "last attempt failed" without calling Payment.
+     */
     @Enumerated(EnumType.STRING) // never ordinal
     @Column(name = "payment_status", nullable = false, length = 20)
     private PaymentStatus paymentStatus;
@@ -99,7 +108,14 @@ public class Booking {
 
     /**
      * The reserved seats. Cascade + orphan-removal so a booking owns its line items: persisting the
-     * booking persists its seats, and clearing the list deletes them (used by the Phase-3 compensation).
+     * booking persists its seats.
+     *
+     * <p><b>Never cleared as compensation.</b> An earlier draft of this comment anticipated
+     * {@code seats.clear()} when a hold lapsed — that is the wrong move: the double-booking guard
+     * ({@code findSeatIdsHeldForShowtime}) is status-based, so flipping the booking to
+     * {@code EXPIRED} already releases the seats to every future booking check, and clearing the
+     * rows would buy nothing while destroying the audit trail of who held A-7 and lost it. The
+     * rows stay; the status flip is the release.
      */
     @OneToMany(mappedBy = "booking", cascade = CascadeType.ALL, orphanRemoval = true)
     private final List<BookingSeat> seats = new ArrayList<>();

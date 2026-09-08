@@ -2,6 +2,7 @@ package com.gr74.booking;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Booking service — the core of the system (it absorbs Theater + Scheduling). Owns showtimes,
@@ -14,8 +15,11 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  *
  * <p>Real tables and endpoints arrive in Phase 3; right now the app boots against an empty
  * (Liquibase-tracked) schema and exposes only {@code /actuator/health}.
+ *
+ * <p>{@code @EnableScheduling} drives the hold-expiry sweeper (BUILD_PLAN 3.4).
  */
 @SpringBootApplication
+@EnableScheduling
 public class BookingApplication {
 
     public static void main(String[] args) {

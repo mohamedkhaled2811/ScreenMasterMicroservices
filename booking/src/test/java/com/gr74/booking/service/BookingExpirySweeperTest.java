@@ -22,6 +22,8 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.gr74.booking.config.JpaAuditingConfig;
 import com.gr74.booking.messaging.BookingConfirmationRejected;
@@ -50,7 +52,8 @@ import jakarta.persistence.EntityManager;
  * </ol>
  */
 @DataJpaTest
-@Import({BookingExpirySweeper.class, BookingConfirmer.class, JpaAuditingConfig.class})
+@Import({BookingExpirySweeper.class, BookingExpirer.class, BookingConfirmer.class,
+        JpaAuditingConfig.class})
 @RecordApplicationEvents
 class BookingExpirySweeperTest {
 
@@ -70,6 +73,9 @@ class BookingExpirySweeperTest {
     private BookingExpirySweeper sweeper;
 
     @Autowired
+    private BookingExpirer expirer;
+
+    @Autowired
     private BookingConfirmer confirmer;
 
     @Autowired
@@ -85,7 +91,7 @@ class BookingExpirySweeperTest {
     void lapsedHoldExpiresSeatsFreedButRowsKept() {
         Booking booking = persist("BK-SWEEP0001", BookingStatus.PENDING, NOW.minusSeconds(60), 10L);
 
-        int expired = sweeper.expireDueBookings(NOW);
+        int expired = expirer.expireDueBookings(NOW);
 
         assertThat(expired).isEqualTo(1);
         assertThat(bookings.findById(booking.getId()).orElseThrow().getStatus())
@@ -105,7 +111,7 @@ class BookingExpirySweeperTest {
         Booking live = persist("BK-SWEEP0002", BookingStatus.PENDING, NOW.plusSeconds(60), 11L);
         Booking confirmed = persist("BK-SWEEP0003", BookingStatus.CONFIRMED, NOW.minusSeconds(3600), 12L);
 
-        assertThat(sweeper.expireDueBookings(NOW)).isZero();
+        assertThat(expirer.expireDueBookings(NOW)).isZero();
 
         assertThat(bookings.findById(live.getId()).orElseThrow().getStatus())
                 .isEqualTo(BookingStatus.PENDING);
@@ -122,7 +128,7 @@ class BookingExpirySweeperTest {
 
         assertThat(confirmer.confirmFromPayment(succeeded(booking.getId(), 600L)))
                 .isEqualTo(ConfirmOutcome.CONFIRMED);
-        assertThat(sweeper.expireDueBookings(NOW)).isZero();
+        assertThat(expirer.expireDueBookings(NOW)).isZero();
 
         assertThat(bookings.findById(booking.getId()).orElseThrow().getStatus())
                 .isEqualTo(BookingStatus.CONFIRMED);
@@ -132,7 +138,7 @@ class BookingExpirySweeperTest {
     void sweeperFirstThenLatePaymentYieldsRejectionForAutoRefund() {
         Booking booking = persist("BK-RACE-00002", BookingStatus.PENDING, NOW.minusSeconds(1), 14L);
 
-        assertThat(sweeper.expireDueBookings(NOW)).isEqualTo(1);
+        assertThat(expirer.expireDueBookings(NOW)).isEqualTo(1);
         assertThat(confirmer.confirmFromPayment(succeeded(booking.getId(), 601L)))
                 .isEqualTo(ConfirmOutcome.REJECTED);
 
@@ -143,11 +149,37 @@ class BookingExpirySweeperTest {
                 .isEqualTo(601L);
     }
 
+    /**
+     * The regression guard for the self-invocation bug.
+     *
+     * <p>{@code @Transactional(NOT_SUPPORTED)} is the whole point: {@code @DataJpaTest} normally
+     * wraps each test in a transaction, which would hand {@code tick()} the very transaction
+     * production lacks — so a test without this annotation passes against the broken code and
+     * proves nothing. Suspending it reproduces the scheduler's real conditions, where the
+     * {@code @Modifying} update must find a transaction opened by {@link BookingExpirer}'s own
+     * proxy or throw.
+     *
+     * <p>Consequence: this write really commits, so the row is cleaned up explicitly rather than
+     * rolled back with the test.
+     */
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void tickOnTheProxiedBeanActuallyExpiresLapsedHolds() {
+        Booking booking = persist("BK-SWEEP0004", BookingStatus.PENDING, NOW.minusSeconds(60), 15L);
+        try {
+            sweeper.tick();
+
+            assertThat(bookings.findById(booking.getId()).orElseThrow().getStatus())
+                    .isEqualTo(BookingStatus.EXPIRED);
+        } finally {
+            bookings.deleteById(booking.getId());
+        }
+    }
+
     @Test
     void tickCatchesRepositoryFailureInsteadOfKillingTheScheduler() {
-        BookingRepository failing = mock(BookingRepository.class);
-        given(failing.findByStatusAndExpiresAtBefore(any(), any()))
-                .willThrow(new RuntimeException("db down"));
+        BookingExpirer failing = mock(BookingExpirer.class);
+        given(failing.expireDueBookings(any())).willThrow(new RuntimeException("db down"));
         BookingExpirySweeper fragile = new BookingExpirySweeper(failing, Clock.fixed(NOW, ZoneOffset.UTC));
 
         assertThatNoException().isThrownBy(fragile::tick);

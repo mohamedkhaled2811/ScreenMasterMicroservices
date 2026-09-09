@@ -43,6 +43,10 @@ import static java.util.Collections.list;
  * authenticated by <b>signature verification</b> instead — a different mechanism proving the same
  * thing (Phase 7 permits the path for exactly this reason).
  *
+ * <p>The signature itself does not always arrive in a header: Stripe and sandbox sign in one,
+ * while Paymob appends {@code ?hmac=<sha512-hex>} to the callback URL. Both channels are folded
+ * into a single lower-cased map by {@link #signalsFrom}, so adapters read one place.
+ *
  * <p>Errors are thrown, never returned: {@code GlobalExceptionHandler} renders every one as an RFC
  * 9457 {@code ProblemDetail} with a stable {@code code}.
  */
@@ -72,8 +76,8 @@ public class WebhookController {
                     Verifies the gateway signature over the raw body, stores the delivery as evidence, \
                     dedupes on UNIQUE (gateway, event_id), and applies the outcome. A redelivered event \
                     changes nothing; an unknown session or uninteresting type is stored and answered 200. \
-                    Authenticated by HMAC signature (x-sandbox-signature / stripe-signature / hmac) — \
-                    no JWT by design.""")
+                    Authenticated by HMAC signature — x-sandbox-signature / stripe-signature headers, \
+                    or Paymob's ?hmac= query parameter — no JWT by design.""")
     @ApiResponses({
             @ApiResponse(responseCode = "200",
                     description = "Processed, duplicate, unknown session, or uninteresting event type.",
@@ -92,9 +96,10 @@ public class WebhookController {
             HttpServletRequest request) {
 
         PaymentGatewayType type = parseGateway(gateway);
-        // Adapters look up lower-case header names; servlet containers preserve the sent casing, so
-        // normalize here once rather than in every adapter.
-        Map<String, String> headers = lowerCasedHeaders(request);
+        // Signature channel differs per gateway (header for Stripe/sandbox, query string for
+        // Paymob) and containers preserve the sent casing — normalize both into one lower-cased
+        // map here rather than in every adapter.
+        Map<String, String> headers = signalsFrom(request);
 
         WebhookResult result = processor.process(type, rawBody, headers);
         if (result.outcome() == WebhookResult.Outcome.BAD_SIGNATURE) {
@@ -119,12 +124,33 @@ public class WebhookController {
         }
     }
 
-    private static Map<String, String> lowerCasedHeaders(HttpServletRequest request) {
-        Map<String, String> headers = new TreeMap<>();
+    /**
+     * Every signature-bearing signal on the delivery, keyed lower-case: headers first, then query
+     * parameters.
+     *
+     * <p>Gateways disagree on the channel. Stripe and sandbox sign in a header; <b>Paymob sends no
+     * signature header at all</b> — its HMAC rides the callback query string
+     * ({@code ?hmac=<sha512-hex>}). Merging both here once means no adapter has to know which
+     * channel its gateway chose, and the port keeps its single map.
+     *
+     * <p>Headers win on collision ({@code putIfAbsent} after the header pass): a query parameter
+     * must never be able to shadow a real signature header, or appending
+     * {@code ?stripe-signature=...} to a callback URL would override the genuine one.
+     *
+     * <p>Reading {@code getParameterMap()} is safe on this POST: the endpoint consumes JSON and
+     * binds the body as {@code byte[]}, so the container never form-parses the body into it.
+     */
+    private static Map<String, String> signalsFrom(HttpServletRequest request) {
+        Map<String, String> signals = new TreeMap<>();
         for (String name : list(request.getHeaderNames())) {
-            headers.put(name.toLowerCase(Locale.ROOT), request.getHeader(name));
+            signals.put(name.toLowerCase(Locale.ROOT), request.getHeader(name));
         }
-        return headers;
+        request.getParameterMap().forEach((name, values) -> {
+            if (values.length > 0) {
+                signals.putIfAbsent(name.toLowerCase(Locale.ROOT), values[0]);
+            }
+        });
+        return signals;
     }
 
     /** What a 200 to a gateway looks like — a small ack, never an entity. */

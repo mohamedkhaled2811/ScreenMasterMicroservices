@@ -53,7 +53,8 @@ import lombok.extern.slf4j.Slf4j;
  *       {@link #createSession}.</li>
  *   <li><b>Integer piastres</b> ({@code 30050} for 300.50 EGP) via the shared {@link MoneyConverter}.</li>
  *   <li><b>HMAC over a fixed, concatenated field list</b> in a documented order — not over the raw
- *       body like Stripe. Getting this wrong is the classic Paymob integration bug.</li>
+ *       body like Stripe — and delivered as a <b>query parameter</b> ({@code ?hmac=...}), not a
+ *       header. Getting either wrong is the classic Paymob integration bug.</li>
  *   <li><b>No native idempotency key</b>, so our key travels as the order's
  *       {@code merchant_order_id}, which Paymob rejects as a duplicate — the same protection by a
  *       different mechanism.</li>
@@ -200,6 +201,11 @@ public class PaymobGateway implements PaymentGateway {
      * <p>Unlike Stripe, Paymob does not sign the raw body: it concatenates a fixed list of fields in
      * a documented order and HMACs <em>that</em>. We still take the raw body (the port's contract, and
      * what gets stored), but we parse it to rebuild the signed string.
+     *
+     * <p><b>Paymob also sends the signature on a different channel:</b> there is no {@code hmac}
+     * header — it is appended to the callback URL as {@code ?hmac=<sha512-hex>}. The controller
+     * folds query parameters into the same lower-cased map as headers, so the lookup below is
+     * channel-agnostic. Reading headers alone is what silently rejects every genuine delivery.
      */
     @Override
     public GatewayEvent parseAndVerifyWebhook(String rawPayload, Map<String, String> headers) {

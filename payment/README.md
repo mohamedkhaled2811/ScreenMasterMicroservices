@@ -179,6 +179,8 @@ Running blind, the 60-second sweeper would close attempts long before the 5-minu
 
 ## Integration with Booking
 
+![Payment cross-service reads](docs/diagrams/process-payment-integration.svg)
+
 Payment and Booking never share a transaction, a database, or a foreign key. They meet in exactly three places.
 
 ### 1. One synchronous call, out — `GET /bookings/{id}/payability`
@@ -211,6 +213,8 @@ There is nothing to roll back — **the customer has already been charged.** So 
 That derived key is what makes a redelivered rejection harmless without a `processed_events` table anywhere — the `UNIQUE idempotency_key` constraint **is** the dedupe.
 
 A **declined** payment is the easy case by comparison: seats stay held, the user retries until the hold lapses, and nothing needs compensating because no money moved.
+
+📄 Full walkthrough of the three crossings: [`docs/diagrams/process-payment-integration.md`](docs/diagrams/process-payment-integration.md)
 
 📄 The full choreography, from both sides: [`../booking/docs/diagrams/process-booking-payment-saga.md`](../booking/docs/diagrams/process-booking-payment-saga.md)
 
@@ -302,6 +306,7 @@ Secrets are never committed. Leaving a gateway's credentials blank removes it fr
 |---|---|
 | Why the service is shaped this way | [`docs/diagrams/architecture-payment-service.md`](docs/diagrams/architecture-payment-service.md) |
 | How the tables fit together | [`docs/diagrams/payment-db-schema.md`](docs/diagrams/payment-db-schema.md) |
+| How the cross-service reads work | [`docs/diagrams/process-payment-integration.md`](docs/diagrams/process-payment-integration.md) |
 | The booking↔payment choreography | [`../booking/docs/diagrams/process-booking-payment-saga.md`](../booking/docs/diagrams/process-booking-payment-saga.md) |
 | Gateways, sessions, webhooks, signatures | [`../docs/concepts/payment-gateway-integration.md`](../docs/concepts/payment-gateway-integration.md) |
 | The outbox, in depth | [`../docs/concepts/transactional-outbox.md`](../docs/concepts/transactional-outbox.md) |

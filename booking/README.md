@@ -4,7 +4,7 @@ The reservation core of ScreenMaster. Booking absorbed **three bounded contexts*
 
 It owns `booking-db`, holds **no foreign key into Catalog**, and reaches the rest of the system two ways: synchronously over HTTP (`lb://catalog`, Eureka-resolved) and asynchronously over RabbitMQ.
 
-| | |
+| Facet | Value |
 |---|---|
 | **Port** | `8082` |
 | **Database** | `booking-db` (PostgreSQL, Liquibase-migrated, `ddl-auto=validate`) |

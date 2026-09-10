@@ -4,7 +4,7 @@ The money boundary of ScreenMaster. Payment owns one thing the rest of the syste
 
 It owns `payment-db`, holds **no foreign key into Booking**, and reaches the rest of the system three ways: synchronously over HTTP (`lb://booking`, Eureka-resolved), asynchronously over RabbitMQ, and — uniquely in this system — **inbound from the public internet**, via gateway webhooks authenticated by HMAC signature rather than by JWT.
 
-| | |
+| Facet | Value |
 |---|---|
 | **Port** | `8083` |
 | **Database** | `payment-db` — the Compose host; database `payment` (PostgreSQL, Liquibase-migrated, `ddl-auto=validate`) |

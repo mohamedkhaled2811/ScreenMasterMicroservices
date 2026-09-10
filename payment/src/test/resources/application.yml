@@ -17,3 +17,36 @@ spring:
 eureka:
   client:
     enabled: false
+
+# Gateway config for tests. Stripe/Paymob credentials are deliberately ABSENT so their adapters are
+# conditioned out of the context — the hermetic suite must never be able to reach a real gateway.
+# SANDBOX is always registered (no external credentials), which is what the tests exercise.
+payment:
+  public-url: http://localhost:8080
+  # The relay tick is silenced in tests (it would fire every 2s against H2, whose dialect lacks
+  # SKIP LOCKED): WebhookProcessorTest proves the row shares the business write's fate, and
+  # OutboxRelayTest drives drain() directly against a mocked claim.
+  outbox:
+    relay-interval-millis: 3600000
+    relay-batch-size: 50
+  # The sweeps never fire mid-suite (H2 + frozen-clock tests drive them directly instead).
+  expiry:
+    sweep-interval-millis: 3600000
+  reconciliation:
+    sweep-interval-millis: 3600000
+    batch-size: 100
+    stale-after: PT10M
+  # No broker in the hermetic suite: the @RabbitListener containers stay stopped
+  # (BookingConfirmationRejectedListener is driven directly in RefundServiceTest).
+  amqp:
+    listener:
+      auto-startup: false
+  gateway:
+    sandbox:
+      supported-currencies: EGP,USD
+      failure-rate: 0.0
+      unavailable-rate: 0.0
+      latency-millis: 0        # no artificial sleep in tests
+      session-ttl: PT10M
+      checkout-base-url: http://localhost:8080/api/payments/sandbox/checkout
+      webhook-secret: test-webhook-secret

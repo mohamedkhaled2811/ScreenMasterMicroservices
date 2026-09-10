@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Booking · Payment Saga</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #f5f5f5;
+      --color-ink:     #2d3142;
+      --color-muted:   #4f5d75;
+      --color-accent:  #eb6c36;
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1280px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 1100px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Process · ScreenMaster Booking × Payment</p>
+    <h1>No distributed transaction — a saga with compensation</h1>
+
+    <svg viewBox="0 0 1240 1020" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="booking-saga-title booking-saga-desc">
+      <title id="booking-saga-title">Booking · Payment Saga</title>
+      <desc id="booking-saga-desc">Swimlane diagram of the choreographed saga between Booking and Payment: a PENDING booking with a 15-minute seat hold, one synchronous payability check, gateway checkout, a transactional-outbox PaymentSucceeded event, a conditional-UPDATE confirm that wins the race with expiry, and — when the money arrives after the hold died — an automatic refund as compensation, not a rollback.</desc>
+      <defs>
+        <pattern id="booking-saga-dots" width="22" height="22" patternUnits="userSpaceOnUse">
+          <circle cx="11" cy="11" r="0.8" fill="rgba(45,49,66,0.10)"/>
+        </pattern>
+        <marker id="booking-saga-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="booking-saga-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
+        <marker id="booking-saga-arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+        <marker id="booking-saga-arrow-sm" markerWidth="6" markerHeight="5" refX="5" refY="2.5" orient="auto"><polygon points="0 0, 6 2.5, 0 5" fill="#4f5d75"/></marker>
+      </defs>
+
+      <!-- ============ background ============ -->
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+      <rect width="100%" height="100%" fill="url(#booking-saga-dots)" opacity="0.55"/>
+
+      <!-- ============ zones (drawn first) ============ -->
+      <rect x="88" y="64" width="512" height="844" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <rect x="664" y="64" width="400" height="844" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+
+      <!-- service boundary: every dashed arrow crosses this line -->
+      <line x1="624" y1="64" x2="624" y2="908" stroke="rgba(45,49,66,0.20)" stroke-width="1"/>
+
+      <!-- zone labels -->
+      <text x="344" y="52" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">BOOKING</text>
+      <text x="864" y="52" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">PAYMENT</text>
+      <text x="1140" y="52" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">EDGE</text>
+
+      <!-- exchange badge on the boundary -->
+      <rect x="514" y="292" width="220" height="16" rx="2" fill="#f5f5f5" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="624" y="304" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">screenmaster-exchange · topic</text>
+
+      <!-- ============ step pills (left gutter) ============ -->
+      <rect x="16" y="112" width="24" height="24" rx="12" fill="rgba(45,49,66,0.12)"/>
+      <text x="28" y="129" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">1</text>
+      <text x="28" y="154" fill="#4f5d75" font-size="9" font-weight="500" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">HOLD</text>
+      <rect x="16" y="228" width="24" height="24" rx="12" fill="rgba(45,49,66,0.12)"/>
+      <text x="28" y="245" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">2</text>
+      <text x="28" y="270" fill="#4f5d75" font-size="9" font-weight="500" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">SYNC</text>
+      <rect x="16" y="344" width="24" height="24" rx="12" fill="rgba(45,49,66,0.12)"/>
+      <text x="28" y="361" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">3</text>
+      <text x="28" y="386" fill="#4f5d75" font-size="9" font-weight="500" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">PAY</text>
+      <rect x="16" y="468" width="24" height="24" rx="12" fill="rgba(45,49,66,0.12)"/>
+      <text x="28" y="485" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">4</text>
+      <text x="28" y="510" fill="#4f5d75" font-size="9" font-weight="500" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">HOOK</text>
+      <rect x="16" y="584" width="24" height="24" rx="12" fill="rgba(45,49,66,0.12)"/>
+      <text x="28" y="601" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">5</text>
+      <text x="28" y="626" fill="#4f5d75" font-size="9" font-weight="500" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">RELAY</text>
+      <rect x="16" y="712" width="24" height="24" rx="12" fill="rgba(45,49,66,0.12)"/>
+      <text x="28" y="729" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">6</text>
+      <text x="28" y="754" fill="#4f5d75" font-size="9" font-weight="500" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">CONFIRM</text>
+      <rect x="16" y="848" width="24" height="24" rx="12" fill="rgba(235,108,54,0.20)"/>
+      <text x="28" y="865" fill="#eb6c36" font-size="11" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle">7</text>
+      <text x="28" y="890" fill="#eb6c36" font-size="9" font-weight="500" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">REFUND</text>
+
+      <!-- ============ connectors (drawn before nodes) ============ -->
+
+      <!-- sync payability call: payment -> booking (solid link-blue) -->
+      <line x1="704" y1="230" x2="548" y2="230" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#booking-saga-arrow-link)"/>
+      <rect x="559" y="211" width="130" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="624" y="220" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">GET /bookings/{id}/payability</text>
+      <!-- payability return: the sync response body, not an event (solid link-blue) -->
+      <line x1="544" y1="260" x2="700" y2="260" stroke="#2e5aa8" stroke-width="1" marker-end="url(#booking-saga-arrow-link)"/>
+      <rect x="583" y="241" width="82" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="624" y="250" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">BookingPayability</text>
+
+      <!-- checkout session: payment -> edge (solid link-blue) -->
+      <path d="M 1024,240 H 1132 Q 1140,240 1140,248 V 316" fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#booking-saga-arrow-link)"/>
+      <rect x="1040" y="221" width="76" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="1078" y="230" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">checkout session</text>
+
+      <!-- gateway callback: edge -> payment webhook (solid link-blue) -->
+      <path d="M 1080,356 H 872 Q 864,356 864,364 V 424" fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#booking-saga-arrow-link)"/>
+      <rect x="760" y="384" width="92" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="806" y="393" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">GATEWAY CALLBACK</text>
+
+      <!-- outbox row -> relay: same-column handoff, no label -->
+      <line x1="864" y1="536" x2="864" y2="556" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#booking-saga-arrow)"/>
+
+      <!-- PaymentSucceeded: payment -> booking (dashed, crosses boundary) -->
+      <path d="M 704,592 H 288 Q 280,592 280,600 V 652" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#booking-saga-arrow)"/>
+      <rect x="442" y="573" width="101" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="492" y="582" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">payment-succeeded-key</text>
+      <!-- PaymentFailed: payment -> booking (dashed, crosses boundary) -->
+      <path d="M 704,624 H 416 Q 408,624 408,632 V 652" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#booking-saga-arrow)"/>
+      <rect x="559" y="605" width="82" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="600" y="614" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">payment-failed-key</text>
+
+      <!-- BookingConfirmed: booking -> the exchange, which currently has no bound consumer -->
+      <path d="M 544,710 H 700" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#booking-saga-arrow)"/>
+      <rect x="556" y="692" width="108" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="610" y="701" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">booking-confirmed-key</text>
+      <rect x="704" y="682" width="176" height="56" rx="6" fill="#f5f5f5" stroke="rgba(45,49,66,0.25)" stroke-width="1" stroke-dasharray="4,3"/>
+      <text x="792" y="702" fill="#4f5d75" font-size="9" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">screenmaster-exchange</text>
+      <text x="792" y="717" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">announced to whoever binds</text>
+      <text x="792" y="730" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">no consumer bound yet</text>
+
+      <!-- meanwhile: the hold clock runs while payment works (no arrow — a state, not a step) -->
+      <text x="344" y="470" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">meanwhile: the 15-min hold clock runs — expiry races the confirm</text>
+
+      <!-- zero rows: confirmer -> compensation (accent solid) -->
+      <line x1="344" y1="768" x2="344" y2="812" stroke="#eb6c36" stroke-width="1.4" marker-end="url(#booking-saga-arrow-accent)"/>
+      <rect x="352" y="791" width="104" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="402" y="801" fill="#eb6c36" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">0 ROWS · HOLD DEAD</text>
+
+      <!-- compensation: booking -> payment (accent dashed, crosses boundary) -->
+      <line x1="544" y1="860" x2="700" y2="860" stroke="#eb6c36" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#booking-saga-arrow-accent)"/>
+      <rect x="595" y="841" width="58" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="624" y="850" fill="#eb6c36" font-size="8" font-weight="600" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">COMPENSATION</text>
+
+      <!-- floating region tag for the compensation row -->
+      <text x="150" y="801" fill="#eb6c36" font-size="7" font-family="'Geist Mono', monospace" letter-spacing="0.12em">COMPENSATING ACTION</text>
+
+      <!-- ============ nodes ============ -->
+
+      <!-- B1: create hold -->
+      <rect x="144" y="84" width="400" height="80" rx="6" fill="#f5f5f5"/>
+      <rect x="144" y="84" width="400" height="80" rx="6" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+      <rect x="152" y="92" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="166" y="101" fill="rgba(45,49,66,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">BKG</text>
+      <text x="344" y="124" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">POST /bookings</text>
+      <text x="344" y="142" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">BookingService.create → PENDING + 15-min hold</text>
+      <text x="344" y="156" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">expiresAt set · seats HELD, not sold</text>
+
+      <!-- B2: payability endpoint -->
+      <rect x="144" y="192" width="400" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="144" y="192" width="400" height="96" rx="6" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+      <rect x="152" y="200" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="166" y="209" fill="rgba(45,49,66,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">BKG</text>
+      <text x="344" y="228" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">GET /bookings/{id}/payability</text>
+      <text x="344" y="248" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">→ BookingPayability: facts, no judgement</text>
+      <text x="344" y="264" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">the ONLY sync hop in the saga</text>
+
+      <!-- P1: create payment + session -->
+      <rect x="704" y="192" width="320" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="704" y="192" width="320" height="96" rx="6" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+      <rect x="712" y="200" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="726" y="209" fill="rgba(45,49,66,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PAY</text>
+      <text x="864" y="228" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">POST /payments · PaymentService</text>
+      <text x="864" y="248" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">BookingClient checks payability first</text>
+      <text x="864" y="264" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">PaymentSessionFactory → GatewayRegistry</text>
+
+      <!-- E: user + gateway -->
+      <rect x="1080" y="316" width="120" height="80" rx="6" fill="#f5f5f5"/>
+      <rect x="1080" y="316" width="120" height="80" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <rect x="1088" y="324" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="1102" y="333" fill="rgba(45,49,66,0.60)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">EXT</text>
+      <text x="1140" y="360" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">user + gateway</text>
+      <text x="1140" y="378" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">pays at gateway</text>
+
+      <!-- P2: webhook + writer, one commit -->
+      <rect x="704" y="424" width="320" height="112" rx="6" fill="#f5f5f5"/>
+      <rect x="704" y="424" width="320" height="112" rx="6" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+      <rect x="712" y="432" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="726" y="441" fill="rgba(45,49,66,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PAY</text>
+      <text x="864" y="460" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">POST /payments/webhooks/{gateway}</text>
+      <text x="864" y="478" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">WebhookController → WebhookProcessor</text>
+      <text x="864" y="494" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">webhook_events UNIQUE (gateway, event_id)</text>
+      <text x="864" y="510" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">WebhookWriter: PAID + outbox, ONE COMMIT</text>
+      <text x="864" y="528" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.10em">TRANSACTIONAL OUTBOX</text>
+
+      <!-- P3: outbox relay -->
+      <rect x="704" y="556" width="320" height="80" rx="6" fill="#f5f5f5"/>
+      <rect x="704" y="556" width="320" height="80" rx="6" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+      <rect x="712" y="564" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="726" y="573" fill="rgba(45,49,66,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PAY</text>
+      <text x="864" y="596" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">OutboxRelay (@Scheduled)</text>
+      <text x="864" y="614" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">PUBLISH-THEN-MARK → at-least-once</text>
+      <text x="864" y="628" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">PaymentSucceeded · payment-succeeded-key</text>
+
+      <!-- B3: listener + confirmer, the guarded conditional update -->
+      <rect x="144" y="652" width="400" height="116" rx="6" fill="#f5f5f5"/>
+      <rect x="144" y="652" width="400" height="116" rx="6" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+      <rect x="152" y="660" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="166" y="669" fill="rgba(45,49,66,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">BKG</text>
+      <text x="344" y="688" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">PaymentEventListener → BookingConfirmer</text>
+      <text x="344" y="710" fill="#4f5d75" font-size="10" font-family="'Geist', sans-serif" text-anchor="middle">Paid. Are the seats still ours?</text>
+      <text x="344" y="733" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">UPDATE ... WHERE status=PENDING AND expiresAt &gt; now</text>
+      <text x="344" y="754" fill="#4f5d75" font-size="10" font-family="'Geist', sans-serif" text-anchor="middle">1 row → CONFIRMED · 0 rows → too late ↓</text>
+
+      <!-- B4: rejection publish (FOCAL) -->
+      <rect x="144" y="812" width="400" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="144" y="812" width="400" height="96" rx="6" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+      <rect x="152" y="820" width="28" height="12" rx="2" fill="transparent" stroke="rgba(235,108,54,0.40)" stroke-width="0.8"/>
+      <text x="166" y="829" fill="#eb6c36" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">BKG</text>
+      <text x="344" y="852" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">hold dead → BookingConfirmationRejected</text>
+      <text x="344" y="872" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">already charged — nothing left to roll back</text>
+      <text x="344" y="888" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">carries paymentId — refund needs NO lookup</text>
+
+      <!-- P4: auto-refund (FOCAL) -->
+      <rect x="704" y="812" width="320" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="704" y="812" width="320" height="96" rx="6" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+      <rect x="712" y="820" width="28" height="12" rx="2" fill="transparent" stroke="rgba(235,108,54,0.40)" stroke-width="0.8"/>
+      <text x="726" y="829" fill="#eb6c36" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PAY</text>
+      <text x="864" y="852" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">BookingConfirmationRejectedListener</text>
+      <text x="864" y="872" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">RefundService.requestRefund — FULL amount</text>
+      <text x="864" y="888" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">"reject-" + eventId · UNIQUE key = the dedupe</text>
+
+      <!-- ============ takeaway + legend ============ -->
+      <text x="620" y="930" fill="#2d3142" font-size="16" font-style="italic" font-family="'Instrument Serif', serif" text-anchor="middle">No distributed transaction — guarded steps plus events; the unhappy path is a refund, not a rollback.</text>
+
+      <line x1="88" y1="946" x2="1152" y2="946" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="88" y="966" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+
+      <line x1="180" y1="963" x2="216" y2="963" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#booking-saga-arrow-link)"/>
+      <text x="224" y="966" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">SYNC HTTP</text>
+
+      <line x1="340" y1="963" x2="376" y2="963" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#booking-saga-arrow)"/>
+      <text x="384" y="966" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">ASYNC EVENT · RABBITMQ</text>
+
+      <line x1="620" y1="963" x2="656" y2="963" stroke="#eb6c36" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#booking-saga-arrow-accent)"/>
+      <text x="664" y="966" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">COMPENSATION</text>
+
+      <rect x="180" y="978" width="16" height="12" rx="2" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+      <text x="204" y="988" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">COMPENSATION PATH — refund, not rollback</text>
+
+      <rect x="560" y="978" width="16" height="12" rx="2" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="584" y="988" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">SERVICE STEP</text>
+
+      <rect x="740" y="978" width="16" height="12" rx="2" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <text x="764" y="988" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">EXTERNAL EDGE</text>
+
+      <text x="88" y="1008" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" letter-spacing="0.06em">SOLID = synchronous HTTP · DASHED = asynchronous event · every event travels via screenmaster-exchange</text>
+    </svg>
+  </div>
+</body>
+</html>

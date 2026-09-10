@@ -8,6 +8,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.gr74.booking.dto.BookingPayabilityResponse;
 import com.gr74.booking.dto.BookingResponse;
 import com.gr74.booking.dto.CreateBookingRequest;
 import com.gr74.booking.dto.MyBookingDto;
@@ -108,6 +110,41 @@ public class BookingController {
         log.info("GET /bookings/my?source={} -> {} of {} booking(s) for userId={}",
                 titleSource, page.getNumberOfElements(), page.getTotalElements(), userId);
         return page;
+    }
+
+    /**
+     * The facts the Payment service needs before opening a checkout session.
+     *
+     * <p><b>Internal, service-to-service.</b> It exists so Payment never takes an amount from a client:
+     * Booking owns pricing, so Booking states the price. The endpoint reports facts (status, owner, hold
+     * deadline, amount, currency) and deliberately makes no payability <em>judgement</em> — those guards
+     * live in Payment, and splitting them across both services is how the two sets of rules would drift.
+     *
+     * <p>Note there is no {@code @CurrentUser} here: the caller is a service, not a person, and it is
+     * Payment that compares {@code userId} against its own request's user. Phase 7 locks this to a
+     * client-credentials token rather than leaving it open on the internal network.
+     */
+    @GetMapping("/{bookingId}/payability")
+    @Operation(summary = "Booking facts for the payment service (internal)",
+            description = """
+                    Returns the minimal slice the Payment service needs to decide whether a checkout \
+                    session may be opened: status, owner, seat-hold deadline, and the authoritative \
+                    amount + currency.
+
+                    The amount comes from here — never from the client — so a browser cannot name its own \
+                    price. This endpoint makes no judgement about payability; it reports facts and lets \
+                    Payment apply its guards.""")
+    @ApiResponse(responseCode = "200", description = "The booking's payability facts.",
+            content = @Content(schema = @Schema(implementation = BookingPayabilityResponse.class)))
+    @ApiResponse(responseCode = "404", description = "No such booking. code = BOOKING_NOT_FOUND.",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ApiError.class)))
+    public BookingPayabilityResponse payability(@PathVariable Long bookingId) {
+        BookingPayabilityResponse response =
+                BookingPayabilityResponse.from(bookingService.findForPayability(bookingId));
+        log.info("GET /bookings/{}/payability -> status={} expiresAt={} total={} {}",
+                bookingId, response.status(), response.expiresAt(),
+                response.totalAmount(), response.currency());
+        return response;
     }
 
     /** Reject a sort on a field outside the whitelist as a coded 400 (never a leaked 500). */

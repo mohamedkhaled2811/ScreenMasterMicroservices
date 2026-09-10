@@ -137,8 +137,7 @@ class BookingControllerTest {
 
     /** A persisted-looking booking with one seat; ids stamped via reflection (no real transaction). */
     private static Booking sampleBooking() {
-        Booking booking = new Booking("BK-ABCD1234", USER, 1L, 603L,
-                new BigDecimal("25.00"), Instant.parse("2026-07-08T12:15:00Z"));
+        Booking booking = new Booking("BK-ABCD1234", USER, 1L, 603L, new BigDecimal("25.00"), "EGP", Instant.parse("2026-07-08T12:15:00Z"));
         ReflectionTestUtils.setField(booking, "id", 100L);
         ReflectionTestUtils.setField(booking, "status", BookingStatus.PENDING);
         ReflectionTestUtils.setField(booking, "paymentStatus", PaymentStatus.PENDING);

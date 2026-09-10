@@ -1,5 +1,6 @@
 package com.gr74.booking.repository;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 
@@ -7,11 +8,13 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import com.gr74.booking.model.Booking;
 import com.gr74.booking.model.BookingStatus;
+import com.gr74.booking.model.PaymentStatus;
 
 /**
  * Spring Data repository for {@link Booking}.
@@ -52,4 +55,65 @@ public interface BookingRepository extends JpaRepository<Booking, Long>, JpaSpec
             @Param("showtimeId") Long showtimeId,
             @Param("seatIds") Collection<Long> seatIds,
             @Param("activeStatuses") Collection<BookingStatus> activeStatuses);
+
+    /**
+     * The saga's confirm — <b>one conditional UPDATE, never read-then-write</b> (BUILD_PLAN 3.3).
+     *
+     * <p>The race between this and the expiry sweeper is decided by the database, not by code
+     * order: a payment landing at 20:15:59.9 matches all three guards and flips the row, while the
+     * sweeper ticking at 20:16 finds no PENDING row and moves nothing. Enum values ride as
+     * parameters so the JPQL stays portable (runs on the H2 {@code @DataJpaTest} suite).
+     *
+     * @return 1 when the booking was still PENDING with a live hold (confirmed now), 0 when it was
+     *         already CONFIRMED/EXPIRED/CANCELLED or the hold had lapsed — the caller re-reads to
+     *         tell those apart
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("""
+           update Booking b
+              set b.status = :confirmed, b.paymentStatus = :paid
+            where b.id = :id and b.status = :pending and b.expiresAt > :now
+           """)
+    int confirmIfStillPending(@Param("id") Long id, @Param("now") Instant now,
+            @Param("pending") BookingStatus pending, @Param("confirmed") BookingStatus confirmed,
+            @Param("paid") PaymentStatus paid);
+
+    /**
+     * The sweeper's (and the confirmer's late-payment path's) expiry — same
+     * {@code status = PENDING} guard as the confirm, so a concurrent confirm wins: whichever
+     * statement matches first flips the row out of PENDING and the other updates zero rows.
+     *
+     * <p>Flipping the status <em>is</em> freeing the seats — {@code findSeatIdsHeldForShowtime}
+     * only counts PENDING/CONFIRMED, so EXPIRED releases them to every future booking check. The
+     * {@code booking_seats} rows are deliberately kept as the audit trail.
+     *
+     * @return 1 when a live PENDING row was expired, 0 when it was already gone
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("""
+           update Booking b
+              set b.status = :expired
+            where b.id = :id and b.status = :pending
+           """)
+    int expireIfStillPending(@Param("id") Long id,
+            @Param("pending") BookingStatus pending, @Param("expired") BookingStatus expired);
+
+    /**
+     * Mirror a gateway failure onto the read-model field — display only. Guarded to still-PENDING
+     * so a late failure can never overwrite a PAID (the out-of-order case: FAILED arriving after
+     * SUCCEEDED is dropped here, matching Payment's own terminal-state guard).
+     *
+     * @return 1 when the mirror landed, 0 when the booking had already left PENDING
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("""
+           update Booking b
+              set b.paymentStatus = :failed
+            where b.id = :id and b.status = :pending
+           """)
+    int mirrorPaymentFailure(@Param("id") Long id,
+            @Param("pending") BookingStatus pending, @Param("failed") PaymentStatus failed);
+
+    /** The expiry sweeper's input: holds of one status whose deadline has passed. */
+    List<Booking> findByStatusAndExpiresAtBefore(BookingStatus status, Instant before);
 }

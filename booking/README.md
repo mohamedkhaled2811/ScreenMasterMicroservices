@@ -4,7 +4,7 @@ The reservation core of ScreenMaster. Booking absorbed **three bounded contexts*
 
 It owns `booking-db`, holds **no foreign key into Catalog**, and reaches the rest of the system two ways: synchronously over HTTP (`lb://catalog`, Eureka-resolved) and asynchronously over RabbitMQ.
 
-| | |
+| Facet | Value |
 |---|---|
 | **Port** | `8082` |
 | **Database** | `booking-db` (PostgreSQL, Liquibase-migrated, `ddl-auto=validate`) |
@@ -29,7 +29,7 @@ The three contexts sit on top, each hanging off the tables it owns; the two edge
 5. **price derived server-side** — `showtime.basePrice × seatType.priceMultiplier`, frozen onto each line item; a client never names its own price
 6. persist as `PENDING` with a 15-minute hold (`expiresAt`)
 
-Payment and compensation are deliberately absent — that orchestration is the Phase-3 saga, which will *wrap* this create rather than replace it.
+Payment is deliberately absent from this path. The create ends at a held `PENDING` row and nothing else; confirmation arrives later, as an event — see [the saga](#saga--booking--payment).
 
 📄 Full walkthrough: [`docs/diagrams/architecture-booking-service.md`](docs/diagrams/architecture-booking-service.md)
 
@@ -83,17 +83,40 @@ Stop Catalog and call both back-to-back: that divergence is the whole lesson.
 
 📄 Full walkthrough: [`docs/diagrams/process-booking-integration.md`](docs/diagrams/process-booking-integration.md)
 
-### Saga — booking → payment
+## Saga — booking → payment
 
-*Coming in Phase 3.* `POST /bookings` currently stops at `PENDING` with a 15-minute hold. The saga will orchestrate payment, confirmation, and compensation (release the seats on failure or expiry) around that existing create.
+![The booking–payment saga](docs/diagrams/process-booking-payment-saga.svg)
 
-> 🖼️ **A saga diagram will be added here** once the flow lands, following the same authoring spec as the three above.
+Confirming a booking spans two databases, so there is no transaction to wrap it in. This is the other answer to "the JOIN is gone": **guarded local steps plus events**, with a refund where a rollback would have been.
+
+Nobody orchestrates it — Booking never calls Payment. Payment pulls what it needs over the one synchronous hop in the flow (`GET /bookings/{id}/payability` — facts, no judgement), drives the gateway, and turns the webhook into an event. Booking reacts.
+
+### The one line that matters
+
+The money can arrive *after* the 15-minute hold died — the user sat on the gateway's page too long. So confirming is not an assignment, it's a question:
+
+```sql
+UPDATE bookings SET status = 'CONFIRMED', payment_status = 'PAID'
+ WHERE id = ? AND status = 'PENDING' AND expires_at > now
+```
+
+| Rows updated | What it means | What happens |
+|---|---|---|
+| **1** | seats were still ours | `CONFIRMED` + `BookingConfirmed` published `AFTER_COMMIT` |
+| **0**, row reads `CONFIRMED` | a redelivered event | no-op — this is the whole idempotency story |
+| **0**, hold lapsed | payment won the race, seats didn't | `EXPIRED` + `BookingConfirmationRejected` → **auto-refund** |
+
+The database arbitrates, not application code — which is why the expiry sweeper and a concurrent confirm can never both win. `BookingConfirmationRejected` carries the `paymentId`, so Payment refunds without a lookup, keyed `"reject-" + eventId` where the UNIQUE constraint *is* the dedupe.
+
+A declined payment is the *easy* case: seats stay held and the user retries until the hold lapses. Nothing to compensate — no money moved.
+
+📄 Full walkthrough: [`docs/diagrams/process-booking-payment-saga.md`](docs/diagrams/process-booking-payment-saga.md)
 
 ---
 
 ## Patterns used here
 
-Each is wired in real code, not demoed. Diagrams exist for the first three; **the rest will get their own as they land** — the goal is that every pattern below is eventually readable as a picture, not just prose.
+Each is wired in real code, not demoed. The diagrams above cover the architecture, the schema, the cross-service reads, and the saga; the remaining rows are prose until they earn a picture.
 
 | Pattern | Where it lives | Why it's here |
 |---|---|---|
@@ -107,14 +130,16 @@ Each is wired in real code, not demoed. Diagrams exist for the first three; **th
 | **Synchronous validation of a cut FK** | `ShowtimeService` → `verifyMovieExists` | The DB can't enforce `movie_id` any more, so the service does — accepting temporal coupling on the write path, deliberately. |
 | **RFC 9457 error contract** | `BookingErrorCode`, `GlobalExceptionHandler` | Every error is `application/problem+json` with a stable machine-readable `code` siblings can branch on. |
 | **Pagination + dynamic filtering** | `TheaterController`, `repository/spec/*`, `WebPagingConfig` | Listings never dump. Nullable filter DTO → composed JPA `Specification`, bounded page size, whitelisted sort fields, stable `PagedModel` envelope. |
-| **Auth seam** | `@CurrentUser`, `CurrentUserArgumentResolver` | Today the resolver reads `X-User-Id`; in Phase 7 it reads the JWT `sub`. Controllers, services, and the `user_id` column are unchanged. |
-| **Saga (orchestrated)** | *Phase 3* | Payment, confirmation, and compensation around the `PENDING` hold. |
+| **Auth seam** | `@CurrentUser`, `CurrentUserArgumentResolver` | The resolver reads `X-User-Id`. Swapping it for the JWT `sub` touches the resolver only — controllers, services, and the `user_id` column are unchanged. |
+| **Saga (choreographed)** | `PaymentEventListener`, `BookingConfirmer` | Two databases, no transaction across them. Guarded local steps plus events; the unhappy path is a refund, not a rollback. |
+| **Idempotent consumer** | `BookingConfirmer.confirmIfStillPending` | Delivery is at-least-once, so a redelivered `PaymentSucceeded` must be a no-op — the conditional UPDATE makes it one, for free. |
+| **Transactional event publishing** | `BookingEventPublisher` | `@TransactionalEventListener(AFTER_COMMIT)` — nothing is announced to the broker that the database hasn't already committed. |
 
 ---
 
 ## API surface
 
-**Bookings** — `POST /bookings` · `GET /bookings/my?source=composition|readmodel`
+**Bookings** — `POST /bookings` · `GET /bookings/my?source=composition|readmodel` · `GET /bookings/{id}/payability` *(consumed by Payment — facts only, no judgement)*
 **Showtimes** — `POST /showtimes` · `GET /showtimes/{id}` · `GET /showtimes/movie/{movieId}` · `GET /showtimes/movie/upcoming/{movieId}` · `GET /showtimes/screen/{screenId}` · `DELETE /showtimes/{id}`
 **Inventory** — `GET|POST /theaters` · `DELETE /theaters/{id}` · `GET|POST /theaters/{id}/screens` · `DELETE /screens/{id}` · `GET|POST /screens/{id}/seats` · `POST /screens/{id}/seats/grid` · `DELETE /seats/{id}` · `GET|POST /seat-types` · `DELETE /seat-types/{id}`
 

@@ -145,7 +145,7 @@ class ShowtimeControllerTest {
      * {@code screen.getId()} to expose the FK, and this avoids needing a real transaction.
      */
     private static Showtime sampleShowtime() {
-        Theater theater = new Theater("T", null);
+        Theater theater = new Theater("T", null, "EGP");
         Screen screen = new Screen("Screen 1", ScreenType.SCREEN_3D, theater);
         ReflectionTestUtils.setField(screen, "id", 1L);
         Showtime showtime = new Showtime(

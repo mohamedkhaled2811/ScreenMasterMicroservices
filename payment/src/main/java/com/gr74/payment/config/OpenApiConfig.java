@@ -47,10 +47,12 @@ public class OpenApiConfig {
                         .title("ScreenMaster — Payment API")
                         .version("v1")
                         .description("""
-                                Fake, controllable payment provider. A single idempotent charge endpoint:
-                                POST /payments with an Idempotency-Key header. Retrying with the same key
-                                replays the original outcome. An approved charge returns 200; a declined
-                                charge is a normal business outcome and returns 402 (not an error body).""")
+                                Hosted-checkout payments behind one gateway port. POST /payments opens \
+                                (or reuses) a checkout session with a gateway; the outcome arrives \
+                                out-of-band on POST /payments/webhooks/{gateway} — a signed gateway \
+                                webhook is the only path to PAID — and travels onward to Booking as \
+                                PaymentSucceeded / PaymentFailed events. The sandbox gateway also serves \
+                                its own pay page at /payments/sandbox/checkout/{sessionId}.""")
                         .contact(new Contact().name("ScreenMaster").email("doublem.shared@gmail.com")))
                 .servers(List.of(gateway));
     }

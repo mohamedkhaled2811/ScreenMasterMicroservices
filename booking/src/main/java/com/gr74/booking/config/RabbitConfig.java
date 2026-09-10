@@ -6,6 +6,7 @@ import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.TopicExchange;
 import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.boot.amqp.autoconfigure.SimpleRabbitListenerContainerFactoryConfigurer;
@@ -35,6 +36,32 @@ public class RabbitConfig {
 
     /** Routing key Catalog publishes MovieUpserted with — must equal Catalog's constant. */
     public static final String MOVIE_UPSERTED_ROUTING_KEY = "movie-upserted-key";
+
+    /**
+     * Routing key Payment's outbox relay publishes "a payment reached PAID" with — must equal
+     * Payment's {@code RabbitConfig.PAYMENT_SUCCEEDED_ROUTING_KEY} exactly. A shared contract, not
+     * shared code (no common module), so the coupling lives in one obvious constant on each side.
+     */
+    public static final String PAYMENT_SUCCEEDED_ROUTING_KEY = "payment-succeeded-key";
+
+    /**
+     * Routing key Payment's outbox relay publishes "an attempt failed" with — must equal Payment's
+     * {@code RabbitConfig.PAYMENT_FAILED_ROUTING_KEY} exactly. Same shared-contract convention.
+     */
+    public static final String PAYMENT_FAILED_ROUTING_KEY = "payment-failed-key";
+
+    /**
+     * Routing key Booking publishes {@code BookingConfirmed} with. Locked now as the contract:
+     * Phase 4 swaps the transport underneath (outbox) and Notification binds to this key without
+     * Booking changing a line.
+     */
+    public static final String BOOKING_CONFIRMED_ROUTING_KEY = "booking-confirmed-key";
+
+    /**
+     * Routing key Booking publishes {@code BookingConfirmationRejected} with. Locked now as the
+     * contract: Payment's 3.5 listener binds to this key and never changes.
+     */
+    public static final String BOOKING_CONFIRMATION_REJECTED_ROUTING_KEY = "booking-confirmation-rejected-key";
 
     /**
      * Booking's own durable queue for the movie projection read model.
@@ -71,10 +98,47 @@ public class RabbitConfig {
         return BindingBuilder.bind(movieProjectionsQueue).to(screenmasterExchange).with(MOVIE_UPSERTED_ROUTING_KEY);
     }
 
+    /**
+     * Booking's own durable queue for the payment-outcome stream (BUILD_PLAN 3.3).
+     *
+     * <p>One queue, two bindings: both {@code payment-succeeded-key} and {@code payment-failed-key}
+     * land here, and the listener dispatches on the received routing key. A second consumer wanting
+     * the same events would declare its <em>own</em> queue — same fan-out rule as the movie queue.
+     *
+     * <p>Same deployed-infrastructure warning as {@link #MOVIE_PROJECTIONS_QUEUE}: once this queue
+     * exists in the broker with messages in it, renaming the constant strands them. Pick once.
+     */
+    public static final String PAYMENT_EVENTS_QUEUE = "booking-payment-events-queue";
+
+    @Bean
+    public Queue paymentEventsQueue() {
+        // Durable so payment outcomes wait here while Booking is briefly down — a lost
+        // PaymentSucceeded costs real money, so the queue (not just the publisher) must survive.
+        return new Queue(PAYMENT_EVENTS_QUEUE, true);
+    }
+
+    @Bean
+    public Binding paymentSucceededBinding(Queue paymentEventsQueue, TopicExchange screenmasterExchange) {
+        return BindingBuilder.bind(paymentEventsQueue).to(screenmasterExchange).with(PAYMENT_SUCCEEDED_ROUTING_KEY);
+    }
+
+    @Bean
+    public Binding paymentFailedBinding(Queue paymentEventsQueue, TopicExchange screenmasterExchange) {
+        return BindingBuilder.bind(paymentEventsQueue).to(screenmasterExchange).with(PAYMENT_FAILED_ROUTING_KEY);
+    }
+
     /** JSON (de)serialization for AMQP payloads — must mirror Catalog's converter. */
     @Bean
     public MessageConverter jacksonMessageConverter() {
         return new Jackson2JsonMessageConverter();
+    }
+
+    /** A {@link RabbitTemplate} that uses the JSON converter for {@code convertAndSend}. */
+    @Bean
+    public RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory, MessageConverter messageConverter) {
+        RabbitTemplate template = new RabbitTemplate(connectionFactory);
+        template.setMessageConverter(messageConverter);
+        return template;
     }
 
     /**

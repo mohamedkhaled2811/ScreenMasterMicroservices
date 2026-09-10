@@ -1,0 +1,412 @@
+# Changeset 002 — the real payment domain (BUILD_PLAN Phase 3.0).
+#
+# Replaces the Phase-1.2 fake-provider schema. The old `payments` table was keyed by idempotency
+# key with an APPROVED/DECLINED status and no booking reference: there is no shape worth evolving
+# and no row worth keeping, so it is DROPPED and recreated. That is only safe because payment-db is
+# the Payment service's alone (database-per-service earning its keep — the same argument as
+# booking's 008-rename-movie-titles).
+#
+# Four tables, one per concept:
+#   payments          — the OBLIGATION: "booking #1001 owes 300.00 EGP". One per booking.
+#   payment_attempts  — one TRY at settling it through one gateway session. Many per payment.
+#   refunds           — partial refunds are real, so a refund is a row, not a status flip.
+#   webhook_events    — every inbound gateway delivery, stored raw before it is processed.
+#
+# Money is NUMERIC(14,2) + an ISO-4217 currency column, never a float and never a bare amount.
+# Currency is VARCHAR(3), NOT CHAR(3): Postgres CHAR is blank-padded (bpchar), so "EGP" would compare
+# unequal to a trimmed "EGP" in some paths, and Hibernate's ddl-auto=validate rejects the mismatch
+# against a String field outright.
+# Every enum is stored as a VARCHAR (@Enumerated(STRING)) — the monolith's ordinal enums were a
+# flagged fragility (schema §2.4).
+databaseChangeLog:
+
+  # ---------------------------------------------------------------------------------------------
+  # Drop the fake-provider table. dropTable is irreversible, so we spell out the rollback: an empty
+  # recreate of the old shape, which is honest (there is no data to restore) and lets a rollback of
+  # this changeset leave the database in the state 001 produced.
+  # ---------------------------------------------------------------------------------------------
+  - changeSet:
+      id: 002-1-drop-fake-payments
+      author: mohamed
+      comment: The 1.2 fake-provider payments table is superseded by the real payment domain.
+      changes:
+        - dropTable:
+            tableName: payments
+      # Block style, not YAML flow mappings: Liquibase's parser chokes on an unquoted type like
+      # NUMERIC(14,2) inside { }, because the comma reads as a mapping separator. Rollback blocks are
+      # parsed at changelog-load time, so a flow-style mistake here breaks STARTUP, not just rollback.
+      rollback:
+        - createTable:
+            tableName: payments
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: idempotency_key
+                  type: VARCHAR(120)
+                  constraints:
+                    nullable: false
+                    unique: true
+                    uniqueConstraintName: uq_payments_idempotency_key
+              - column:
+                  name: status
+                  type: VARCHAR(20)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: provider_reference
+                  type: VARCHAR(80)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: amount
+                  type: NUMERIC(14,2)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  constraints:
+                    nullable: false
+
+  # ---------------------------------------------------------------------------------------------
+  # payments — the logical obligation for one booking.
+  #
+  # booking_id is a CROSS-SERVICE REFERENCE (Booking owns bookings): a plain indexed column with no
+  # FK, exactly like booking.movie_id points at Catalog. Its UNIQUE constraint is what makes
+  # "create-or-retrieve the Payment" race-free: two concurrent POST /payments for one booking
+  # cannot create two obligations.
+  # ---------------------------------------------------------------------------------------------
+  - changeSet:
+      id: 002-2-create-payments
+      author: mohamed
+      changes:
+        - createTable:
+            tableName: payments
+            remarks: The payment obligation for one booking. At most one row per booking_id.
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints: { primaryKey: true, nullable: false }
+              - column:
+                  name: booking_id
+                  type: BIGINT
+                  remarks: Cross-service reference to Booking. No FK — Booking owns bookings.
+                  constraints:
+                    nullable: false
+                    unique: true
+                    uniqueConstraintName: uq_payments_booking_id
+              - column:
+                  name: user_id
+                  type: VARCHAR(36)
+                  remarks: Same opaque Identity reference Booking uses (Keycloak sub in Phase 7).
+                  constraints: { nullable: false }
+              - column:
+                  name: amount
+                  type: NUMERIC(14,2)
+                  constraints: { nullable: false }
+              - column:
+                  name: currency
+                  type: VARCHAR(3)
+                  remarks: ISO 4217, e.g. EGP or USD. Always stored beside the amount.
+                  constraints: { nullable: false }
+              - column:
+                  name: status
+                  type: VARCHAR(24)
+                  remarks: PENDING | PAID | FAILED | CANCELLED | REFUNDED | PARTIALLY_REFUNDED
+                  constraints: { nullable: false }
+              - column:
+                  name: refunded_amount
+                  type: NUMERIC(14,2)
+                  defaultValueNumeric: 0
+                  remarks: Running total of SUCCEEDED refunds; drives PARTIALLY_REFUNDED vs REFUNDED.
+                  constraints: { nullable: false }
+              - column:
+                  name: created_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  constraints:
+                    nullable: false
+        # "My payments" reads filter by user; the booking_id lookup is already covered by its
+        # UNIQUE constraint's index.
+        - createIndex:
+            indexName: idx_payments_user_id
+            tableName: payments
+            columns:
+              - column: { name: user_id }
+
+  # ---------------------------------------------------------------------------------------------
+  # payment_attempts — one try at settling a payment through one gateway session.
+  #
+  # This is the table that makes "Pay Again" safe: the user who abandons checkout gets a NEW ATTEMPT
+  # on the SAME payment, never a second payment. expires_at here is the GATEWAY SESSION deadline,
+  # which is a different clock from the booking hold (see 002-6 for the guard that keeps only one
+  # attempt live at a time).
+  # ---------------------------------------------------------------------------------------------
+  - changeSet:
+      id: 002-3-create-payment-attempts
+      author: mohamed
+      changes:
+        - createTable:
+            tableName: payment_attempts
+            remarks: One attempt to settle a payment through one gateway checkout session.
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints: { primaryKey: true, nullable: false }
+              - column:
+                  name: payment_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_payment_attempts_payment
+                    references: payments(id)
+              - column:
+                  name: gateway
+                  type: VARCHAR(24)
+                  remarks: STRIPE | PAYMOB | SANDBOX
+                  constraints: { nullable: false }
+              - column:
+                  name: gateway_session_id
+                  type: VARCHAR(255)
+                  remarks: The gateway's checkout-session id. Null until the gateway responds.
+              - column:
+                  name: gateway_payment_id
+                  type: VARCHAR(255)
+                  remarks: The gateway's payment/transaction id. Arrives with the webhook.
+              - column:
+                  name: status
+                  type: VARCHAR(24)
+                  remarks: PENDING | SUCCEEDED | FAILED | EXPIRED | CANCELLED
+                  constraints: { nullable: false }
+              - column:
+                  name: failure_reason
+                  type: VARCHAR(255)
+                  remarks: Normalized reason, never the gateway's raw vocabulary.
+              - column:
+                  name: checkout_url
+                  type: TEXT
+                  remarks: Where the client redirects the user. Null until the gateway responds.
+              - column:
+                  name: idempotency_key
+                  type: VARCHAR(120)
+                  remarks: Forwarded to the gateway so a retried create cannot double-charge.
+                  constraints:
+                    nullable: false
+                    unique: true
+                    uniqueConstraintName: uq_payment_attempts_idempotency_key
+              - column:
+                  name: expires_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  remarks: The SESSION deadline — deliberately NOT the booking's expiry.
+              - column:
+                  name: created_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  constraints:
+                    nullable: false
+        # The webhook handler's hot path: find the attempt this delivery belongs to. Unique per
+        # gateway because two gateways could theoretically mint the same session string.
+        - createIndex:
+            indexName: uq_payment_attempts_gateway_session
+            tableName: payment_attempts
+            unique: true
+            columns:
+              - column: { name: gateway }
+              - column: { name: gateway_session_id }
+        - createIndex:
+            indexName: idx_payment_attempts_payment_id
+            tableName: payment_attempts
+            columns:
+              - column: { name: payment_id }
+        # The expiry sweeper scans by (status, expires_at).
+        - createIndex:
+            indexName: idx_payment_attempts_status_expires_at
+            tableName: payment_attempts
+            columns:
+              - column: { name: status }
+              - column: { name: expires_at }
+
+  # ---------------------------------------------------------------------------------------------
+  # refunds — a row per refund, because partial refunds are real.
+  #
+  # A 1000 EGP payment refunded 300 then 200 leaves 500 refundable; PAID -> REFUNDED cannot express
+  # that. The invariant SUM(refunds.amount) <= payments.amount is enforced in the service under a
+  # row lock (a CHECK constraint cannot span rows).
+  # ---------------------------------------------------------------------------------------------
+  - changeSet:
+      id: 002-4-create-refunds
+      author: mohamed
+      changes:
+        - createTable:
+            tableName: refunds
+            remarks: One refund against a payment. Many per payment; amounts may be partial.
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints: { primaryKey: true, nullable: false }
+              - column:
+                  name: payment_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_refunds_payment
+                    references: payments(id)
+              - column:
+                  name: gateway_refund_id
+                  type: VARCHAR(255)
+                  remarks: The gateway's refund id. Null until the gateway responds.
+              - column:
+                  name: amount
+                  type: NUMERIC(14,2)
+                  constraints: { nullable: false }
+              - column:
+                  name: status
+                  type: VARCHAR(24)
+                  remarks: PENDING | SUCCEEDED | FAILED. Only SUCCEEDED counts toward refunded_amount.
+                  constraints: { nullable: false }
+              - column:
+                  name: reason
+                  type: VARCHAR(255)
+                  remarks: e.g. BOOKING_EXPIRED for the automatic compensation path.
+                  constraints: { nullable: false }
+              - column:
+                  name: idempotency_key
+                  type: VARCHAR(120)
+                  remarks: UNIQUE — the guard against refunding the same thing twice.
+                  constraints:
+                    nullable: false
+                    unique: true
+                    uniqueConstraintName: uq_refunds_idempotency_key
+              - column:
+                  name: created_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  constraints:
+                    nullable: false
+        - createIndex:
+            indexName: idx_refunds_payment_id
+            tableName: refunds
+            columns:
+              - column: { name: payment_id }
+
+  # ---------------------------------------------------------------------------------------------
+  # webhook_events — every inbound gateway delivery, stored RAW before any business logic runs.
+  #
+  # The UNIQUE (gateway, event_id) constraint IS the idempotency mechanism: the second delivery of
+  # the same event fails the insert, and the handler returns 200 having done nothing. Storing the
+  # payload is not just for dedupe — it settles disputes with the actual bytes, lets a fixed handler
+  # be replayed over stored rows, allows backfilling fields we ignore today, and keeps
+  # signature_valid = false rows as the audit trail of a forgery attempt.
+  # ---------------------------------------------------------------------------------------------
+  - changeSet:
+      id: 002-5-create-webhook-events
+      author: mohamed
+      changes:
+        - createTable:
+            tableName: webhook_events
+            remarks: Raw inbound gateway webhooks. Stored before processing; deduped by (gateway, event_id).
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints: { primaryKey: true, nullable: false }
+              - column:
+                  name: gateway
+                  type: VARCHAR(24)
+                  constraints: { nullable: false }
+              - column:
+                  name: event_id
+                  type: VARCHAR(255)
+                  remarks: The gateway's OWN event id — the dedupe key, not one we mint.
+                  constraints: { nullable: false }
+              - column:
+                  name: event_type
+                  type: VARCHAR(120)
+                  remarks: Raw gateway type, e.g. checkout.session.completed. Kept unnormalized on purpose.
+              - column:
+                  name: payload
+                  type: TEXT
+                  remarks: The EXACT raw body as received. Never a re-serialized DTO — signatures are computed over exact bytes.
+                  constraints: { nullable: false }
+              - column:
+                  name: headers
+                  type: TEXT
+                  remarks: Signature/delivery headers as received, with secrets scrubbed.
+              - column:
+                  name: signature_valid
+                  type: BOOLEAN
+                  remarks: false rows are kept deliberately — they are the forged-webhook audit trail.
+                  constraints: { nullable: false }
+              - column:
+                  name: payment_attempt_id
+                  type: BIGINT
+                  remarks: Null when the session id matched no attempt (still stored, still 200).
+                  constraints:
+                    foreignKeyName: fk_webhook_events_attempt
+                    references: payment_attempts(id)
+              - column:
+                  name: processing_status
+                  type: VARCHAR(24)
+                  remarks: RECEIVED | PROCESSED | IGNORED | FAILED
+                  constraints: { nullable: false }
+              - column: { name: received_at, type: TIMESTAMP WITH TIME ZONE, constraints: { nullable: false } }
+              - column: { name: processed_at, type: TIMESTAMP WITH TIME ZONE }
+        - addUniqueConstraint:
+            constraintName: uq_webhook_events_gateway_event_id
+            tableName: webhook_events
+            columnNames: gateway, event_id
+        # The retention job prunes by age.
+        - createIndex:
+            indexName: idx_webhook_events_received_at
+            tableName: webhook_events
+            columns:
+              - column: { name: received_at }
+
+  # ---------------------------------------------------------------------------------------------
+  # The partial unique index that makes "Pay Again" safe under concurrency.
+  #
+  # At most ONE attempt per payment may sit in PENDING. Two concurrent "Pay" clicks therefore cannot
+  # both open a gateway session — the loser's insert fails and it re-reads the winner's attempt.
+  # This is raw SQL because Liquibase's createIndex has no portable WHERE clause. dbms:postgresql
+  # keeps it off H2 (which has no partial-index support); the hermetic tests assert the service-level
+  # behaviour instead, and Postgres carries the real guarantee.
+  # ---------------------------------------------------------------------------------------------
+  - changeSet:
+      id: 002-6-one-live-attempt-per-payment
+      author: mohamed
+      dbms: postgresql
+      comment: Partial unique index — at most one PENDING attempt per payment.
+      changes:
+        - sql:
+            sql: >-
+              CREATE UNIQUE INDEX uq_active_attempt_per_payment
+              ON payment_attempts (payment_id)
+              WHERE status = 'PENDING'
+      rollback:
+        - sql:
+            sql: DROP INDEX uq_active_attempt_per_payment

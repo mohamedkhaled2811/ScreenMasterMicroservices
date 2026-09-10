@@ -94,7 +94,7 @@ public class TheaterService {
         if (theaterRepository.existsByName(request.name())) {
             throw new DuplicateResourceException("A theater named '" + request.name() + "' already exists");
         }
-        Theater saved = theaterRepository.save(new Theater(request.name(), request.location()));
+        Theater saved = theaterRepository.save(new Theater(request.name(), request.location(), request.currency()));
         log.info("Created theater id={} name='{}'", saved.getId(), saved.getName());
         return saved;
     }

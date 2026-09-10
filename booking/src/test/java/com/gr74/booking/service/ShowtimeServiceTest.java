@@ -63,7 +63,7 @@ class ShowtimeServiceTest {
 
     @Test
     void createValidatesScreenThenMovieThenPersists() {
-        Screen screen = new Screen("Screen 1", ScreenType.SCREEN_3D, new Theater("T", null));
+        Screen screen = new Screen("Screen 1", ScreenType.SCREEN_3D, new Theater("T", null, "EGP"));
         given(theaterService.requireScreen(1L)).willReturn(screen);
         given(showtimeRepository.existsByScreenIdAndMovieIdAndShowDateAndShowTime(anyLong(), anyLong(), any(), any()))
                 .willReturn(false);
@@ -80,7 +80,7 @@ class ShowtimeServiceTest {
     @Test
     void unknownMovieShortCircuitsBeforeSlotCheckAndSave() {
         given(theaterService.requireScreen(1L))
-                .willReturn(new Screen(SCREEN_NAME, ScreenType.FRONT_SCREEN, new Theater("T", null)));
+                .willReturn(new Screen(SCREEN_NAME, ScreenType.FRONT_SCREEN, new Theater("T", null, "EGP")));
         doThrow(new MovieNotInCatalogException(603L)).when(catalogClient).verifyMovieExists(603L);
 
         assertThatThrownBy(() -> showtimeService.create(REQUEST))
@@ -95,7 +95,7 @@ class ShowtimeServiceTest {
     @Test
     void catalogOutageShortCircuitsBeforeSave() {
         given(theaterService.requireScreen(1L))
-                .willReturn(new Screen(SCREEN_NAME, ScreenType.FRONT_SCREEN, new Theater("T", null)));
+                .willReturn(new Screen(SCREEN_NAME, ScreenType.FRONT_SCREEN, new Theater("T", null, "EGP")));
         doThrow(new CatalogUnavailableException(603L, new RuntimeException("timeout")))
                 .when(catalogClient).verifyMovieExists(603L);
 
@@ -107,7 +107,7 @@ class ShowtimeServiceTest {
     @Test
     void duplicateSlotIsRejected() {
         given(theaterService.requireScreen(1L))
-                .willReturn(new Screen(SCREEN_NAME, ScreenType.FRONT_SCREEN, new Theater("T", null)));
+                .willReturn(new Screen(SCREEN_NAME, ScreenType.FRONT_SCREEN, new Theater("T", null, "EGP")));
         given(showtimeRepository.existsByScreenIdAndMovieIdAndShowDateAndShowTime(1L, 603L,
                 REQUEST.showDate(), REQUEST.showTime())).willReturn(true);
 

@@ -45,6 +45,20 @@ public class Theater {
 
     private String location;
 
+    /**
+     * ISO-4217 code every price under this theater is denominated in.
+     *
+     * <p>Currency lives here rather than on the showtime or seat type because a theater sits in one
+     * country and bills in one currency: one column, no per-row duplication, and no way for two seats
+     * in the same room to disagree. A booking <em>snapshots</em> it (like the price and movie id), so
+     * editing a theater never moves an existing charge.
+     *
+     * <p>It matters because Payment picks a gateway from it — Paymob settles EGP, Stripe test mode
+     * settles USD — so a booking's currency decides which gateways can take it (changeset 009).
+     */
+    @Column(nullable = false, length = 3)
+    private String currency;
+
     @CreatedDate
     @Column(name = "created_date", nullable = false, updatable = false)
     private Instant createdDate;
@@ -53,8 +67,9 @@ public class Theater {
     @Column(name = "last_modified_date")
     private Instant lastModifiedDate;
 
-    public Theater(String name, String location) {
+    public Theater(String name, String location, String currency) {
         this.name = name;
         this.location = location;
+        this.currency = currency;
     }
 }

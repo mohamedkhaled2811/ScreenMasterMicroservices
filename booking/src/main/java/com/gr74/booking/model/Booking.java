@@ -76,6 +76,15 @@ public class Booking {
     @Column(nullable = false, length = 20)
     private BookingStatus status;
 
+    /**
+     * Mirror of Payment's answer for this booking — <b>displayed, never a decision input</b>.
+     *
+     * <p>Nothing is ever decided from this field: the seat guard looks at {@code status} only, and
+     * the saga's confirm/mirror paths write it as a side effect, never read it as a condition. A
+     * booking can sit at {@code PENDING}/{@code FAILED} while the user retries, and a late failure
+     * arriving after {@code PAID} is dropped rather than mirrored. Kept so "my bookings" can show
+     * "last attempt failed" without calling Payment.
+     */
     @Enumerated(EnumType.STRING) // never ordinal
     @Column(name = "payment_status", nullable = false, length = 20)
     private PaymentStatus paymentStatus;
@@ -83,13 +92,30 @@ public class Booking {
     @Column(name = "total_amount", nullable = false)
     private BigDecimal totalAmount;
 
+    /**
+     * ISO-4217 code, snapshotted from the theater at booking time (changeset 009).
+     *
+     * <p>Frozen alongside {@code totalAmount} for the same reason: the amount charged must not move
+     * because someone edited the theater afterwards. Payment reads this pair to decide which gateways
+     * can settle the booking — Paymob takes EGP, Stripe test mode takes USD.
+     */
+    @Column(nullable = false, length = 3)
+    private String currency;
+
     /** The 15-min hold deadline; the Phase-3 sweeper frees seats past this. */
     @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;
 
     /**
      * The reserved seats. Cascade + orphan-removal so a booking owns its line items: persisting the
-     * booking persists its seats, and clearing the list deletes them (used by the Phase-3 compensation).
+     * booking persists its seats.
+     *
+     * <p><b>Never cleared as compensation.</b> An earlier draft of this comment anticipated
+     * {@code seats.clear()} when a hold lapsed — that is the wrong move: the double-booking guard
+     * ({@code findSeatIdsHeldForShowtime}) is status-based, so flipping the booking to
+     * {@code EXPIRED} already releases the seats to every future booking check, and clearing the
+     * rows would buy nothing while destroying the audit trail of who held A-7 and lost it. The
+     * rows stay; the status flip is the release.
      */
     @OneToMany(mappedBy = "booking", cascade = CascadeType.ALL, orphanRemoval = true)
     private final List<BookingSeat> seats = new ArrayList<>();
@@ -103,12 +129,13 @@ public class Booking {
     private Instant lastModifiedDate;
 
     public Booking(String bookingReference, String userId, Long showtimeId, Long movieId,
-            BigDecimal totalAmount, Instant expiresAt) {
+            BigDecimal totalAmount, String currency, Instant expiresAt) {
         this.bookingReference = bookingReference;
         this.userId = userId;
         this.showtimeId = showtimeId;
         this.movieId = movieId;
         this.totalAmount = totalAmount;
+        this.currency = currency;
         this.expiresAt = expiresAt;
         this.status = BookingStatus.PENDING;        // a new booking always starts holding its seats
         this.paymentStatus = PaymentStatus.PENDING; // no Payment call yet — the saga sets this in Phase 3

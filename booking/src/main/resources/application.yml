@@ -48,6 +48,13 @@ booking:
   expiry:
     sweep-interval-millis: ${BOOKING_EXPIRY_SWEEP_INTERVAL_MILLIS:60000}
 
+  # Transactional-outbox relay (BUILD_PLAN 4.1/4.2): how often the drain tick runs and how many rows
+  # one tick claims. Short enough that a confirmed booking feels instant; bounded so the first tick
+  # after an outage walks the backlog over several passes. Mirrors payment's payment.outbox block.
+  outbox:
+    relay-interval-millis: ${BOOKING_OUTBOX_RELAY_INTERVAL_MILLIS:2000}
+    relay-batch-size: ${BOOKING_OUTBOX_RELAY_BATCH_SIZE:50}
+
 # A Eureka CLIENT: registers with the discovery server on startup.
 eureka:
   client:

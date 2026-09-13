@@ -4,14 +4,16 @@ import java.time.Instant;
 
 /**
  * Money arrived for a booking that can no longer confirm — raised in-JVM by
- * {@link com.gr74.booking.service.BookingConfirmer} and published to the broker by
- * {@link BookingEventPublisher} on {@code booking-confirmation-rejected-key}.
+ * {@link com.gr74.booking.service.BookingConfirmer}, written to the outbox in the same transaction,
+ * and published to the broker by the outbox relay on {@code booking-confirmation-rejected-key}.
  *
  * <p>This is the compensation trigger step 3.5 consumes: it carries <b>both</b> the {@code reason}
  * and the {@code paymentId} from the event, so Payment can auto-refund without a lookup. Losing
- * this event strands a customer's refund (named gap — see {@link BookingEventPublisher}).
+ * this event strands a customer's refund — the exposure Booking carried through Phase 3, now closed
+ * by the outbox (the row and the rejection commit together, and the relay retries until the broker
+ * accepts). {@code eventId} is the <b>outbox row id</b>, stable across redeliveries.
  *
- * @param eventId          random UUID for this publish (contrast Payment's outbox row id)
+ * @param eventId          the outbox row id — stable across redeliveries (contrast the old random UUID)
  * @param bookingId        which booking could not confirm
  * @param bookingReference the human-facing handle, for the audit trail
  * @param paymentId        which obligation to refund — from the triggering event, not a lookup
@@ -20,7 +22,7 @@ import java.time.Instant;
  * @param occurredAt       when the rejection was decided (Booking's clock)
  */
 public record BookingConfirmationRejected(
-        String eventId,
+        long eventId,
         long bookingId,
         String bookingReference,
         long paymentId,

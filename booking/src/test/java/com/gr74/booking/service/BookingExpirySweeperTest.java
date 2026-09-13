@@ -11,6 +11,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.junit.jupiter.api.Test;
@@ -19,18 +20,20 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.test.context.event.ApplicationEvents;
-import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.gr74.booking.config.JpaAuditingConfig;
-import com.gr74.booking.messaging.BookingConfirmationRejected;
 import com.gr74.booking.messaging.PaymentSucceededEvent;
 import com.gr74.booking.model.Booking;
 import com.gr74.booking.model.BookingSeat;
 import com.gr74.booking.model.BookingStatus;
+import com.gr74.booking.outbox.OutboxEventType;
+import com.gr74.booking.outbox.OutboxMessage;
+import com.gr74.booking.outbox.OutboxMessageRepository;
 import com.gr74.booking.repository.BookingRepository;
 import com.gr74.booking.service.BookingConfirmer.ConfirmOutcome;
 
@@ -54,7 +57,6 @@ import jakarta.persistence.EntityManager;
 @DataJpaTest
 @Import({BookingExpirySweeper.class, BookingExpirer.class, BookingConfirmer.class,
         JpaAuditingConfig.class})
-@RecordApplicationEvents
 class BookingExpirySweeperTest {
 
     private static final Instant NOW = Instant.parse("2026-09-06T20:16:00Z");
@@ -66,6 +68,13 @@ class BookingExpirySweeperTest {
         @Bean
         Clock clock() {
             return Clock.fixed(NOW, ZoneOffset.UTC);
+        }
+
+        /** @DataJpaTest does not load Jackson; the confirmer serializes its outbox payloads with it.
+         * The JavaTimeModule is required for the {@code Instant} fields, matching Boot's real mapper. */
+        @Bean
+        ObjectMapper objectMapper() {
+            return new ObjectMapper().registerModule(new JavaTimeModule());
         }
     }
 
@@ -82,10 +91,13 @@ class BookingExpirySweeperTest {
     private BookingRepository bookings;
 
     @Autowired
-    private EntityManager em;
+    private OutboxMessageRepository outbox;
 
     @Autowired
-    private ApplicationEvents events;
+    private ObjectMapper objectMapper;
+
+    @Autowired
+    private EntityManager em;
 
     @Test
     void lapsedHoldExpiresSeatsFreedButRowsKept() {
@@ -144,9 +156,10 @@ class BookingExpirySweeperTest {
 
         assertThat(bookings.findById(booking.getId()).orElseThrow().getStatus())
                 .isEqualTo(BookingStatus.EXPIRED);
-        assertThat(events.stream(BookingConfirmationRejected.class).toList()).hasSize(1);
-        assertThat(events.stream(BookingConfirmationRejected.class).toList().get(0).paymentId())
-                .isEqualTo(601L);
+        List<OutboxMessage> rows = outbox.findAll();
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).getEventType()).isEqualTo(OutboxEventType.BOOKING_CONFIRMATION_REJECTED);
+        assertThat(payloadOf(rows.get(0)).get("paymentId")).isEqualTo(601);
     }
 
     /**
@@ -195,5 +208,14 @@ class BookingExpirySweeperTest {
         ReflectionTestUtils.setField(booking, "status", status);
         booking.addSeat(new BookingSeat(seatId, new BigDecimal("12.00"), "STANDARD"));
         return bookings.saveAndFlush(booking);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> payloadOf(OutboxMessage row) {
+        try {
+            return objectMapper.readValue(row.getPayload(), Map.class);
+        } catch (Exception e) {
+            throw new IllegalStateException("Stored outbox payload is not JSON: " + row.getPayload(), e);
+        }
     }
 }

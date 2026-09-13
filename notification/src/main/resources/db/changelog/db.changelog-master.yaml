@@ -1,0 +1,11 @@
+# Liquibase master changelog for the notification service (notification-db).
+#
+# The master is an INDEX, not a place for actual DDL: it `include`s versioned changeset files in
+# order, so the migration history reads top-to-bottom and new changes are appended as new files
+# (never edited in place — an applied changeset is immutable, that's how Liquibase guarantees every
+# environment converges on the same schema). See docs/concepts/liquibase.md.
+#
+#   001-create-processed-events   the idempotent-consumer dedupe table (BUILD_PLAN 4.3)
+databaseChangeLog:
+  - include:
+      file: db/changelog/changes/001-create-processed-events.yaml

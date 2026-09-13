@@ -14,15 +14,14 @@
 	<description>Notification service — consumes BookingConfirmed, "sends" the email.</description>
 
 	<!--
-	  Ultimately a pure event consumer: it will listen for BookingConfirmed off RabbitMQ and "send"
-	  an email (a log line), deduping via a processed_events table — AMQP + JPA + Postgres arrive in
-	  Phase 4 (4.3).
+	  A pure event consumer (BUILD_PLAN 4.3): it listens for BookingConfirmed / BookingConfirmationRejected
+	  off RabbitMQ and "sends" the email (a log line), deduping via a processed_events table — the
+	  idempotent-consumer pattern. The AMQP + JPA + Postgres this comment once deferred to "Phase 4
+	  (4.3)" are now HERE.
 
-	  Why web-mvc now (1.2), before any HTTP API exists? A Eureka client still needs a port to
-	  advertise, and 1.2 asks every service to expose a /health endpoint. Neither the eureka-client
-	  starter nor actuator brings a servlet container, so without web-mvc this service couldn't serve
-	  /actuator/health at all. So we add web-mvc purely for the health surface + advertised port; the
-	  consumer wiring layers on top later, unaffected.
+	  Why web-mvc? A Eureka client still needs a port to advertise and /actuator/health needs a servlet
+	  container, so web-mvc stays purely for the health surface + advertised port; the consumer wiring
+	  (amqp + jpa) layers on top of it. See docs/concepts/idempotent-consumer.md.
 	-->
 	<dependencies>
 		<dependency>
@@ -38,6 +37,43 @@
 			<artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
 		</dependency>
 
+		<!--
+		  AMQP / RabbitMQ. Notification is the CONSUMER side of Booking's booking-outcome stream
+		  (BUILD_PLAN 4.3): a @RabbitListener consumes BookingConfirmed / BookingConfirmationRejected
+		  and "sends" the email. Version managed by the Spring Boot parent.
+		  See docs/concepts/rabbitmq.md, docs/concepts/idempotent-consumer.md.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-amqp</artifactId>
+		</dependency>
+
+		<!--
+		  JPA persistence for the processed_events dedupe table (the claim that makes the consumer
+		  idempotent). Schema owned by Liquibase, ddl-auto=validate — never ddl-auto=update.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-jpa</artifactId>
+		</dependency>
+
+		<!--
+		  Spring Boot 4 moved each integration's auto-configuration out of the umbrella
+		  spring-boot-autoconfigure jar into its own module. spring-boot-liquibase carries
+		  LiquibaseAutoConfiguration (the bean that runs the changelog on startup) and pulls in
+		  liquibase-core transitively. Without it, liquibase-core is on the classpath but never
+		  runs — the schema is never created and Hibernate's ddl-auto=validate fails with
+		  "missing table [...]". See docs/concepts/liquibase.md.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-liquibase</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.postgresql</groupId>
+			<artifactId>postgresql</artifactId>
+			<scope>runtime</scope>
+		</dependency>
 		<dependency>
 			<groupId>org.projectlombok</groupId>
 			<artifactId>lombok</artifactId>
@@ -47,6 +83,22 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!--
+		  Spring Boot 4 split the test slices out of spring-boot-test-autoconfigure into per-technology
+		  modules; spring-boot-data-jpa-test carries @DataJpaTest and pulls in TestEntityManager (the
+		  repository slices). Without it the slice annotation isn't on the classpath. Mirrors booking.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-data-jpa-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!-- TEST SCOPE ONLY: in-memory DB so the hermetic suite needs no running Postgres. -->
+		<dependency>
+			<groupId>com.h2database</groupId>
+			<artifactId>h2</artifactId>
 			<scope>test</scope>
 		</dependency>
 	</dependencies>

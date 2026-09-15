@@ -5,7 +5,7 @@
 #
 #  Topology: gateway (front door) -> { catalog, booking, payment, notification },
 #  all registering with the discovery (Eureka) server; database-per-service made
-#  PHYSICAL as three separate Postgres containers; RabbitMQ + Zipkin run from day
+#  PHYSICAL as four separate Postgres containers; RabbitMQ + Zipkin run from day
 #  one (services don't wire to them until Phase 4 / Phase 6).
 #
 #  Key ideas you can see here:
@@ -162,7 +162,9 @@ services:
     networks: [screenmaster]
 
   # ---------------------------------------------------------------------------
-  #  Notification — event consumer. No db yet; consumer wiring lands in Phase 4.
+  #  Notification — event consumer (Phase 4.3); owns notification-db. Listens for
+  #  BookingConfirmed / BookingConfirmationRejected and "sends" the email (a log line),
+  #  deduping via processed_events. No host port — reached only through the broker.
   # ---------------------------------------------------------------------------
   notification:
     build:
@@ -170,10 +172,20 @@ services:
       dockerfile: notification/Dockerfile
     image: screenmaster/notification
     environment:
+      NOTIFICATION_DB_URL: jdbc:postgresql://notification-db:5432/notification
+      NOTIFICATION_DB_USER: postgres
+      NOTIFICATION_DB_PASSWORD: postgres
       EUREKA_SERVICE_URL: http://discovery:8761/eureka/
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+      # Notification CONSUMES Booking's booking-outcome stream from the broker (4.3).
+      RABBITMQ_HOST: rabbitmq
     depends_on:
-      - discovery
+      notification-db:
+        condition: service_healthy   # don't boot until Postgres answers pg_isready (no race)
+      discovery:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
     networks: [screenmaster]
 
   # ===========================================================================
@@ -241,6 +253,24 @@ services:
       retries: 10
     networks: [screenmaster]
 
+  # notification-db: the 4th Postgres, owned by the event consumer. Unlike its siblings it is
+  # deliberately NOT published to the host — this service has no business HTTP surface, so there is
+  # nothing to inspect from a host client; it stays purely internal (backend services stay internal).
+  notification-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: notification
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - notification-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d notification"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [screenmaster]
+
   # ===========================================================================
   #  Broker + tracing — run now, WIRED LATER. RabbitMQ is consumed in Phase 4;
   #  Zipkin receives traces in Phase 6. Present here so the topology is complete
@@ -276,3 +306,4 @@ volumes:
   catalog-db-data:
   booking-db-data:
   payment-db-data:
+  notification-db-data:

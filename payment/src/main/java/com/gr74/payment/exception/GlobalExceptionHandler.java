@@ -18,6 +18,8 @@ import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
+import io.github.resilience4j.bulkhead.BulkheadFullException;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -69,6 +71,36 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         log.error("Unhandled exception in payment service", ex);
         return problemDetail(PaymentErrorCode.PAYMENT_INTERNAL_ERROR,
                 "An unexpected error occurred while processing the payment");
+    }
+
+    /**
+     * The gateway's circuit breaker is OPEN and refused the call without touching the network.
+     * This is the same condition a real outage produces, so it answers with the SAME coded 503 a
+     * client already handles ({@code PAYMENT_GATEWAY_UNAVAILABLE}) — only faster (microseconds,
+     * not a 10s timeout). Mapping it here (rather than in the decorator) guarantees a resilience
+     * exception can never leak as an opaque 500.
+     */
+    @ExceptionHandler(CallNotPermittedException.class)
+    public ProblemDetail handleCallNotPermitted(CallNotPermittedException ex) {
+        // The exception message names the breaker (e.g. CircuitBreaker 'paymob' is open ...).
+        log.warn("Gateway circuit breaker open, failing fast: {}", ex.getMessage());
+        return problemDetail(PaymentErrorCode.PAYMENT_GATEWAY_UNAVAILABLE,
+                "Payment gateway is unavailable: " + ex.getMessage());
+    }
+
+    /**
+     * The gateway's bulkhead is full and the call was rejected rather than queued. A different code
+     * (429 {@code PAYMENT_GATEWAY_BUSY}) from an outage on purpose: "we are saturated" is not "the
+     * gateway is down", and the 429 tells a client to back off rather than treat it as a hard stop.
+     * The decorator normally translates this into a {@link GatewayBusyException} with a domain
+     * message; this handler is the safety net so even a raw resilience exception renders as a coded
+     * 429, never a 500.
+     */
+    @ExceptionHandler(BulkheadFullException.class)
+    public ProblemDetail handleBulkheadFull(BulkheadFullException ex) {
+        log.warn("Gateway bulkhead full, rejecting call: {}", ex.getMessage());
+        return problemDetail(PaymentErrorCode.PAYMENT_GATEWAY_BUSY,
+                "Payment gateway is at capacity: " + ex.getMessage());
     }
 
     /**

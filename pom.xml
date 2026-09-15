@@ -46,6 +46,16 @@
 		-->
 		<springdoc.version>3.0.3</springdoc.version>
 		<!--
+		  Resilience4j: the fault-tolerance toolbox behind Payment's gateway decorator (circuit
+		  breaker, bulkhead, retry). We pin the Boot-3 starter because its registries
+		  (CircuitBreakerRegistry / BulkheadRegistry / RetryRegistry) are all the decorator design
+		  needs — and its auto-configuration is verified to work on this Boot-4 stack once its
+		  Boot-3-only version verifier is excluded (spring.autoconfigure.exclude). The resilient
+		  alternative was building the registries by hand; it was not needed. See
+		  docs/concepts/resilience-patterns.md.
+		-->
+		<resilience4j.version>2.4.0</resilience4j.version>
+		<!--
 		  JaCoCo: bytecode instrumentation agent + coverage reporter. 0.8.13+ is required for
 		  Java 21 class files; Spring Boot 4.1.0's parent does not manage this version.
 		  See docs/concepts/ci-and-coverage.md.
@@ -72,6 +82,17 @@
 				<groupId>org.springdoc</groupId>
 				<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
 				<version>${springdoc.version}</version>
+			</dependency>
+			<!--
+			  Resilience4j starter, version-managed like springdoc so each service declares it
+			  version-free. The Boot-3 module is chosen deliberately: its registries are the
+			  whole API surface the decorator needs, and its auto-config is verified to work on
+			  Boot 4 (with the version verifier excluded). See docs/concepts/resilience-patterns.md.
+			-->
+			<dependency>
+				<groupId>io.github.resilience4j</groupId>
+				<artifactId>resilience4j-spring-boot3</artifactId>
+				<version>${resilience4j.version}</version>
 			</dependency>
 		</dependencies>
 	</dependencyManagement>

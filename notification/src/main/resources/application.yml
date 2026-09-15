@@ -5,6 +5,30 @@ spring:
   application:
     name: notification
 
+  # Owns notification-db. Credentials come from env vars (never hard-coded), with local-dev defaults
+  # after the ':'. Compose overrides the URL/host via env.
+  datasource:
+    url: ${NOTIFICATION_DB_URL:jdbc:postgresql://localhost:5432/notification}
+    username: ${NOTIFICATION_DB_USER:postgres}
+    password: ${NOTIFICATION_DB_PASSWORD:postgres}
+
+  # Liquibase owns the schema; Hibernate only VALIDATEs the entities against it on boot.
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false   # no lazy loading in the view layer; keep the tx boundary in the service
+
+  # RabbitMQ — Notification CONSUMES BookingConfirmed / BookingConfirmationRejected here (BUILD_PLAN
+  # 4.3). Host defaults to localhost for `mvn spring-boot:run`; Compose overrides RABBITMQ_HOST to
+  # the `rabbitmq` container.
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+
 # A Eureka CLIENT: registers with the discovery server on startup. (No register/fetch overrides —
 # those are server-only.) See docs/concepts/service-discovery.md.
 eureka:

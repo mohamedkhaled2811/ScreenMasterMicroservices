@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import com.gr74.payment.exception.GatewayNotAvailableException;
@@ -28,6 +29,12 @@ import lombok.extern.slf4j.Slf4j;
  * <p>This class is the reason there is no {@code if (gateway == STRIPE) ... else if (gateway ==
  * PAYMOB)} chain anywhere in the service. Everything downstream holds the returned
  * {@link PaymentGateway} and never asks which one it is.
+ *
+ * <p><b>The injected list is the decorated one.</b> {@code ResilienceConfig} wraps every raw
+ * adapter in a {@link ResilientPaymentGateway} and this constructor takes THAT list (qualified as
+ * {@code resilientPaymentGateways}), never the raw {@code @Component}s — so the map keys (from
+ * {@code type()}, which delegates undecorated) are identical, but every gateway downstream runs
+ * behind its breaker, bulkhead and retry. Callers are untouched: the seam is exactly here.
  */
 @Slf4j
 @Component
@@ -35,7 +42,7 @@ public class GatewayRegistry {
 
     private final Map<PaymentGatewayType, PaymentGateway> byType;
 
-    public GatewayRegistry(List<PaymentGateway> gateways) {
+    public GatewayRegistry(@Qualifier("resilientPaymentGateways") List<PaymentGateway> gateways) {
         this.byType = gateways.stream().collect(toUnmodifiableMap(PaymentGateway::type, identity()));
         log.info("Registered payment gateways: {}", available());
     }

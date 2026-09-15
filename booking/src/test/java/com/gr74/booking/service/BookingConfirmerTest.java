@@ -7,6 +7,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,20 +15,24 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.test.context.event.ApplicationEvents;
-import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.gr74.booking.config.JpaAuditingConfig;
-import com.gr74.booking.messaging.BookingConfirmationRejected;
-import com.gr74.booking.messaging.BookingConfirmed;
-import com.gr74.booking.messaging.ConfirmationRejectionReason;
+import com.gr74.booking.config.RabbitConfig;
 import com.gr74.booking.messaging.PaymentFailedEvent;
 import com.gr74.booking.messaging.PaymentSucceededEvent;
 import com.gr74.booking.model.Booking;
 import com.gr74.booking.model.BookingSeat;
 import com.gr74.booking.model.BookingStatus;
 import com.gr74.booking.model.PaymentStatus;
+import com.gr74.booking.outbox.OutboxEventType;
+import com.gr74.booking.outbox.OutboxMessage;
+import com.gr74.booking.outbox.OutboxMessageRepository;
 import com.gr74.booking.repository.BookingRepository;
 import com.gr74.booking.service.BookingConfirmer.ConfirmOutcome;
 
@@ -39,29 +44,38 @@ import com.gr74.booking.service.BookingConfirmer.ConfirmOutcome;
  *
  * <p>What it proves — the branches that are actually ours:
  * <ol>
- *   <li>a live PENDING hold confirms on exactly one row and raises {@code BookingConfirmed};</li>
- *   <li>a redelivered event re-reads CONFIRMED and publishes nothing twice (idempotent);</li>
- *   <li>an EXPIRED or CANCELLED booking yields a {@code BookingConfirmationRejected} carrying the
- *       event's {@code paymentId} — the compensation trigger 3.5 consumes;</li>
+ *   <li>a live PENDING hold confirms on exactly one row and writes a {@code BOOKING_CONFIRMED}
+ *       outbox row in the same transaction;</li>
+ *   <li>a redelivered event re-reads CONFIRMED and writes nothing twice (idempotent);</li>
+ *   <li>an EXPIRED or CANCELLED booking yields a {@code BOOKING_CONFIRMATION_REJECTED} outbox row
+ *       carrying the event's {@code paymentId} — the compensation trigger 3.5 consumes;</li>
  *   <li>a PENDING booking whose hold already lapsed is expired inline and rejected deterministically
  *       (never left paid-but-undecided for the sweeper to maybe find);</li>
+ *   <li>the transactional boundary (BUILD_PLAN 4.1): the outbox row commits <em>and rolls back</em>
+ *       with the booking row — a dual write that can never drift apart;</li>
  *   <li>{@code PaymentFailed} mirrors {@code paymentStatus → FAILED} where still PENDING only —
  *       status and seats untouched, and a late failure after PAID is dropped.</li>
  * </ol>
  */
 @DataJpaTest
 @Import({BookingConfirmer.class, JpaAuditingConfig.class})
-@RecordApplicationEvents
 class BookingConfirmerTest {
 
     private static final Instant NOW = Instant.parse("2026-09-06T20:00:00Z");
     private static final String USER = "11111111-1111-1111-1111-111111111111";
 
     @TestConfiguration
-    static class FixedClockConfig {
+    static class ConfirmerTestConfig {
         @Bean
         Clock clock() {
             return Clock.fixed(NOW, ZoneOffset.UTC);
+        }
+
+        /** @DataJpaTest does not load Jackson; the confirmer serializes its outbox payloads with it.
+         * The JavaTimeModule is required for the {@code Instant} fields, matching Boot's real mapper. */
+        @Bean
+        ObjectMapper objectMapper() {
+            return new ObjectMapper().registerModule(new JavaTimeModule());
         }
     }
 
@@ -72,10 +86,16 @@ class BookingConfirmerTest {
     private BookingRepository bookings;
 
     @Autowired
-    private ApplicationEvents events;
+    private OutboxMessageRepository outbox;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
 
     @Test
-    void confirmOnLivePendingHoldConfirmsAndPublishes() {
+    void confirmOnLivePendingHoldConfirmsAndWritesOutboxRow() {
         Booking booking = persist("BK-CONFIRM01", BookingStatus.PENDING, NOW.plusSeconds(900));
 
         ConfirmOutcome outcome = confirmer.confirmFromPayment(succeeded(booking.getId(), 500L));
@@ -84,11 +104,18 @@ class BookingConfirmerTest {
         Booking reloaded = bookings.findById(booking.getId()).orElseThrow();
         assertThat(reloaded.getStatus()).isEqualTo(BookingStatus.CONFIRMED);
         assertThat(reloaded.getPaymentStatus()).isEqualTo(PaymentStatus.PAID);
-        List<BookingConfirmed> published = events.stream(BookingConfirmed.class).toList();
-        assertThat(published).hasSize(1);
-        assertThat(published.get(0).bookingId()).isEqualTo(booking.getId());
-        assertThat(published.get(0).bookingReference()).isEqualTo("BK-CONFIRM01");
-        assertThat(published.get(0).userId()).isEqualTo(USER);
+        List<OutboxMessage> rows = outbox.findAll();
+        assertThat(rows).hasSize(1);
+        OutboxMessage row = rows.get(0);
+        assertThat(row.getEventType()).isEqualTo(OutboxEventType.BOOKING_CONFIRMED);
+        assertThat(row.getRoutingKey()).isEqualTo(RabbitConfig.BOOKING_CONFIRMED_ROUTING_KEY);
+        assertThat(row.getAggregateId()).isEqualTo(booking.getId());
+        assertThat(row.isPending()).isTrue();
+        Map<String, Object> payload = payloadOf(row);
+        // The stored eventId is the 0L placeholder; the relay stamps the outbox row id on the wire.
+        assertThat(payload.get("eventId")).isEqualTo(0);
+        assertThat(payload.get("bookingReference")).isEqualTo("BK-CONFIRM01");
+        assertThat(payload.get("userId")).isEqualTo(USER);
     }
 
     @Test
@@ -99,8 +126,8 @@ class BookingConfirmerTest {
         assertThat(confirmer.confirmFromPayment(event)).isEqualTo(ConfirmOutcome.CONFIRMED);
         assertThat(confirmer.confirmFromPayment(event)).isEqualTo(ConfirmOutcome.ALREADY_CONFIRMED);
 
-        assertThat(events.stream(BookingConfirmed.class).toList()).hasSize(1);
-        assertThat(events.stream(BookingConfirmationRejected.class).toList()).isEmpty();
+        assertThat(outbox.countByPublishedAtIsNull()).isEqualTo(1L);
+        assertThat(outbox.findAll().get(0).getEventType()).isEqualTo(OutboxEventType.BOOKING_CONFIRMED);
     }
 
     @Test
@@ -112,13 +139,14 @@ class BookingConfirmerTest {
         assertThat(outcome).isEqualTo(ConfirmOutcome.REJECTED);
         assertThat(bookings.findById(booking.getId()).orElseThrow().getStatus())
                 .isEqualTo(BookingStatus.EXPIRED);
-        List<BookingConfirmationRejected> rejected =
-                events.stream(BookingConfirmationRejected.class).toList();
-        assertThat(rejected).hasSize(1);
-        assertThat(rejected.get(0).bookingId()).isEqualTo(booking.getId());
-        assertThat(rejected.get(0).reason()).isEqualTo(ConfirmationRejectionReason.EXPIRED);
-        assertThat(rejected.get(0).paymentId()).isEqualTo(502L);
-        assertThat(events.stream(BookingConfirmed.class).toList()).isEmpty();
+        List<OutboxMessage> rows = outbox.findAll();
+        assertThat(rows).hasSize(1);
+        OutboxMessage row = rows.get(0);
+        assertThat(row.getEventType()).isEqualTo(OutboxEventType.BOOKING_CONFIRMATION_REJECTED);
+        assertThat(row.getRoutingKey()).isEqualTo(RabbitConfig.BOOKING_CONFIRMATION_REJECTED_ROUTING_KEY);
+        Map<String, Object> payload = payloadOf(row);
+        assertThat(payload.get("paymentId")).isEqualTo(502);
+        assertThat(payload.get("reason")).isEqualTo("EXPIRED");
     }
 
     @Test
@@ -128,9 +156,10 @@ class BookingConfirmerTest {
         ConfirmOutcome outcome = confirmer.confirmFromPayment(succeeded(booking.getId(), 503L));
 
         assertThat(outcome).isEqualTo(ConfirmOutcome.REJECTED);
-        assertThat(events.stream(BookingConfirmationRejected.class).toList())
-                .extracting(BookingConfirmationRejected::reason)
-                .containsExactly(ConfirmationRejectionReason.CANCELLED);
+        assertThat(outbox.findAll())
+                .extracting(OutboxMessage::getEventType)
+                .containsExactly(OutboxEventType.BOOKING_CONFIRMATION_REJECTED);
+        assertThat(payloadOf(outbox.findAll().get(0)).get("reason")).isEqualTo("CANCELLED");
     }
 
     @Test
@@ -142,11 +171,10 @@ class BookingConfirmerTest {
         assertThat(outcome).isEqualTo(ConfirmOutcome.REJECTED);
         assertThat(bookings.findById(booking.getId()).orElseThrow().getStatus())
                 .isEqualTo(BookingStatus.EXPIRED);
-        List<BookingConfirmationRejected> rejected =
-                events.stream(BookingConfirmationRejected.class).toList();
-        assertThat(rejected).hasSize(1);
-        assertThat(rejected.get(0).reason()).isEqualTo(ConfirmationRejectionReason.EXPIRED);
-        assertThat(rejected.get(0).paymentId()).isEqualTo(504L);
+        List<OutboxMessage> rows = outbox.findAll();
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).getEventType()).isEqualTo(OutboxEventType.BOOKING_CONFIRMATION_REJECTED);
+        assertThat(payloadOf(rows.get(0)).get("paymentId")).isEqualTo(504);
     }
 
     @Test
@@ -154,8 +182,47 @@ class BookingConfirmerTest {
         ConfirmOutcome outcome = confirmer.confirmFromPayment(succeeded(9_999_999L, 505L));
 
         assertThat(outcome).isEqualTo(ConfirmOutcome.UNKNOWN_BOOKING);
-        assertThat(events.stream(BookingConfirmed.class).toList()).isEmpty();
-        assertThat(events.stream(BookingConfirmationRejected.class).toList()).isEmpty();
+        assertThat(outbox.count()).isZero();
+    }
+
+    /**
+     * The dual-write guarantee, exercised from a <em>real</em> transaction boundary.
+     *
+     * <p>{@code @Transactional(NOT_SUPPORTED)} suspends the transaction {@code @DataJpaTest} wraps
+     * the test in, so {@code TransactionTemplate} below sees production conditions rather than the
+     * harness's ambient transaction. Inside the template both writes are visible together; a
+     * {@code setRollbackOnly} takes <b>both</b> back — the booking cannot stay confirmed with its
+     * announcement lost, nor can an announcement outlive a booking that never confirmed. Before the
+     * outbox, this path published AFTER_COMMIT, so a rollback here would have dropped the event the
+     * moment the transaction failed — the exact exposure Phase 4 closes.
+     */
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void outboxRowCommitsAndRollsBackWithTheBookingRow() {
+        Booking booking = persist("BK-BOUNDARY01", BookingStatus.PENDING, NOW.plusSeconds(900));
+        try {
+            transactionTemplate.execute(status -> {
+                ConfirmOutcome outcome = confirmer.confirmFromPayment(succeeded(booking.getId(), 510L));
+
+                assertThat(outcome).isEqualTo(ConfirmOutcome.CONFIRMED);
+                // Inside the transaction the booking and its announcement are visible together ...
+                assertThat(bookings.findById(booking.getId()).orElseThrow().getStatus())
+                        .isEqualTo(BookingStatus.CONFIRMED);
+                assertThat(outbox.countByPublishedAtIsNull()).isEqualTo(1L);
+
+                status.setRollbackOnly();
+                return null;
+            });
+
+            // ... and a rollback takes BOTH back — one atomic unit, never a dangling half.
+            assertThat(bookings.findById(booking.getId()).orElseThrow().getStatus())
+                    .isEqualTo(BookingStatus.PENDING);
+            assertThat(outbox.count()).isZero();
+        } finally {
+            // This test's writes really commit/roll back (NOT_SUPPORTED), so clean up the booking
+            // persisted outside the template rather than leaving it for the harness rollback.
+            bookings.deleteById(booking.getId());
+        }
     }
 
     @Test
@@ -203,5 +270,14 @@ class BookingConfirmerTest {
         booking.addSeat(new BookingSeat(10L, new BigDecimal("12.00"), "STANDARD"));
         booking.addSeat(new BookingSeat(11L, new BigDecimal("12.00"), "STANDARD"));
         return bookings.saveAndFlush(booking);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> payloadOf(OutboxMessage row) {
+        try {
+            return objectMapper.readValue(row.getPayload(), Map.class);
+        } catch (Exception e) {
+            throw new IllegalStateException("Stored outbox payload is not JSON: " + row.getPayload(), e);
+        }
     }
 }

@@ -245,8 +245,7 @@ class PaymentServiceTest {
 
     @Test
     @DisplayName("the booking's currency selects the gateway, not the client's preference")
-    void currencyFlowsFromBookingToGateway() {
-        Payment payment = persistedPayment();
+    void currencyFlowsFromBookingToGateway() {        Payment payment = persistedPayment();
         PaymentAttempt attempt = attempt(PaymentAttemptStatus.PENDING,
                 Instant.now().plus(10, ChronoUnit.MINUTES), "https://pay.example/new");
 
@@ -262,5 +261,94 @@ class PaymentServiceTest {
         // Guard 6 runs inside the factory, so what matters here is that the BOOKING's currency
         // reaches it — a client cannot smuggle a different one past the gateway check.
         verify(sessionFactory).openNewSession(payment, PaymentGatewayType.PAYMOB, "USD");
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Stranded-attempt retry — the outage path
+    // ---------------------------------------------------------------------------------------------
+
+    /** A PENDING attempt the gateway never answered: no session, no checkout, only evidence. */
+    private PaymentAttempt strandedAttempt(PaymentGatewayType gateway) {
+        PaymentAttempt stranded = new PaymentAttempt(gateway, "key-stranded-" + gateway);
+        ReflectionTestUtils.setField(stranded, "id", 903L);
+        ReflectionTestUtils.setField(stranded, "expiresAt",
+                Instant.now().plus(15, ChronoUnit.MINUTES));   // the provisional deadline
+        // checkoutUrl and gatewaySessionId stay null: the gateway never answered.
+        return stranded;
+    }
+
+    @Test
+    @DisplayName("RETRY: a stranded attempt is completed on its own row, not inserted beside it")
+    void retryReusesStrandedRowInsteadOfInserting() {
+        // First POST inserted this row, then the gateway threw before returning a session.
+        Payment payment = persistedPayment();
+        PaymentAttempt stranded = strandedAttempt(PaymentGatewayType.PAYMOB);
+        PaymentAttempt completed = attempt(PaymentAttemptStatus.PENDING,
+                Instant.now().plus(10, ChronoUnit.MINUTES), "https://pay.example/retried");
+        ReflectionTestUtils.setField(completed, "id", 903L);
+
+        given(bookingClient.fetchPayability(BOOKING_ID)).willReturn(payableBooking());
+        given(paymentWriter.getOrCreatePayment(any(BookingPayability.class))).willReturn(payment);
+        given(attempts.findByPaymentIdAndStatus(500L, PaymentAttemptStatus.PENDING))
+                .willReturn(Optional.of(stranded));
+        given(sessionFactory.completeStrandedSession(903L, PaymentGatewayType.PAYMOB, "EGP"))
+                .willReturn(completed);
+
+        var outcome = service.createSession(request, USER);
+
+        assertThat(outcome.created()).isTrue();                      // 201 — a session was opened
+        assertThat(outcome.session().attemptId()).isEqualTo(903L);   // on the SAME row
+        // The one-live-attempt index would have rejected a second insert — so no insert happens.
+        verify(sessionFactory, never()).openNewSession(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("RETRY may switch gateways mid-outage — the stranded row adopts the requested one")
+    void retryAdoptsRequestedGateway() {
+        // Sandbox went down mid-checkout; the user picks Paymob for the retry.
+        Payment payment = persistedPayment();
+        PaymentAttempt stranded = strandedAttempt(PaymentGatewayType.SANDBOX);
+        CreatePaymentRequest paymobRetry = new CreatePaymentRequest(BOOKING_ID, PaymentGatewayType.PAYMOB);
+        PaymentAttempt completed = attempt(PaymentAttemptStatus.PENDING,
+                Instant.now().plus(10, ChronoUnit.MINUTES), "https://pay.example/paymob");
+        ReflectionTestUtils.setField(completed, "id", 903L);
+
+        given(bookingClient.fetchPayability(BOOKING_ID)).willReturn(payableBooking());
+        given(paymentWriter.getOrCreatePayment(any(BookingPayability.class))).willReturn(payment);
+        given(attempts.findByPaymentIdAndStatus(500L, PaymentAttemptStatus.PENDING))
+                .willReturn(Optional.of(stranded));
+        given(sessionFactory.completeStrandedSession(903L, PaymentGatewayType.PAYMOB, "EGP"))
+                .willReturn(completed);
+
+        service.createSession(paymobRetry, USER);
+
+        // The REQUESTED gateway reaches the factory — adoption happens there, on the old row.
+        verify(sessionFactory).completeStrandedSession(903L, PaymentGatewayType.PAYMOB, "EGP");
+        verify(sessionFactory, never()).openNewSession(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("a lapsed session WITH a gateway answer still opens new — stranded path not taken")
+    void lapsedRecordedSessionStillOpensNewAttempt() {
+        // The Pay-Again path the stranded logic must not swallow: this attempt HAS a session
+        // (checkoutUrl set), so it is lapsed-but-recorded, not stranded — isStranded() is false
+        // and the request flows to openNewSession exactly as before.
+        Payment payment = persistedPayment();
+        PaymentAttempt lapsed = attempt(PaymentAttemptStatus.PENDING,
+                Instant.now().minus(1, ChronoUnit.MINUTES), "https://pay.example/stale");
+        PaymentAttempt fresh = attempt(PaymentAttemptStatus.PENDING,
+                Instant.now().plus(10, ChronoUnit.MINUTES), "https://pay.example/fresh");
+        ReflectionTestUtils.setField(fresh, "id", 901L);
+
+        given(bookingClient.fetchPayability(BOOKING_ID)).willReturn(payableBooking());
+        given(paymentWriter.getOrCreatePayment(any(BookingPayability.class))).willReturn(payment);
+        given(attempts.findByPaymentIdAndStatus(500L, PaymentAttemptStatus.PENDING))
+                .willReturn(Optional.of(lapsed));
+        given(sessionFactory.openNewSession(payment, PaymentGatewayType.PAYMOB, "EGP"))
+                .willReturn(fresh);
+
+        assertThat(service.createSession(request, USER).session().attemptId()).isEqualTo(901L);
+
+        verify(sessionFactory, never()).completeStrandedSession(any(), any(), any());
     }
 }

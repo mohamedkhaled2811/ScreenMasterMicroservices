@@ -1,4 +1,26 @@
-# Test-only config — keeps the contextLoads smoke test hermetic (no Eureka needed).
+# Test-only config — keeps the hermetic suite offline: no Postgres, no Eureka, no broker.
+spring:
+  # In-memory H2 instead of Postgres. PostgreSQL compatibility mode so the entity mappings behave
+  # like production; Hibernate builds the schema (create-drop) for the test run.
+  datasource:
+    url: jdbc:h2:mem:notification;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+  # Liquibase changesets are Postgres-flavoured; let Hibernate own the test schema instead.
+  liquibase:
+    enabled: false
+
+# Don't try to reach a Eureka server during tests.
 eureka:
   client:
     enabled: false
+
+# No broker in the hermetic suite: the @RabbitListener container stays stopped
+# (BookingEventListener is driven directly in its own test).
+notification:
+  amqp:
+    listener:
+      auto-startup: false

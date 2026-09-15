@@ -1,5 +1,8 @@
 package com.gr74.payment.service;
 
+import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -9,6 +12,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.gr74.payment.client.BookingPayability;
+import com.gr74.payment.config.AttemptProps;
 import com.gr74.payment.exception.PaymentErrorCode;
 import com.gr74.payment.exception.PaymentException;
 import com.gr74.payment.gateway.GatewaySession;
@@ -46,6 +50,8 @@ public class PaymentWriter {
 
     private final PaymentRepository payments;
     private final PaymentAttemptRepository attempts;
+    private final AttemptProps attemptProps;
+    private final Clock clock;
 
     /**
      * The obligation for a booking, created on first sight — committed on its own.
@@ -95,14 +101,21 @@ public class PaymentWriter {
      * <p>A {@link DataIntegrityViolationException} here means the partial unique index
      * ({@code uq_active_attempt_per_payment}) rejected a second live attempt: two "Pay" clicks raced
      * and this one lost. That is a correct outcome, not an error to leak as a 500 — the loser is told
-     * to retry, and will then find the winner's live attempt and reuse it.
+     * to retry, and will then find the winner's live attempt and reuse it. (A retry of a
+     * <em>stranded</em> attempt never reaches this insert — it reuses the existing row — so this
+     * branch now fires only on a genuine insert-vs-insert race.)
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public PaymentAttempt insertPendingAttempt(Payment payment, PaymentGatewayType gatewayType) {
         Payment managed = payments.findById(payment.getId()).orElseThrow(
                 () -> new PaymentException(PaymentErrorCode.PAYMENT_INTERNAL_ERROR,
                         "Payment " + payment.getId() + " vanished before its attempt could be inserted"));
-        PaymentAttempt attempt = new PaymentAttempt(gatewayType, newIdempotencyKey(managed));
+        // A provisional deadline, not a session deadline: until the gateway answers this row is an
+        // unanswered call, and the expiry sweeper only sees attempts with a non-null expiresAt. The
+        // gateway's real deadline replaces it in recordSession; if the call never succeeds, this is
+        // what frees the payment for Pay Again instead of wedging it forever.
+        PaymentAttempt attempt = new PaymentAttempt(gatewayType, newIdempotencyKey(managed),
+                clock.instant().plus(attemptProps.strandedTtl()));
         managed.addAttempt(attempt);
         try {
             PaymentAttempt saved = attempts.saveAndFlush(attempt);
@@ -118,8 +131,38 @@ public class PaymentWriter {
         }
     }
 
-    /** Save what the gateway returned, in its own committed transaction. */
+    /**
+     * Re-point a stranded attempt at a gateway and hand back everything the retry needs — in one
+     * committed transaction, before the gateway is called.
+     *
+     * <p>Follows the same rule as {@link #insertPendingAttempt}: the caller's attempt is detached
+     * (it was read outside any transaction), so this loads its own managed copy, adopts the
+     * requested gateway on it, and returns a detached carrier with the fields the gateway call
+     * needs. The idempotency key is the row's <em>original</em> one: re-calling the gateway for the
+     * same attempt must be non-duplicating, which is exactly what the key is for.
+     *
+     * @return the retry facts, detached and safe to use outside any transaction
+     * @throws PaymentException {@code PAYMENT_VALIDATION_ERROR} if the attempt is no longer
+     *         stranded (a concurrent retry completed it first) — the caller retries the whole
+     *         request and will then find the winner's live attempt
+     */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public StrandedRetry prepareStrandedRetry(Long attemptId, PaymentGatewayType gatewayType) {
+        PaymentAttempt managed = attempts.findById(attemptId).orElseThrow(
+                () -> new PaymentException(PaymentErrorCode.PAYMENT_INTERNAL_ERROR,
+                        "Attempt " + attemptId + " vanished before its retry could be prepared"));
+        if (!managed.isStranded()) {
+            throw new PaymentException(PaymentErrorCode.PAYMENT_VALIDATION_ERROR,
+                    "A payment session for this booking is already being created; retry to reuse it");
+        }
+        managed.adoptGateway(gatewayType);
+        Payment payment = managed.getPayment();
+        return new StrandedRetry(managed.getId(), payment.getId(), payment.getBookingId(),
+                payment.getUserId(), payment.getAmount(), payment.getCurrency(),
+                managed.getIdempotencyKey());
+    }
+
+    /** Save what the gateway returned, in its own committed transaction. */    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public PaymentAttempt recordSession(Long attemptId, GatewaySession session) {
         PaymentAttempt attempt = attempts.findById(attemptId).orElseThrow(
                 () -> new PaymentException(PaymentErrorCode.PAYMENT_INTERNAL_ERROR,
@@ -139,5 +182,21 @@ public class PaymentWriter {
      */
     private String newIdempotencyKey(Payment payment) {
         return "pay-" + payment.getId() + "-" + UUID.randomUUID();
+    }
+
+    /**
+     * Everything a stranded-attempt retry needs, detached from any persistence context.
+     *
+     * @param attemptId      the reused row — the retry completes it, never inserts beside it
+     * @param idempotencyKey the row's original key, so the gateway dedupes the re-call
+     */
+    public record StrandedRetry(
+            Long attemptId,
+            Long paymentId,
+            Long bookingId,
+            String userId,
+            BigDecimal amount,
+            String currency,
+            String idempotencyKey) {
     }
 }

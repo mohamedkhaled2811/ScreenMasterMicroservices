@@ -1,9 +1,25 @@
 server:
   port: 8083
 
+# Actuator endpoints the resilience demo (BUILD_PLAN 5.2) reads. payment previously had NO
+# management block; this is what makes the 5.2 talk track ("with numbers from /actuator") possible.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,circuitbreakers,circuitbreakerevents,bulkheads,retries,metrics
+
 spring:
   application:
     name: payment
+
+  # Resilience4j's Boot-3 starter ships a version verifier that DELIBERATELY refuses to run on
+  # Boot 4 (SpringBoot3Verifier throws IncompatibleSpringBootVersionException and kills the context).
+  # We exclude that ONE auto-config: the rest of the starter's auto-configuration — the registries,
+  # the resilience4j.* property binding, and the actuator endpoints below — is verified to work on
+  # this Boot-4 stack. See docs/concepts/resilience-patterns.md and the AUTO-CONFIG note there.
+  autoconfigure:
+    exclude: io.github.resilience4j.springboot3.verifier.autoconfigure.SpringBoot3VerifierAutoConfiguration
 
   # Owns payment-db. Credentials come from env vars (never hard-coded — project convention),
   # with local-dev defaults after the ':'. Compose (1.4) overrides the URL/host via env.
@@ -42,6 +58,13 @@ payment:
   # for Paymob. See docs/concepts/payment-gateway-integration.md.
   public-url: ${PAYMENT_PUBLIC_URL:http://localhost:8080}
 
+  # Kill-switch for the two background recovery jobs (attempt-expiry sweeper + reconciliation
+  # sweep). True in every real deployment; the hermetic test suite sets it false so wall-clock
+  # ticks can never race frozen-clock assertions (a @Scheduled fixedDelay bean always fires its
+  # first tick per context — a long interval only spaces the later ones).
+  sweeps:
+    enabled: ${PAYMENT_SWEEPS_ENABLED:true}
+
   # Transactional-outbox relay (BUILD_PLAN 3.2): how often the drain tick runs and how many rows one
   # tick claims. Short enough that a confirmed payment feels instant; bounded so the first tick
   # after an outage walks the backlog over several passes.
@@ -65,6 +88,16 @@ payment:
     # bounded so the first tick after an outage walks the backlog over several passes.
     sweep-interval-millis: ${PAYMENT_RECONCILIATION_SWEEP_INTERVAL_MILLIS:300000}
     batch-size: ${PAYMENT_RECONCILIATION_BATCH_SIZE:100}
+
+  # How long a session-less attempt may wedge its payment (the stranded-retry backstop). When
+  # the gateway throws on createSession, the attempt row is left PENDING with no session, and a
+  # retry reuses that row — but a row nobody retries must not block its payment forever, so it
+  # carries this provisional deadline until the gateway's real one replaces it. Past it, the
+  # attempt-expiry sweeper closes the row and the payment is payable again. Longer than
+  # reconciliation.stale-after on purpose, so "reconciliation decides first" keeps its meaning
+  # for attempts that actually have a gateway session to ask about.
+  attempt:
+    stranded-ttl: ${PAYMENT_ATTEMPT_STRANDED_TTL:PT15M}
 
   gateway:
     # ---------------------------------------------------------------------------------------------
@@ -114,6 +147,82 @@ payment:
       iframe-base-url: ${PAYMOB_IFRAME_BASE_URL:https://accept.paymob.com/api/acceptance/iframes}
       supported-currencies: ${PAYMOB_CURRENCIES:EGP}
       session-ttl: ${PAYMOB_SESSION_TTL:PT15M}
+
+# ---------------------------------------------------------------------------------------------
+# Resilience4j (BUILD_PLAN 5.1) — a circuit breaker, bulkhead and retry around every outbound
+# gateway call, applied by ResilientPaymentGateway (a DECORATOR implementing PaymentGateway, not
+# annotations). One named instance per gateway (stripe / paymob / sandbox), each inheriting the
+# shared default policy, so Paymob's breaker and bulkhead are independent of Stripe's. The
+# starter's auto-config creates the registries and binds these keys; every number is env-overridable
+# and is a STARTING POINT to be tuned against the 5.2 sandbox demo. See docs/concepts/resilience-patterns.md.
+# ---------------------------------------------------------------------------------------------
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        # A breaker is MEMORY: after this many calls the failure rate decides. Too tight trips on
+        # normal noise and refuses healthy traffic; too loose lets a down gateway burn timeouts.
+        sliding-window-size: ${PAYMENT_CIRCUIT_BREAKER_SLIDING_WINDOW:10}
+        failure-rate-threshold: ${PAYMENT_CIRCUIT_BREAKER_FAILURE_RATE_THRESHOLD:50}
+        # How long the breaker stays OPEN before half-open probes. Short enough that a recovered
+        # gateway is noticed within a minute; long enough that a still-down one is not hammered.
+        wait-duration-in-open-state: ${PAYMENT_CIRCUIT_BREAKER_WAIT_OPEN:30s}
+        # The probe traffic allowed while HALF_OPEN — small, so recovery is confirmed by a few real
+        # calls rather than a burst.
+        permitted-number-of-calls-in-half-open-state: ${PAYMENT_CIRCUIT_BREAKER_HALF_OPEN_CALLS:3}
+        # ONLY infrastructural failures count. GatewayException's javadoc draws the line: a business
+        # decline is a SUCCESSFUL call that returns FAILED through the normal path and must never
+        # trip the breaker — otherwise ordinary declines would refuse healthy traffic.
+        record-exceptions:
+          - com.gr74.payment.gateway.GatewayException
+    instances:
+      stripe:
+        base-config: default
+      paymob:
+        base-config: default
+      sandbox:
+        base-config: default
+  bulkhead:
+    configs:
+      default:
+        # Caps concurrent in-flight calls to ONE gateway, so a hanging Paymob cannot drain the shared
+        # Tomcat thread pool and take down a healthy Stripe — the isolation a timeout alone cannot give.
+        max-concurrent-calls: ${PAYMENT_BULKHEAD_MAX_CONCURRENT_CALLS:8}
+        # MUST stay 0: reject immediately, never queue. Queueing is precisely the thread pile-up this
+        # pattern exists to prevent.
+        max-wait-duration: 0
+    instances:
+      stripe:
+        base-config: default
+      paymob:
+        base-config: default
+      sandbox:
+        base-config: default
+  retry:
+    configs:
+      default:
+        # 3 attempts total (one + two retries) with 200ms → 400ms exponential backoff plus jitter:
+        # absorbs a one-packet blip without a synchronized retry storm. The retry is ONLY safe
+        # because createSession carries an idempotency key (Stripe Idempotency-Key, Paymob
+        # merchant_order_id) and fetchStatus is a pure read — see ResilientPaymentGateway's javadoc.
+        max-attempts: ${PAYMENT_RETRY_MAX_ATTEMPTS:3}
+        wait-duration: ${PAYMENT_RETRY_WAIT_DURATION:200ms}
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: ${PAYMENT_RETRY_BACKOFF_MULTIPLIER:2}
+        enable-randomized-wait: true
+        randomized-wait-factor: ${PAYMENT_RETRY_JITTER_FACTOR:0.5}
+        # Note the key: retry-exceptions (not record-exceptions — that is the breaker's name). Only
+        # GatewayException is retried, so a breaker-open fast-fail (CallNotPermittedException) or a
+        # bulkhead rejection is NOT retried and returns to the caller immediately.
+        retry-exceptions:
+          - com.gr74.payment.gateway.GatewayException
+    instances:
+      stripe:
+        base-config: default
+      paymob:
+        base-config: default
+      sandbox:
+        base-config: default
 
 # OpenAPI / Swagger UI (see docs/concepts/openapi-springdoc.md). The spec is served at /v3/api-docs
 # and the UI at /swagger-ui.html; the gateway aggregates all services' specs into one UI at :8080.

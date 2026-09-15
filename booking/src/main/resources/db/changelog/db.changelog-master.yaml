@@ -13,6 +13,8 @@
 #   007-add-bookings-...    bookings.showtime_id FK constraint (intra-Booking, both sides local)
 #   008-rename-movie-...   movie_titles -> movie_projections; the projection is the concept, title is
 #                           one column on it. Booking-private table, so a plain forward-only rename.
+#   010-create-outbox      outbox — transactional outbox: saga events written atomically with the
+#                           booking write; the Phase-4 relay publishes them (BUILD_PLAN 4.1/4.2)
 #
 # See docs/concepts/liquibase.md.
 databaseChangeLog:
@@ -34,3 +36,5 @@ databaseChangeLog:
       file: db/changelog/changes/008-rename-movie-titles.yaml
   - include:
       file: db/changelog/changes/009-add-currency.yaml
+  - include:
+      file: db/changelog/changes/010-create-outbox.yaml

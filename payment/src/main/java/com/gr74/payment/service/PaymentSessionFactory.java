@@ -58,8 +58,7 @@ public class PaymentSessionFactory {
      * @throws com.gr74.payment.exception.CurrencyNotSupportedException gateway can't settle it (400)
      * @throws com.gr74.payment.gateway.GatewayException                gateway unreachable (503)
      */
-    public PaymentAttempt openNewSession(Payment payment, PaymentGatewayType gatewayType, String currency) {
-        // Guard 6, before anything is written: a gateway that isn't registered, or can't settle this
+    public PaymentAttempt openNewSession(Payment payment, PaymentGatewayType gatewayType, String currency) {        // Guard 6, before anything is written: a gateway that isn't registered, or can't settle this
         // currency, must be rejected without leaving a dead attempt row behind.
         PaymentGateway gateway = gatewaySelector.select(gatewayType, currency);
 
@@ -87,6 +86,52 @@ public class PaymentSessionFactory {
         }
 
         return paymentWriter.recordSession(attempt.getId(), session);
+    }
+
+    /**
+     * Retry an unanswered call on its existing attempt row.
+     *
+     * <p>The mirror of {@link #openNewSession} for the second-and-later {@code POST /payments}: the
+     * attempt row already exists (inserted by the first call, committed before the gateway threw),
+     * so no new row is inserted — the one-live-attempt index would reject it. The gateway is called
+     * with the row's <em>original</em> idempotency key, which is what makes the re-call
+     * non-duplicating, and the requested gateway is adopted on the row first, so a retry may switch
+     * gateways mid-outage. On failure the attempt stays {@code PENDING} for the next retry (or, past
+     * its provisional deadline, for the expiry sweeper); on success the gateway's real session —
+     * including its real deadline — is recorded, replacing the provisional one.
+     *
+     * @throws com.gr74.payment.exception.GatewayNotAvailableException  gateway not registered (400)
+     * @throws com.gr74.payment.exception.CurrencyNotSupportedException gateway can't settle it (400)
+     * @throws com.gr74.payment.gateway.GatewayException                gateway unreachable (503)
+     */
+    public PaymentAttempt completeStrandedSession(Long attemptId, PaymentGatewayType gatewayType,
+            String currency) {
+        // Guard 6, before anything is written — same position as in openNewSession.
+        PaymentGateway gateway = gatewaySelector.select(gatewayType, currency);
+
+        PaymentWriter.StrandedRetry retry = paymentWriter.prepareStrandedRetry(attemptId, gatewayType);
+
+        GatewaySession session;
+        try {
+            session = gateway.createSession(new GatewaySessionRequest(
+                    retry.paymentId(),
+                    retry.attemptId(),
+                    retry.bookingId(),
+                    retry.userId(),
+                    retry.amount(),
+                    retry.currency(),
+                    retry.idempotencyKey(),
+                    paymentProps.returnUrl(retry.attemptId()),
+                    paymentProps.cancelUrl(retry.attemptId())));
+        } catch (RuntimeException e) {
+            // Same reasoning as openNewSession: we do not know the gateway didn't create a session,
+            // so the row stays PENDING — for the next retry, which reuses this same row and key.
+            log.warn("Gateway {} failed to complete stranded attempt {}; leaving it PENDING for retry",
+                    gatewayType, attemptId, e);
+            throw e;
+        }
+
+        return paymentWriter.recordSession(retry.attemptId(), session);
     }
 
     /** Whether an attempt is still usable — exposed for the sweeper and tests. */

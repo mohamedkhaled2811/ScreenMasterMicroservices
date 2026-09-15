@@ -2,12 +2,15 @@ package com.gr74.booking.service;
 
 import java.time.Clock;
 import java.time.Instant;
-import java.util.UUID;
 
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gr74.booking.config.RabbitConfig;
+import com.gr74.booking.exception.BookingErrorCode;
+import com.gr74.booking.exception.BookingException;
 import com.gr74.booking.messaging.BookingConfirmationRejected;
 import com.gr74.booking.messaging.BookingConfirmed;
 import com.gr74.booking.messaging.ConfirmationRejectionReason;
@@ -16,6 +19,9 @@ import com.gr74.booking.messaging.PaymentSucceededEvent;
 import com.gr74.booking.model.Booking;
 import com.gr74.booking.model.BookingStatus;
 import com.gr74.booking.model.PaymentStatus;
+import com.gr74.booking.outbox.OutboxEventType;
+import com.gr74.booking.outbox.OutboxMessage;
+import com.gr74.booking.outbox.OutboxMessageRepository;
 import com.gr74.booking.repository.BookingRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -33,6 +39,12 @@ import lombok.extern.slf4j.Slf4j;
  *
  * <p><b>Nothing is ever decided from {@code paymentStatus}.</b> It is a read-model mirror for
  * display ("last attempt failed, you may retry"); the seat guard looks at {@code status} only.
+ *
+ * <p><b>The dual write is gone (BUILD_PLAN 4.1).</b> The confirm no longer raises an in-JVM event
+ * for an AFTER_COMMIT publisher; it writes an {@code outbox} row <em>in the same transaction</em>
+ * as the status change, so the two commit or roll back together. The outbox relay publishes those
+ * rows afterwards — a broker outage now defers, it never drops, and a lost
+ * {@code BookingConfirmationRejected} (a stranded refund) cannot happen.
  */
 @Slf4j
 @Service
@@ -40,7 +52,8 @@ import lombok.extern.slf4j.Slf4j;
 public class BookingConfirmer {
 
     private final BookingRepository bookings;
-    private final ApplicationEventPublisher events;
+    private final OutboxMessageRepository outbox;
+    private final ObjectMapper objectMapper;
     private final Clock clock;
 
     /** What one {@code PaymentSucceeded} decided — returned so tests can assert the branch. */
@@ -61,9 +74,8 @@ public class BookingConfirmer {
      *
      * <p>One conditional UPDATE decides the race with the expiry sweeper at the database: id
      * match + still PENDING + hold still live. One row → CONFIRMED + a {@link BookingConfirmed}
-     * application event (published to the broker AFTER_COMMIT by
-     * {@link com.gr74.booking.messaging.BookingEventPublisher}). Zero rows → re-read and branch:
-     * CONFIRMED is a redelivery (no-op); EXPIRED/CANCELLED publishes a
+     * outbox row (same transaction — the outbox relay publishes it to the broker). Zero rows →
+     * re-read and branch: CONFIRMED is a redelivery (no-op); EXPIRED/CANCELLED writes a
      * {@link BookingConfirmationRejected} carrying the event's {@code paymentId} so Payment can
      * refund without a lookup — the compensation trigger step 3.5 consumes.
      */
@@ -77,8 +89,12 @@ public class BookingConfirmer {
             Booking booking = bookings.findById(event.bookingId())
                     .orElseThrow(() -> new IllegalStateException(
                             "Booking " + event.bookingId() + " confirmed then vanished mid-transaction"));
-            events.publishEvent(new BookingConfirmed(UUID.randomUUID().toString(),
-                    booking.getId(), booking.getBookingReference(), booking.getUserId(), now));
+            // eventId is a 0L placeholder; the relay stamps the outbox row id onto the wire so a
+            // republished event keeps the same id and the consumer's dedupe fires.
+            writeOutbox(new BookingConfirmed(0L,
+                            booking.getId(), booking.getBookingReference(), booking.getUserId(), now),
+                    OutboxEventType.BOOKING_CONFIRMED, booking.getId(),
+                    RabbitConfig.BOOKING_CONFIRMED_ROUTING_KEY);
             log.info("Confirmed booking id={} ref={} off paymentId={} (eventId={})",
                     booking.getId(), booking.getBookingReference(), event.paymentId(), event.eventId());
             return ConfirmOutcome.CONFIRMED;
@@ -121,7 +137,7 @@ public class BookingConfirmer {
                 yield ConfirmOutcome.ALREADY_CONFIRMED;
             }
             case EXPIRED, CANCELLED -> {
-                publishRejection(booking, event,
+                writeRejection(booking, event,
                         ConfirmationRejectionReason.valueOf(booking.getStatus().name()), now);
                 yield ConfirmOutcome.REJECTED;
             }
@@ -136,25 +152,45 @@ public class BookingConfirmer {
      * and a concurrent sweeper flip would read back EXPIRED, not PENDING).
      *
      * <p>Rather than trusting the sweeper to arrive within the minute, expire the hold inline with
-     * the same guarded update and publish the rejection now: a paid-but-undecided event that merely
+     * the same guarded update and write the rejection now: a paid-but-undecided event that merely
      * went back on the queue would strand the customer's refund if the sweeper were down. Either
      * order ends the same — EXPIRED plus an auto-refund — because the sweeper's update is guarded
      * identically and emits nothing itself.
      */
     private ConfirmOutcome rejectLapsedHold(Booking booking, PaymentSucceededEvent event, Instant now) {
         bookings.expireIfStillPending(booking.getId(), BookingStatus.PENDING, BookingStatus.EXPIRED);
-        publishRejection(booking, event, ConfirmationRejectionReason.EXPIRED, now);
+        writeRejection(booking, event, ConfirmationRejectionReason.EXPIRED, now);
         return ConfirmOutcome.REJECTED;
     }
 
-    private void publishRejection(Booking booking, PaymentSucceededEvent event,
+    private void writeRejection(Booking booking, PaymentSucceededEvent event,
             ConfirmationRejectionReason reason, Instant now) {
-        events.publishEvent(new BookingConfirmationRejected(UUID.randomUUID().toString(),
-                booking.getId(), booking.getBookingReference(), event.paymentId(),
-                reason, booking.getUserId(), now));
+        writeOutbox(new BookingConfirmationRejected(0L,
+                        booking.getId(), booking.getBookingReference(), event.paymentId(),
+                        reason, booking.getUserId(), now),
+                OutboxEventType.BOOKING_CONFIRMATION_REJECTED, booking.getId(),
+                RabbitConfig.BOOKING_CONFIRMATION_REJECTED_ROUTING_KEY);
         log.info("PaymentSucceeded arrived too late for booking id={} ref={} (status={}) — "
-                        + "rejection published for auto-refund of paymentId={} (eventId={})",
+                        + "rejection written for auto-refund of paymentId={} (eventId={})",
                 booking.getId(), booking.getBookingReference(), booking.getStatus(),
                 event.paymentId(), event.eventId());
+    }
+
+    /**
+     * The outbox write — the "announcement" half of the confirm/reject. Runs inside the caller's
+     * transaction, so the booking row and this row commit or roll back together (BUILD_PLAN 4.1).
+     * The event is serialized once here with a placeholder {@code eventId}; the relay injects the
+     * outbox row id onto the wire so redeliveries carry a stable dedupe key.
+     */
+    private void writeOutbox(Object event, OutboxEventType type, Long aggregateId, String routingKey) {
+        try {
+            outbox.save(new OutboxMessage(type, aggregateId, routingKey,
+                    objectMapper.writeValueAsString(event)));
+        } catch (JsonProcessingException e) {
+            // Serializing a record we control should never fail; if it does, fail the whole
+            // transaction loudly rather than commit a booking with no announcement.
+            throw new BookingException(BookingErrorCode.BOOKING_INTERNAL_ERROR,
+                    "Failed to serialize " + type + " event for booking " + aggregateId, e);
+        }
     }
 }

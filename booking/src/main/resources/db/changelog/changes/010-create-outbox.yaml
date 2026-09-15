@@ -1,0 +1,70 @@
+# Changeset 010 — the transactional outbox (BUILD_PLAN Phase 4.1/4.2).
+#
+# One Booking-owned table that turns "state changed" into "state announced" without a dual write:
+# the business row and the outbox row commit in ONE transaction, and a scheduled relay publishes
+# pending rows afterwards. This closes the gap BookingEventPublisher named: a broker outage at
+# AFTER_COMMIT could silently drop a BookingConfirmationRejected and strand a customer's refund.
+# See docs/concepts/transactional-outbox.md.
+#
+# Design notes (mirrors payment's 003-create-outbox.yaml — the two services run the same pattern,
+# deliberately duplicated rather than shared, per the no-shared-jar boundary rule):
+# - payload is TEXT, not jsonb: the relay parses and re-serializes it, so the database never needs
+#   to understand it — and TEXT keeps the H2 hermetic suite (which owns its schema via Hibernate)
+#   portable, while ddl-auto=validate still agrees exactly on Postgres.
+# - aggregate_id is a LOGICAL reference to bookings(id) with no FK: the outbox row must be insertable
+#   in the same flush as the booking update without ordering games, and an outbox row must never
+#   block the business row's lifecycle.
+# - The partial index on unpublished rows is what the relay's drain query scans; published rows fall
+#   out of it, so the table stays fast as history accumulates. (Retention/deletion of published rows
+#   is a later operational concern, not this step.)
+databaseChangeLog:
+  - changeSet:
+      id: 010-1-create-outbox
+      author: mohamed
+      changes:
+        - createTable:
+            tableName: outbox
+            remarks: Transactional outbox. Rows written with the business change; relay publishes them.
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints: { primaryKey: true, nullable: false }
+              - column:
+                  name: event_type
+                  type: VARCHAR(60)
+                  remarks: BOOKING_CONFIRMED | BOOKING_CONFIRMATION_REJECTED
+                  constraints: { nullable: false }
+              - column:
+                  name: aggregate_id
+                  type: BIGINT
+                  remarks: bookings.id — logical ref, deliberately no FK.
+                  constraints: { nullable: false }
+              - column:
+                  name: routing_key
+                  type: VARCHAR(120)
+                  remarks: Topic routing key, e.g. booking-confirmed-key — the contract consumers bind to.
+                  constraints: { nullable: false }
+              - column:
+                  name: payload
+                  type: TEXT
+                  remarks: The event JSON exactly as it must travel on the wire.
+                  constraints: { nullable: false }
+              - column:
+                  name: created_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  constraints:
+                    nullable: false
+              - column:
+                  name: published_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  remarks: NULL = pending. Set by the relay AFTER the broker accepts the event.
+        # The relay drains WHERE published_at IS NULL ORDER BY id — a partial index keeps that scan
+        # off the growing history of published rows.
+        - createIndex:
+            indexName: idx_outbox_pending
+            tableName: outbox
+            columns:
+              - column: { name: published_at }
+              - column: { name: id }

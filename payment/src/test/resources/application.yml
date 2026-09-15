@@ -1,5 +1,17 @@
 # Test-only config — keeps the contextLoads smoke test hermetic (no Postgres, no Eureka).
 spring:
+  # Same exclusion as the main application.yml: the resilience4j Boot-3 starter's verifier refuses
+  # Boot 4 and would kill the context. This test file SHADOWS the main one, so it must repeat it.
+  autoconfigure:
+    exclude: io.github.resilience4j.springboot3.verifier.autoconfigure.SpringBoot3VerifierAutoConfiguration
+
+# Expose the resilience endpoints so ResilienceConfigTest can prove the Boot-3 starter's actuator
+# auto-configuration actually works on this Boot-4 stack (registry, binding and endpoints).
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,circuitbreakers,circuitbreakerevents,bulkheads,retries,metrics
   # In-memory H2 instead of Postgres. PostgreSQL compatibility mode so the entity mappings behave
   # like production; Hibernate builds the schema (create-drop) for the test run.
   datasource:
@@ -29,7 +41,11 @@ payment:
   outbox:
     relay-interval-millis: 3600000
     relay-batch-size: 50
-  # The sweeps never fire mid-suite (H2 + frozen-clock tests drive them directly instead).
+  # The sweeps never fire mid-suite (a long interval alone would NOT suffice: a @Scheduled
+  # fixedDelay bean still fires its first tick per context, which raced frozen-clock fixtures —
+  # so the kill-switch stays off here and every sweep is driven directly in its test).
+  sweeps:
+    enabled: false
   expiry:
     sweep-interval-millis: 3600000
   reconciliation:

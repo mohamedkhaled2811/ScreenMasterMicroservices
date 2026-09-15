@@ -102,12 +102,19 @@ public class PaymentService {
         // --- Reuse a live attempt if there is one ------------------------------------------------
         // This is what makes a double-clicked "Pay" button harmless, and what "Pay Again" hits when
         // the user simply reopens a still-valid checkout.
-        Optional<PaymentAttempt> live = findLiveAttempt(payment.getId(), now);
-        if (live.isPresent()) {
-            PaymentAttempt reused = live.get();
+        Optional<PaymentAttempt> pending =
+                attempts.findByPaymentIdAndStatus(payment.getId(), PaymentAttemptStatus.PENDING);
+        if (pending.isPresent() && pending.get().isLiveAt(now)) {
+            PaymentAttempt reused = pending.get();
             log.info("Reusing live attempt id={} paymentId={} gateway={} expiresAt={}",
                     reused.getId(), payment.getId(), reused.getGateway(), reused.getExpiresAt());
             return new SessionOutcome(PaymentSessionResponse.of(payment, reused), false);
+        }
+
+        if (pending.isPresent() && pending.get().isStranded()) {
+            PaymentAttempt completed = sessionFactory.completeStrandedSession(
+                    pending.get().getId(), request.gateway(), booking.currency());
+            return new SessionOutcome(PaymentSessionResponse.of(payment, completed), true);
         }
 
         // --- Guard 6 + create a new attempt ------------------------------------------------------
@@ -119,13 +126,9 @@ public class PaymentService {
 
     /**
      * The one attempt that could still be paid: PENDING, with a checkout URL, and not past its
-     * session deadline. Anything else needs a fresh session.
+     * session deadline. Anything else needs a fresh session — or, if it never got one, a retry on
+     * the existing row (see above).
      */
-    private Optional<PaymentAttempt> findLiveAttempt(Long paymentId, Instant now) {
-        return attempts.findByPaymentIdAndStatus(paymentId, PaymentAttemptStatus.PENDING)
-                .filter(attempt -> attempt.isLiveAt(now));
-    }
-
     /** Read a payment with its attempt history. */
     @Transactional(readOnly = true)
     public PaymentResponse findById(Long paymentId, String userId) {

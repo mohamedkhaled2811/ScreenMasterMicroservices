@@ -41,7 +41,11 @@ payment:
   outbox:
     relay-interval-millis: 3600000
     relay-batch-size: 50
-  # The sweeps never fire mid-suite (H2 + frozen-clock tests drive them directly instead).
+  # The sweeps never fire mid-suite (a long interval alone would NOT suffice: a @Scheduled
+  # fixedDelay bean still fires its first tick per context, which raced frozen-clock fixtures —
+  # so the kill-switch stays off here and every sweep is driven directly in its test).
+  sweeps:
+    enabled: false
   expiry:
     sweep-interval-millis: 3600000
   reconciliation:

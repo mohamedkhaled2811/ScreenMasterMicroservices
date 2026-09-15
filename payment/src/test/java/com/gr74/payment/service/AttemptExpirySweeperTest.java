@@ -19,6 +19,7 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.TestPropertySource;
 
 import com.gr74.payment.config.ReconciliationProps;
 import com.gr74.payment.model.Payment;
@@ -46,6 +47,10 @@ import com.gr74.payment.repository.PaymentRepository;
  */
 @DataJpaTest
 @Import(AttemptExpirySweeper.class)
+// The suite-wide kill-switch (payment.sweeps.enabled=false) would condition this @Import'ed bean
+// away, and this class tests the sweeper itself. Re-enable it here: @DataJpaTest has no
+// scheduler, so the bean still never ticks — every sweep stays directly driven and frozen-clock.
+@TestPropertySource(properties = "payment.sweeps.enabled=true")
 class AttemptExpirySweeperTest {
 
     private static final Instant NOW = Instant.parse("2026-09-06T20:16:00Z");
@@ -118,9 +123,25 @@ class AttemptExpirySweeperTest {
     }
 
     @Test
+    @DisplayName("BACKSTOP: a stranded attempt past its provisional deadline expires — the payment is payable again")
+    void strandedAttemptPastProvisionalDeadlineExpires() {
+        // The gateway never answered: no session recorded, only the provisional deadline the
+        // insert stamped. Past the reconciliation window, so the sweeper — not reconciliation,
+        // which can only probe attempts WITH a session id — is the right owner.
+        PaymentAttempt stranded = persistStrandedAttempt(1005L, NOW.minus(Duration.ofMinutes(11)));
+
+        int expired = sweeper.expireLapsedAttempts(NOW);
+
+        assertThat(expired).isEqualTo(1);
+        assertThat(attempts.findById(stranded.getId()).orElseThrow().getStatus())
+                .isEqualTo(PaymentAttemptStatus.EXPIRED);
+        assertThat(payments.findById(stranded.getPayment().getId()).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.PENDING);
+    }
+
+    @Test
     @DisplayName("a tick whose repository throws does not kill the scheduler")
-    void tickCatchesRepositoryFailureInsteadOfKillingTheScheduler() {
-        PaymentAttemptRepository failing = mock(PaymentAttemptRepository.class);
+    void tickCatchesRepositoryFailureInsteadOfKillingTheScheduler() {        PaymentAttemptRepository failing = mock(PaymentAttemptRepository.class);
         given(failing.findLapsed(any(), any())).willThrow(new RuntimeException("db down"));
         AttemptExpirySweeper fragile = new AttemptExpirySweeper(
                 failing, Clock.fixed(NOW, ZoneOffset.UTC), new ReconciliationProps(Duration.ofMinutes(10), 100));
@@ -128,12 +149,24 @@ class AttemptExpirySweeperTest {
         assertThatNoException().isThrownBy(fragile::tick);
     }
 
-    private PaymentAttempt persistAttempt(long bookingId, Instant expiresAt) {
-        Payment payment = new Payment(bookingId, USER, new BigDecimal("300.00"), "EGP");
+    private PaymentAttempt persistAttempt(long bookingId, Instant expiresAt) {        Payment payment = new Payment(bookingId, USER, new BigDecimal("300.00"), "EGP");
         PaymentAttempt attempt =
                 new PaymentAttempt(PaymentGatewayType.SANDBOX, "idem-" + bookingId + "-" + expiresAt.getEpochSecond());
         payment.addAttempt(attempt);
         attempt.recordSession("sess-" + bookingId, "http://localhost/checkout/sess-" + bookingId, expiresAt);
+        payments.saveAndFlush(payment);
+        return attempt;
+    }
+
+    /**
+     * A stranded row as the insert leaves it when the gateway throws: PENDING, no session, no
+     * checkout — only the provisional deadline. Deliberately NO recordSession call.
+     */
+    private PaymentAttempt persistStrandedAttempt(long bookingId, Instant provisionalExpiresAt) {
+        Payment payment = new Payment(bookingId, USER, new BigDecimal("300.00"), "EGP");
+        PaymentAttempt attempt = new PaymentAttempt(PaymentGatewayType.SANDBOX,
+                "idem-stranded-" + bookingId, provisionalExpiresAt);
+        payment.addAttempt(attempt);
         payments.saveAndFlush(payment);
         return attempt;
     }

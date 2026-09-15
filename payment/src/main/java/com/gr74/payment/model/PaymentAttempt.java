@@ -33,7 +33,11 @@ import lombok.NoArgsConstructor;
  *
  * <p>{@code expiresAt} is the <b>gateway session</b> deadline, deliberately a different clock from
  * the booking hold: a lapsed session is recoverable (open a new attempt), a lapsed booking is not
- * (the seats may already be resold).
+ * (the seats may already be resold). A freshly inserted attempt carries a <em>provisional</em>
+ * deadline (see {@link #PaymentAttempt(PaymentGatewayType, String, Instant)}): until the gateway
+ * answers, the row is evidence of an unanswered call, and the provisional deadline is what stops
+ * an unanswered call from wedging its payment forever — the expiry sweeper collects it and the
+ * payment becomes payable again.
  *
  * <p>{@code idempotencyKey} is forwarded to the gateway so a retried create — or one whose response
  * we never saw — cannot produce a second charge.
@@ -57,7 +61,7 @@ public class PaymentAttempt {
     private Payment payment;
 
     @Enumerated(EnumType.STRING) // never ordinal
-    @Column(nullable = false, length = 24, updatable = false)
+    @Column(nullable = false, length = 24)
     private PaymentGatewayType gateway;
 
     /** The gateway's checkout-session id. Null until the gateway answers; unique per gateway. */
@@ -95,11 +99,27 @@ public class PaymentAttempt {
     private Instant updatedAt;
 
     public PaymentAttempt(PaymentGatewayType gateway, String idempotencyKey) {
+        this(gateway, idempotencyKey, null);
+    }
+
+    /**
+     * A fresh attempt with a provisional session deadline.
+     *
+     * <p>Until the gateway answers, the row describes an <em>unanswered</em> call: no checkout URL,
+     * no session id, and therefore not reusable as a live session (see {@link #isLiveAt}). The
+     * provisional {@code expiresAt} is not a real session deadline — it is replaced by
+     * {@link #recordSession} when the gateway answers — but it must be set, because the
+     * attempt-expiry sweeper only sees attempts with a non-null deadline: without it, an
+     * unanswered call would wedge its payment forever (no sweeper and no reconciliation query
+     * matches a session-less row).
+     */
+    public PaymentAttempt(PaymentGatewayType gateway, String idempotencyKey, Instant provisionalExpiresAt) {
         this.gateway = gateway;
         this.idempotencyKey = idempotencyKey;
         this.status = PaymentAttemptStatus.PENDING;
         this.createdAt = Instant.now();
         this.updatedAt = this.createdAt;
+        this.expiresAt = provisionalExpiresAt;
     }
 
     /**
@@ -138,6 +158,43 @@ public class PaymentAttempt {
         return status == PaymentAttemptStatus.PENDING
                 && checkoutUrl != null
                 && (expiresAt == null || expiresAt.isAfter(now));
+    }
+
+    /**
+     * True when this attempt is an unanswered call: still {@code PENDING} but the gateway never
+     * returned a session, so there is no checkout to reuse — only a row to <em>retry</em>. A retry
+     * reuses this row (and its idempotency key, which is what makes re-calling the gateway safe)
+     * instead of inserting a second {@code PENDING} attempt the one-live-attempt index would reject.
+     *
+     * <p>The checkout URL is the discriminator, not just the session id: a recorded-but-lapsed
+     * session (Pay Again) also has no <em>live</em> checkout, but it HAS an answer and must flow to
+     * a fresh attempt, never to a re-call. In production all three session fields are set together
+     * by {@link #recordSession}, so either null implies the others — but the checkout check is
+     * what keeps the Pay-Again path out of the retry path.
+     */
+    public boolean isStranded() {
+        return status == PaymentAttemptStatus.PENDING
+                && gatewaySessionId == null
+                && checkoutUrl == null;
+    }
+
+    /**
+     * Point a stranded attempt at a (possibly different) gateway before retrying it.
+     *
+     * <p>Only a session-less attempt may be re-pointed: once the gateway has answered, the row
+     * describes a real session at a real gateway and rewriting it would corrupt the evidence.
+     * Adopting before the call (rather than only on success) is what lets a retry switch gateways
+     * mid-outage — e.g. Sandbox is down, the user picks Stripe — while still reusing the one
+     * {@code PENDING} slot the partial unique index allows.
+     */
+    public void adoptGateway(PaymentGatewayType gateway) {
+        if (gatewaySessionId != null) {
+            throw new IllegalStateException(
+                    "Attempt " + id + " already has gateway session " + gatewaySessionId
+                            + " and must not be re-pointed at " + gateway);
+        }
+        this.gateway = gateway;
+        touch();
     }
 
     /** Set by {@link Payment#addAttempt} to keep both sides of the relationship in sync. */

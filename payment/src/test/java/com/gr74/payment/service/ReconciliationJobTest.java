@@ -61,7 +61,6 @@ class ReconciliationJobTest {
     private static final String USER = "11111111-1111-1111-1111-111111111111";
     private static final String SIGNATURE_HEADER = "x-sandbox-signature";
 
-    @Autowired private ReconciliationJob job;
     @Autowired private WebhookProcessor processor;
     @Autowired private GatewayRegistry registry;
     @Autowired private SandboxGateway gateway;
@@ -77,6 +76,14 @@ class ReconciliationJobTest {
 
     private long bookingSeq = 5000L;
 
+    /**
+     * The job under test, constructed — not autowired. The suite-wide kill-switch
+     * ({@code payment.sweeps.enabled=false}) keeps the scheduled bean out of the context so no
+     * wall-clock tick can race these frozen-clock fixtures; reconcile() is a pure method call on
+     * real collaborators, exactly like the {@code blind}/{@code bounded} instances below.
+     */
+    private ReconciliationJob job;
+
     @BeforeEach
     void setUp() {
         jdbc.update("delete from outbox");
@@ -85,6 +92,9 @@ class ReconciliationJobTest {
         jdbc.update("delete from payment_attempts");
         jdbc.update("delete from sandbox_charges");
         jdbc.update("delete from payments");
+        job = new ReconciliationJob(attempts, processor, registry,
+                new ReconciliationProps(Duration.ofMinutes(10), 100),
+                Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test

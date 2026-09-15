@@ -58,6 +58,13 @@ payment:
   # for Paymob. See docs/concepts/payment-gateway-integration.md.
   public-url: ${PAYMENT_PUBLIC_URL:http://localhost:8080}
 
+  # Kill-switch for the two background recovery jobs (attempt-expiry sweeper + reconciliation
+  # sweep). True in every real deployment; the hermetic test suite sets it false so wall-clock
+  # ticks can never race frozen-clock assertions (a @Scheduled fixedDelay bean always fires its
+  # first tick per context — a long interval only spaces the later ones).
+  sweeps:
+    enabled: ${PAYMENT_SWEEPS_ENABLED:true}
+
   # Transactional-outbox relay (BUILD_PLAN 3.2): how often the drain tick runs and how many rows one
   # tick claims. Short enough that a confirmed payment feels instant; bounded so the first tick
   # after an outage walks the backlog over several passes.
@@ -81,6 +88,16 @@ payment:
     # bounded so the first tick after an outage walks the backlog over several passes.
     sweep-interval-millis: ${PAYMENT_RECONCILIATION_SWEEP_INTERVAL_MILLIS:300000}
     batch-size: ${PAYMENT_RECONCILIATION_BATCH_SIZE:100}
+
+  # How long a session-less attempt may wedge its payment (the stranded-retry backstop). When
+  # the gateway throws on createSession, the attempt row is left PENDING with no session, and a
+  # retry reuses that row — but a row nobody retries must not block its payment forever, so it
+  # carries this provisional deadline until the gateway's real one replaces it. Past it, the
+  # attempt-expiry sweeper closes the row and the payment is payable again. Longer than
+  # reconciliation.stale-after on purpose, so "reconciliation decides first" keeps its meaning
+  # for attempts that actually have a gateway session to ask about.
+  attempt:
+    stranded-ttl: ${PAYMENT_ATTEMPT_STRANDED_TTL:PT15M}
 
   gateway:
     # ---------------------------------------------------------------------------------------------

@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -46,6 +47,8 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Component
+@ConditionalOnProperty(prefix = "payment.sweeps", name = "enabled", havingValue = "true",
+        matchIfMissing = true)
 @RequiredArgsConstructor
 public class ReconciliationJob {
 

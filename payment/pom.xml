@@ -60,6 +60,29 @@
 		</dependency>
 
 		<!--
+		  The fault-tolerance toolbox for the PaymentGateway decorator (BUILD_PLAN 5.1): per-gateway
+		  circuit breaker, bulkhead and retry, applied programmatically (not via annotations) in
+		  ResilientPaymentGateway. Version is managed in the parent pom. The starter's auto-config is
+		  verified to work on this Boot-4 stack once its Boot-3-only version verifier is excluded
+		  (spring.autoconfigure.exclude in application.yml) — ResilienceConfig just consumes the
+		  auto-configured registries. See docs/concepts/resilience-patterns.md.
+		-->
+		<dependency>
+			<groupId>io.github.resilience4j</groupId>
+			<artifactId>resilience4j-spring-boot3</artifactId>
+		</dependency>
+		<!--
+		  AspectJ proxying for Resilience4j's annotation support (@CircuitBreaker/@Retry/@Bulkhead).
+		  Boot 4 renamed the Boot-3 artifact spring-boot-starter-aop to spring-boot-starter-aspectj.
+		  Our decorator wires the policies programmatically, so no annotation is on any bean today —
+		  the dependency is what makes that capability real if a later phase chooses it.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-aspectj</artifactId>
+		</dependency>
+
+		<!--
 		  OpenAPI 3.1 spec + Swagger UI. Introspects PaymentController + its record DTOs and
 		  Bean-Validation annotations at runtime; the bundle serves /v3/api-docs and
 		  /swagger-ui.html. Version is managed in the parent pom. See concepts/openapi-springdoc.md.

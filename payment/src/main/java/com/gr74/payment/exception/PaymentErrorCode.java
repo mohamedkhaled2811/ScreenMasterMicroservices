@@ -49,8 +49,24 @@ public enum PaymentErrorCode {
     /**
      * The gateway could not be reached or did not answer in time. Distinct from a decline, which is
      * a successful call with a negative outcome. The attempt is left PENDING for reconciliation.
+     *
+     * <p>This is also the answer when the circuit breaker is OPEN (fast-fail instead of a wait): the
+     * gateway is down, and the caller sees the same coded 503 it already handles for a real outage —
+     * just returned in microseconds instead of after a timeout. See
+     * {@code docs/concepts/resilience-patterns.md}.
      */
     PAYMENT_GATEWAY_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Payment gateway unavailable"),
+
+    /**
+     * The gateway's <em>bulkhead</em> is full — this deployment is already running the maximum
+     * number of concurrent calls to that gateway and rejected this one immediately rather than
+     * queue it. Deliberately a different code (429) from an outage (503): "we are saturated, try
+     * again shortly" is not the same as "the gateway is down", and a client that branches on
+     * {@code code} can tell the difference (and back off instead of retrying an outage). A 429
+     * never means a payment was charged or even attempted. See
+     * {@code docs/concepts/resilience-patterns.md}.
+     */
+    PAYMENT_GATEWAY_BUSY(HttpStatus.TOO_MANY_REQUESTS, "Payment gateway busy"),
 
     /** Booking could not be reached, so we cannot verify the amount. We fail closed, never open. */
     PAYMENT_BOOKING_SERVICE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Booking service unavailable"),

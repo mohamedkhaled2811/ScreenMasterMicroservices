@@ -59,7 +59,54 @@ resilience4j:
 - **Graceful degradation** by design: recommendations down → show generic popular movies; seat-map slow → serve the 5-second-old cached map with a "refreshing…" hint. Product keeps working, dimmer.
 
 ## How we use it here (field guide M5)
-Add the Resilience4j stack to Booking's payment client (timeout 2 s, 3 retries with backoff, breaker, fallback = stay PENDING + queue). Then `docker stop payment` during a load loop and narrate: first requests eat the timeout → breaker opens (watch `/actuator/circuitbreakers`) → subsequent requests fail fast into the fallback → `docker start payment` → breaker half-opens → traffic resumes → queued bookings drain.
+
+**Payment's gateway clients** — Stripe, Paymob and the controllable Sandbox — are wrapped in
+Resilience4j, one policy set **per gateway**. A decorator, `ResilientPaymentGateway`, implements the
+`PaymentGateway` port and names each Resilience4j instance from `delegate.type()` (`stripe`,
+`paymob`, `sandbox`), so every gateway gets its own breaker, bulkhead and retry. `ResilienceConfig`
+wraps each adapter bean automatically (a new gateway is still just a `@Component`);
+`GatewayRegistry` consumes the decorated list; and no caller — `PaymentSessionFactory`,
+`RefundService`, `ReconciliationJob`, `WebhookController` — changes.
+
+The method-by-method policy split is the load-bearing decision:
+
+- `createSession` and `fetchStatus` run breaker + bulkhead + **retry** (3 attempts, 200ms exponential
+  backoff ×2 + jitter). The retry is only safe because `createSession` forwards an idempotency key
+  (Stripe `Idempotency-Key`, Paymob `merchant_order_id`) and `fetchStatus` is a pure read — the
+  interview line is *"the retry is only safe because the idempotency key makes it non-duplicating."*
+- `refund` runs breaker + bulkhead but **no retry**: a timed-out refund may have been processed, and
+  a blind retry risks a double refund — real money the local `Σ refunds ≤ amount` invariant cannot
+  see. The operator retries a failed refund manually.
+- `parseAndVerifyWebhook` is **completely undecorated**: it is local CPU work, and a webhook refused
+  by our own breaker would make a real gateway retry its delivery for hours — and webhooks are the
+  only path to `PAID`. `type()` and `supportedCurrencies()` also delegate untouched (no I/O; `type()`
+  is the registry map key).
+
+**Only `GatewayException` counts as a breaker failure — and only it is retried.** The breaker's
+`record-exceptions` and the retry's `retry-exceptions` (a different key!) both list only
+`GatewayException`. A declined card is a *successful* call that returns a `FAILED` status through
+the normal path; confusing the two would trip the breaker on ordinary business outcomes and refuse
+healthy traffic. The narrow lists also keep a breaker-open fast-fail
+(`CallNotPermittedException`) and a bulkhead rejection from being retried.
+
+**Breaker-open is a fast failure into the existing coded 503, not a fallback gateway.** There is no
+useful degraded answer here — a checkout URL is either real or it isn't — so `CallNotPermittedException`
+maps to `PAYMENT_GATEWAY_UNAVAILABLE` (503), and a bulkhead rejection gets its own
+`PAYMENT_GATEWAY_BUSY` (429): "we are saturated, try again shortly" is not "the gateway is down."
+Both render as coded RFC 9457 `ProblemDetail`s and can never leak as a 500.
+
+The 5.2 observation story: dial `PAYMENT_SANDBOX_UNAVAILABLE_RATE` up and watch
+`/actuator/circuitbreakers` (three independent named breakers) move `CLOSED → OPEN → HALF_OPEN →
+CLOSED`; hang the sandbox via `PAYMENT_SANDBOX_LATENCY_MILLIS` and prove the bulkhead by keeping a
+second gateway serving throughout. Recovery is automatic — the half-open probes are real calls.
+
+**Boot 4 note.** This stack is Spring Boot 4.1.0. Resilience4j's `resilience4j-spring-boot3`
+starter ships a version verifier that deliberately refuses Boot 4
+(`SpringBoot3Verifier` throws `IncompatibleSpringBootVersionException` and kills the context). We
+exclude that one auto-configuration (`spring.autoconfigure.exclude`); the rest of the starter's
+auto-configuration — the registries, the `resilience4j.*` property binding, and the actuator
+endpoints — is verified to work on Boot 4.1, and `ResilienceConfigTest` keeps that verdict as a
+regression test.
 
 ## The scenario to pray they ask
 "Payment goes down during checkout — what happens?" Walk the layers: **timeout** (2 s, not 30) → **retry** with backoff + idempotency key (no double charge) → failures trip the **breaker** → users fall into the **fallback** (booking PENDING, seats briefly held, "we'll email your tickets") → on recovery the breaker half-opens and queued work drains → if it can't complete in time, the **saga compensation** releases the seats. Six concepts, one story.

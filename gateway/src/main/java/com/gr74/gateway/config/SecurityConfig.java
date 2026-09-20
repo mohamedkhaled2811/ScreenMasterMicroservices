@@ -2,6 +2,9 @@ package com.gr74.gateway.config;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
+import jakarta.servlet.DispatcherType;
+
+import org.springframework.http.HttpMethod;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -72,6 +75,13 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(sessions -> sessions.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // Spring forwards to /error on any downstream failure. That FORWARD is a
+                        // separate dispatch and gets authorized again — so without this, a routing
+                        // failure on a PUBLIC path (e.g. a webhook when Payment is unreachable)
+                        // surfaces as a misleading 401 "authentication required" instead of the
+                        // real error. Authorize the REQUEST dispatch; let error forwards through.
+                        .dispatcherTypeMatchers(DispatcherType.ERROR, DispatcherType.FORWARD)
+                        .permitAll()
                         // Health stays public — a gated health endpoint hangs orchestration probes.
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                         // The aggregated Swagger UI: the browser fetches the specs same-origin with
@@ -80,6 +90,16 @@ public class SecurityConfig {
                                 "/catalog/v3/api-docs/**", "/booking/v3/api-docs/**",
                                 "/payment/v3/api-docs/**")
                         .permitAll()
+                        // Payment gateway webhooks (Paymob, Stripe, the sandbox) arrive from the
+                        // public internet with NO JWT and never will — they are authenticated by
+                        // HMAC signature over the raw body, verified in Payment. Without this rule
+                        // they hit `anyRequest().authenticated()` below and the gateway answers 401
+                        // before the delivery ever reaches Payment (which already permits them).
+                        //
+                        // NOTE the `/api/` prefix: this matcher runs against the INCOMING path.
+                        // StripPrefix=1 is a routing filter that runs later, so matching the
+                        // service-internal `/payments/**` here would never fire.
+                        .requestMatchers(HttpMethod.POST, "/api/payments/webhooks/**").permitAll()
                         // Coarse edge split: everything else needs a valid token.
                         // Fine-grained roles live on the services' controllers.
                         .anyRequest().authenticated())

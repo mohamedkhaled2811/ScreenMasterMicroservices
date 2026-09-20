@@ -1,17 +1,30 @@
-# Test-only config — keeps the contextLoads smoke test hermetic (no Eureka registry needed).
-# The gateway owns no DB, so there is nothing else to stub out; the real routes from the main
-# application.yml still load and are parsed (that's part of what this test guards).
+# Test-only config. NOTE: this file has the same name as the main application.yml, so it
+# REPLACES it on the test classpath rather than merging — Spring does not combine two files
+# named application.yml. Anything the tests need from the main config must therefore be
+# repeated here, INCLUDING the routes (proven: without them the route list is empty in tests
+# and every path falls through to the security chain with nothing to route).
+#
+# The routes below mirror the main application.yml closely enough to exercise edge security.
+# They point at a non-existent host on purpose: these tests assert the SECURITY outcome
+# (rejected vs. allowed through), never a successful proxy.
 eureka:
   client:
     enabled: false
 
-# Phase 7: the test file SHADOWS the main application.yml (a full-context test does not see
-# main-only nested keys — see the Boot-4 trap note in the Phase 7 report), so the resource-server
-# issuer URI is repeated here. The value only feeds the lazy JwtDecoder bean definition (no network
-# at boot) — hermetic tests never call Keycloak.
 spring:
   security:
     oauth2:
       resourceserver:
         jwt:
           issuer-uri: http://keycloak:8180/realms/cinema
+  cloud:
+    gateway:
+      mvc:
+        routes:
+          - id: payment
+            uri: http://payment.invalid:8083
+            predicates:
+              - Path=/api/payments/**
+            filters:
+              - StripPrefix=1
+              - RemoveRequestHeader=X-User-Id

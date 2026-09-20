@@ -58,6 +58,7 @@ Each concept file follows the same shape so they're predictable:
 | File | Covers |
 |---|---|
 | [security-jwt-oauth2.md](security-jwt-oauth2.md) | OAuth2/OIDC, JWT, resource servers, zero trust, client credentials, mTLS, Keycloak |
+| [keycloak-clients-and-scopes.md](keycloak-clients-and-scopes.md) | What a Keycloak *client* is vs a user, our four clients (`cinema-web` PKCE, `cinema-dev-cli`, the two machine clients), client scopes → claims, and which claims our code actually reads |
 | [current-user-resolution.md](current-user-resolution.md) | `@CurrentUser` + a `HandlerMethodArgumentResolver` as the identity seam — `X-User-Id` header now, JWT `sub` in Phase 7; `user_id` as an opaque cross-service ref, designing for a known-future change without over-building |
 
 ### Observability

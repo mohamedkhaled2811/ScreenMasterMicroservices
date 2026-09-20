@@ -377,8 +377,8 @@ services:
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
       # The one-issuer rule above, as env: listen on 8180, mint `iss` for keycloak:8180, strictly.
       KC_HTTP_PORT: 8180
-      KC_HOSTNAME: keycloak
-      KC_HOSTNAME_PORT: 8180
+      KC_HOSTNAME: http://keycloak:8180
+      KC_HOSTNAME_ADMIN: http://localhost:8180
       KC_HOSTNAME_STRICT: "true"
       # Tracing: the Zipkin exporter endpoint. No depends_on — see the discovery block.
       ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans

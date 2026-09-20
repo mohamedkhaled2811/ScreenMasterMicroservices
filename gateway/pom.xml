@@ -28,6 +28,16 @@
 			<artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
 		</dependency>
 		<!--
+		  Phase 7 (BUILD_PLAN 7.2): the gateway is an OAuth2 resource server — it validates the
+		  user's Bearer JWT (signature via Keycloak's JWKS, plus expiry + issuer) before routing.
+		  Every backend service validates AGAIN (zero trust); the edge check just fails fast.
+		  Version managed by the Spring Boot parent. See docs/concepts/security-jwt-oauth2.md.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+		</dependency>
+		<!--
 		  Actuator for /actuator/health — the gateway is the front door and needs a health surface
 		  for probes and Compose healthchecks (default instrumentation only).
 		-->
@@ -86,8 +96,33 @@
 		</dependency>
 
 		<dependency>
+			<groupId>org.projectlombok</groupId>
+			<artifactId>lombok</artifactId>
+			<optional>true</optional>
+		</dependency>
+
+		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!--
+		  Phase 7: spring-security-test provides the jwt() MockMvc post-processor, so slice tests
+		  exercise the REAL filter chain with a forged JWT instead of bypassing security.
+		-->
+		<dependency>
+			<groupId>org.springframework.security</groupId>
+			<artifactId>spring-security-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!--
+		  Boot 4 moved TestRestTemplate out of spring-boot-test into this module
+		  (org.springframework.boot.resttestclient.TestRestTemplate) — the Boot-3 import path no
+		  longer exists. Used by the full-context actuator/health tests (real HTTP, no MockMvc).
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-resttestclient</artifactId>
 			<scope>test</scope>
 		</dependency>
 	</dependencies>

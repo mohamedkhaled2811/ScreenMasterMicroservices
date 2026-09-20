@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -18,10 +19,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.JwtRequestPostProcessor;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.gr74.payment.config.SecurityConfig;
+import com.gr74.payment.config.WebMvcConfig;
 import com.gr74.payment.dto.PaymentSessionResponse;
 import com.gr74.payment.exception.BookingNotFoundException;
 import com.gr74.payment.exception.BookingNotPayableException;
@@ -40,12 +45,19 @@ import com.gr74.payment.service.PaymentService.SessionOutcome;
  * <p>The <em>rules</em> are tested in {@code PaymentServiceTest}; this slice asserts that each rule's
  * outcome reaches the client in the documented shape, because the {@code code} in the ProblemDetail is
  * the stable contract a client branches on — not the message, and not the HTTP status alone.
+ *
+ * <p>Imports the real {@link SecurityConfig} (plus {@link WebMvcConfig} for the
+ * {@code @CurrentUser} resolver) so every case runs through the REAL filter chain. Identity is the
+ * JWT {@code sub} — the forged token's subject below is what the service receives as
+ * {@code userId}, and a forged {@code X-User-Id} header is ignored entirely.
  */
+@Import({WebMvcConfig.class, SecurityConfig.class})
 @WebMvcTest(PaymentController.class)
 class PaymentControllerTest {
 
     private static final String PATH = "/payments";
     private static final String USER = "11111111-1111-1111-1111-111111111111";
+    private static final String VICTIM = "22222222-2222-2222-2222-222222222222";
     private static final String CODE = "$.code";
     private static final String BODY = """
             {"bookingId":1001,"gateway":"PAYMOB"}""";
@@ -62,13 +74,18 @@ class PaymentControllerTest {
                 new BigDecimal("300.00"), "EGP");
     }
 
+    /** The acting user, as the verified JWT `sub`. */
+    private static JwtRequestPostProcessor userToken() {
+        return jwt().jwt(jwt -> jwt.subject(USER));
+    }
+
     @Test
     @DisplayName("a new attempt returns 201 with the checkout URL")
     void newAttemptReturns201() throws Exception {
         given(paymentService.createSession(any(), anyString()))
                 .willReturn(new SessionOutcome(session(), true));
 
-        mockMvc.perform(post(PATH).header("X-User-Id", USER)
+        mockMvc.perform(post(PATH).with(userToken())
                         .contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.checkoutUrl").value("https://accept.paymob.com/checkout/abc"))
@@ -83,25 +100,40 @@ class PaymentControllerTest {
         given(paymentService.createSession(any(), anyString()))
                 .willReturn(new SessionOutcome(session(), false));
 
-        mockMvc.perform(post(PATH).header("X-User-Id", USER)
+        mockMvc.perform(post(PATH).with(userToken())
                         .contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isOk());
     }
 
     @Test
-    @DisplayName("a missing X-User-Id is a coded 400, not a 500")
-    void missingUserHeaderReturns400() throws Exception {
+    @DisplayName("no token is a coded 401, not a 500")
+    void missingTokenReturns401() throws Exception {
         mockMvc.perform(post(PATH)
                         .contentType(MediaType.APPLICATION_JSON).content(BODY))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isUnauthorized())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
-                .andExpect(jsonPath(CODE).value("PAYMENT_VALIDATION_ERROR"));
+                .andExpect(jsonPath(CODE).value("PAYMENT_UNAUTHORIZED"));
+    }
+
+    @Test
+    @DisplayName("a forged X-User-Id header is ignored — the JWT sub is the user, always")
+    void spoofedUserHeaderIsIgnored() throws Exception {
+        given(paymentService.createSession(any(), anyString()))
+                .willReturn(new SessionOutcome(session(), true));
+
+        mockMvc.perform(post(PATH).with(userToken())
+                        .header("X-User-Id", VICTIM)
+                        .contentType(MediaType.APPLICATION_JSON).content(BODY))
+                .andExpect(status().isCreated());
+
+        // The service received the TOKEN holder (USER), never the header's victim.
+        org.mockito.Mockito.verify(paymentService).createSession(any(), org.mockito.ArgumentMatchers.eq(USER));
     }
 
     @Test
     @DisplayName("an unknown gateway name is a coded 400, never a leaked type-mismatch 500")
     void unknownGatewayReturns400() throws Exception {
-        mockMvc.perform(post(PATH).header("X-User-Id", USER)
+        mockMvc.perform(post(PATH).with(userToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"bookingId\":1001,\"gateway\":\"NOT_A_GATEWAY\"}"))
                 .andExpect(status().isBadRequest())
@@ -114,7 +146,7 @@ class PaymentControllerTest {
         willThrow(new ForbiddenBookingException(1001L))
                 .given(paymentService).createSession(any(), anyString());
 
-        mockMvc.perform(post(PATH).header("X-User-Id", USER)
+        mockMvc.perform(post(PATH).with(userToken())
                         .contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath(CODE).value("PAYMENT_FORBIDDEN"));
@@ -126,7 +158,7 @@ class PaymentControllerTest {
         willThrow(new BookingNotFoundException(1001L))
                 .given(paymentService).createSession(any(), anyString());
 
-        mockMvc.perform(post(PATH).header("X-User-Id", USER)
+        mockMvc.perform(post(PATH).with(userToken())
                         .contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath(CODE).value("PAYMENT_BOOKING_NOT_FOUND"));
@@ -138,7 +170,7 @@ class PaymentControllerTest {
         willThrow(BookingNotPayableException.expired(1001L))
                 .given(paymentService).createSession(any(), anyString());
 
-        mockMvc.perform(post(PATH).header("X-User-Id", USER)
+        mockMvc.perform(post(PATH).with(userToken())
                         .contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath(CODE).value("PAYMENT_BOOKING_EXPIRED"))
@@ -151,7 +183,7 @@ class PaymentControllerTest {
         willThrow(BookingNotPayableException.alreadyPaid(1001L))
                 .given(paymentService).createSession(any(), anyString());
 
-        mockMvc.perform(post(PATH).header("X-User-Id", USER)
+        mockMvc.perform(post(PATH).with(userToken())
                         .contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath(CODE).value("PAYMENT_ALREADY_PAID"));
@@ -164,7 +196,7 @@ class PaymentControllerTest {
                 Set.of(PaymentGatewayType.STRIPE)))
                 .given(paymentService).createSession(any(), anyString());
 
-        mockMvc.perform(post(PATH).header("X-User-Id", USER)
+        mockMvc.perform(post(PATH).with(userToken())
                         .contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath(CODE).value("PAYMENT_CURRENCY_NOT_SUPPORTED"))
@@ -177,7 +209,7 @@ class PaymentControllerTest {
         given(gatewayRegistry.availableFor("EGP"))
                 .willReturn(Set.of(PaymentGatewayType.PAYMOB, PaymentGatewayType.SANDBOX));
 
-        mockMvc.perform(get(PATH + "/gateways").param("currency", "EGP"))
+        mockMvc.perform(get(PATH + "/gateways").with(userToken()).param("currency", "EGP"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.currency").value("EGP"))
                 .andExpect(jsonPath("$.gateways", org.hamcrest.Matchers.hasSize(2)));
@@ -188,8 +220,16 @@ class PaymentControllerTest {
     void listsAllGateways() throws Exception {
         given(gatewayRegistry.available()).willReturn(Set.of(PaymentGatewayType.SANDBOX));
 
-        mockMvc.perform(get(PATH + "/gateways"))
+        mockMvc.perform(get(PATH + "/gateways").with(userToken()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.gateways[0]").value("SANDBOX"));
+    }
+
+    @Test
+    @DisplayName("the gateway list with no token is 401 (it is authenticated, not public)")
+    void listsGatewaysWithoutTokenIs401() throws Exception {
+        mockMvc.perform(get(PATH + "/gateways"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath(CODE).value("PAYMENT_UNAUTHORIZED"));
     }
 }

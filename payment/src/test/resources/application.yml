@@ -4,6 +4,14 @@ spring:
   # Boot 4 and would kill the context. This test file SHADOWS the main one, so it must repeat it.
   autoconfigure:
     exclude: io.github.resilience4j.springboot3.verifier.autoconfigure.SpringBoot3VerifierAutoConfiguration
+  # Phase 7: same shadowing — the resource-server issuer URI is repeated here (a full-context test
+  # does not see main-only nested keys). The value only feeds the lazy JwtDecoder bean definition
+  # (no network at boot) — hermetic tests never call Keycloak.
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://keycloak:8180/realms/cinema
 
 # Expose the resilience endpoints so ResilienceConfigTest can prove the Boot-3 starter's actuator
 # auto-configuration actually works on this Boot-4 stack (registry, binding and endpoints).

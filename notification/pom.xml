@@ -77,6 +77,29 @@
 		</dependency>
 
 		<!--
+		  Phase 7 (BUILD_PLAN 7.3): zero trust extends to the consumer too — Notification validates
+		  a Bearer JWT like every other service (today that only gates the actuator surface; the
+		  business path is the broker, which carries no token by design). Version managed by the
+		  Spring Boot parent. See docs/concepts/security-jwt-oauth2.md.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+		</dependency>
+
+		<!--
+		  Phase 7 (BUILD_PLAN 7.6, decision B3a): the machine token. Notification acts AS ITSELF on
+		  background threads (no user is waiting), so it authenticates to Keycloak with its own
+		  client id/secret (client-credentials grant) — e.g. to look up a user's email by `sub` in
+		  part 2. The framework's OAuth2AuthorizedClientManager fetches, caches and refreshes the
+		  token; we never hand-roll a token cache. See docs/concepts/security-jwt-oauth2.md.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-oauth2-client</artifactId>
+		</dependency>
+
+		<!--
 		  AMQP / RabbitMQ. Notification is the CONSUMER side of Booking's booking-outcome stream
 		  (BUILD_PLAN 4.3): a @RabbitListener consumes BookingConfirmed / BookingConfirmationRejected
 		  and "sends" the email. Version managed by the Spring Boot parent.
@@ -122,6 +145,28 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!--
+		  Boot 4 moved TestRestTemplate out of spring-boot-test into this module
+		  (org.springframework.boot.resttestclient.TestRestTemplate) — the Boot-3 import path no
+		  longer exists. Used by the full-context actuator/health tests (real HTTP, no MockMvc).
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-resttestclient</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!--
+		  Test-scope ONLY, and only here for the health test above: TestRestTemplate's auto-config
+		  introspects RestTemplateBuilder (Boot 4's spring-boot-restclient module), which no other
+		  notification dependency pulls in — Boot 4 split RestClient out of the web starter and this
+		  consumer-only service makes no outbound REST calls of its own. (Part 2's Keycloak Admin
+		  API lookup will add the real client then; this entry stays test-scoped.)
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-restclient</artifactId>
 			<scope>test</scope>
 		</dependency>
 		<!--

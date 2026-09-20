@@ -3,6 +3,7 @@ package com.gr74.booking.controller;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -21,11 +22,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.JwtRequestPostProcessor;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.gr74.booking.config.SecurityConfig;
 import com.gr74.booking.dto.CreateShowtimeRequest;
 import com.gr74.booking.exception.CatalogUnavailableException;
 import com.gr74.booking.exception.MovieNotInCatalogException;
@@ -37,15 +42,20 @@ import com.gr74.booking.model.Theater;
 import com.gr74.booking.service.ShowtimeService;
 
 /**
- * Web-layer slice for {@link ShowtimeController}. Two of these cases are the heart of plan option 5C:
+ * Web-layer slice for {@link ShowtimeController}. Two of these cases cover the cross-service validation:
  * a {@code movieId} Catalog doesn't have surfaces as {@code BOOKING_MOVIE_NOT_FOUND} (404), and a
  * Catalog outage as {@code BOOKING_CATALOG_UNAVAILABLE} (503) — the two distinct failure modes of
  * validating the cross-service reference on the write path. The {@link ShowtimeService} is mocked, so
  * these assert only how the controller + {@code GlobalExceptionHandler} translate those outcomes to HTTP.
  *
  * <p>A fixed {@link Clock} is supplied so "upcoming" has a deterministic "today".
+ *
+ * <p>Imports the real {@link SecurityConfig} so every case runs through the REAL filter
+ * chain. Showtime creation/deletion needs {@code ROLE_ADMIN}; reads take any
+ * authenticated token — hence the admin/user post-processors and the 401/403 fence cases.
  */
 @WebMvcTest(ShowtimeController.class)
+@Import(SecurityConfig.class)
 class ShowtimeControllerTest {
 
     private static final String VALID_BODY = """
@@ -66,11 +76,23 @@ class ShowtimeControllerTest {
     @MockitoBean
     private ShowtimeService showtimeService;
 
+    /** Any authenticated token — for reads. */
+    private static JwtRequestPostProcessor userToken() {
+        return jwt().jwt(jwt -> jwt.subject("11111111-1111-1111-1111-111111111111"));
+    }
+
+    /** A token carrying the ADMIN realm role — for writes. */
+    private static JwtRequestPostProcessor adminToken() {
+        return jwt().jwt(jwt -> jwt.subject("33333333-3333-3333-3333-333333333333"))
+                .authorities(new SimpleGrantedAuthority("ROLE_ADMIN"));
+    }
+
     @Test
     void createReturns201WithMovieIdButNoTitle() throws Exception {
         given(showtimeService.create(any(CreateShowtimeRequest.class))).willReturn(sampleShowtime());
 
         mockMvc.perform(post("/showtimes")
+                        .with(adminToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(VALID_BODY))
                 .andExpect(status().isCreated())
@@ -79,8 +101,27 @@ class ShowtimeControllerTest {
                 .andExpect(jsonPath("$.screenId").value(1))
                 .andExpect(jsonPath("$.showTime").value("19:30"))
                 .andExpect(jsonPath("$.status").value("SCHEDULED"))
-                // The cut, made visible: the response carries no title — resolving it is parts 2/3.
+                // The cut, made visible: the response carries no title — resolving it is the composition/readmodel concern.
                 .andExpect(jsonPath("$.title").doesNotExist());
+    }
+
+    @Test
+    void createWithoutTokenIs401() throws Exception {
+        mockMvc.perform(post("/showtimes")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_BODY))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("BOOKING_UNAUTHORIZED"));
+    }
+
+    @Test
+    void createAsUserIs403() throws Exception {
+        mockMvc.perform(post("/showtimes")
+                        .with(userToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_BODY))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("BOOKING_FORBIDDEN"));
     }
 
     @Test
@@ -89,6 +130,7 @@ class ShowtimeControllerTest {
                 .willThrow(new MovieNotInCatalogException(603L));
 
         mockMvc.perform(post("/showtimes")
+                        .with(adminToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(VALID_BODY))
                 .andExpect(status().isNotFound())
@@ -102,6 +144,7 @@ class ShowtimeControllerTest {
                 .willThrow(new CatalogUnavailableException(603L, new RuntimeException("connection refused")));
 
         mockMvc.perform(post("/showtimes")
+                        .with(adminToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(VALID_BODY))
                 .andExpect(status().isServiceUnavailable())
@@ -113,6 +156,7 @@ class ShowtimeControllerTest {
     void missingRequiredFieldReturns400ProblemDetail() throws Exception {
         // No movieId → bean validation fails before the service is touched.
         mockMvc.perform(post("/showtimes")
+                        .with(adminToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"screenId\":1,\"showDate\":\"2026-07-10\",\"showTime\":\"19:30\",\"basePrice\":12.50}"))
                 .andExpect(status().isBadRequest())
@@ -124,7 +168,7 @@ class ShowtimeControllerTest {
     void getMissingShowtimeReturns404ProblemDetail() throws Exception {
         given(showtimeService.getById(anyLong())).willThrow(ResourceNotFoundException.showtime(7L));
 
-        mockMvc.perform(get("/showtimes/{id}", 7L))
+        mockMvc.perform(get("/showtimes/{id}", 7L).with(userToken()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("BOOKING_SHOWTIME_NOT_FOUND"));
     }
@@ -133,7 +177,7 @@ class ShowtimeControllerTest {
     void byMovieReturnsListShape() throws Exception {
         given(showtimeService.findByMovie(603L)).willReturn(java.util.List.of(sampleShowtime()));
 
-        mockMvc.perform(get("/showtimes/movie/{movieId}", 603L))
+        mockMvc.perform(get("/showtimes/movie/{movieId}", 603L).with(userToken()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].movieId").value(603))
                 .andExpect(jsonPath("$[0].basePrice").value(12.50));

@@ -100,6 +100,16 @@
 			<groupId>org.springframework.cloud</groupId>
 			<artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
 		</dependency>
+		<!--
+		  Phase 7 (BUILD_PLAN 7.3): zero trust — Booking validates the Bearer JWT itself. The JWT
+		  `sub` becomes the booking's user_id via @CurrentUser (decision C1); showtime/inventory
+		  reads need an authenticated USER, writes need ADMIN. Version managed by the Spring Boot
+		  parent. See docs/concepts/security-jwt-oauth2.md.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+		</dependency>
 
 		<!--
 		  AMQP / RabbitMQ. Booking is the CONSUMER side of the CQRS read model (BUILD_PLAN 2.3, way B):
@@ -148,6 +158,25 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!--
+		  Phase 7: spring-security-test provides the jwt() MockMvc post-processor, so slice tests
+		  exercise the REAL filter chain with a forged JWT instead of bypassing security.
+		-->
+		<dependency>
+			<groupId>org.springframework.security</groupId>
+			<artifactId>spring-security-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!--
+		  Boot 4 moved TestRestTemplate out of spring-boot-test into this module
+		  (org.springframework.boot.resttestclient.TestRestTemplate) — the Boot-3 import path no
+		  longer exists. Used by the full-context actuator/health tests (real HTTP, no MockMvc).
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-resttestclient</artifactId>
 			<scope>test</scope>
 		</dependency>
 		<!--

@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authorization.AuthorizationDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -69,6 +70,24 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         String detail = "Parameter '" + ex.getName() + "' has an invalid value: " + ex.getValue();
         log.warn(VALIDATION_FAILED_LOG, detail);
         return problemDetail(CatalogErrorCode.CATALOG_VALIDATION_ERROR, detail);
+    }
+
+    /**
+     * A {@code @PreAuthorize} (or any method-security rule) denied the call.
+     *
+     * <p><b>Why this handler must exist:</b> a method-security denial is thrown from the controller
+     * proxy <em>inside</em> the {@code DispatcherServlet} — <em>after</em> the security filter
+     * chain (and its {@code AccessDeniedHandler}) has already run. The filter-chain handler can
+     * never see it, so without this method the denial falls through to the catch-all below as an
+     * opaque 500. Catalog has no role-gated endpoint <em>today</em>, but the first
+     * {@code @PreAuthorize} added without this handler would silently 500 instead of 403 — the
+     * handler is the fence post, planted before the fence needs it.
+     */
+    @ExceptionHandler(AuthorizationDeniedException.class)
+    public ProblemDetail handleAuthorizationDenied(AuthorizationDeniedException ex) {
+        log.warn("Access denied: {}", ex.getMessage());
+        return problemDetail(CatalogErrorCode.CATALOG_FORBIDDEN,
+                "Insufficient permissions for this resource");
     }
 
     /**

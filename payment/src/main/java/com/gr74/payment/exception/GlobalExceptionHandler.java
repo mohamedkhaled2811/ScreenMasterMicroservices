@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.context.MessageSourceResolvable;
+import org.springframework.security.authorization.AuthorizationDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -59,6 +60,25 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             log.warn("Payment error [{}]: {}", code, ex.getMessage());
         }
         return problemDetail(code, ex.getMessage());
+    }
+
+    /**
+     * A {@code @PreAuthorize} (or any method-security rule) denied the call — e.g. a {@code USER}
+     * calling the {@code ADMIN}-only refund endpoint.
+     *
+     * <p><b>Why this handler must exist:</b> a method-security denial is thrown from the controller
+     * proxy <em>inside</em> the {@code DispatcherServlet} — <em>after</em> the security filter
+     * chain (and its {@code AccessDeniedHandler}) has already run. The filter-chain handler can
+     * never see it, so without this method the denial falls through to the catch-all below as an
+     * opaque 500. Rendered here as the same coded {@code PAYMENT_ACCESS_DENIED} (403) the chain
+     * produces — deliberately <em>not</em> {@code PAYMENT_FORBIDDEN}, which already means "this
+     * payment belongs to another user" (see {@code SecurityProblemSupport}).
+     */
+    @ExceptionHandler(AuthorizationDeniedException.class)
+    public ProblemDetail handleAuthorizationDenied(AuthorizationDeniedException ex) {
+        log.warn("Access denied: {}", ex.getMessage());
+        return problemDetail(PaymentErrorCode.PAYMENT_ACCESS_DENIED,
+                "Insufficient permissions for this resource");
     }
 
     /**

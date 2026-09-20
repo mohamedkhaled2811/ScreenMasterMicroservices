@@ -16,6 +16,20 @@ spring:
     # Eureka dashboard), though nothing routes *to* it.
     name: gateway
 
+  # Phase 7 (BUILD_PLAN 7.2): the edge is an OAuth2 resource server — the gateway validates the
+  # user's Bearer JWT before routing (fail fast; every service validates AGAIN — zero trust).
+  # ONE issuer URI everywhere: it feeds BOTH the accepted `iss` claim and the derived JWKS fetch URL
+  # (see SecurityConfig), so the two can never drift apart. In Compose this is
+  # `http://keycloak:8180/realms/cinema` (container DNS — the `keycloak` service name); Keycloak is
+  # told to mint exactly that `iss` via KC_HOSTNAME (see compose.yaml). No TokenRelay filter is
+  # needed: the gateway proxies headers, so the inbound Authorization header reaches the service
+  # byte-identical — that propagation IS the relay at the edge.
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://keycloak:8180/realms/cinema}
+
   cloud:
     gateway:
       server:
@@ -33,6 +47,10 @@ spring:
                 # StripPrefix=1 drops the leading /api segment: /api/movies/7 -> /movies/7.
                 # The /api namespace is an EDGE concern only; services keep bare paths. (Option A.)
                 - StripPrefix=1
+                # Phase 7 (decision C1): X-User-Id was the pre-Keycloak identity. No service reads
+                # it anymore (identity is the JWT `sub`), so any inbound one is stripped — a
+                # client-set header must never travel downstream where stale code could trust it.
+                - RemoveRequestHeader=X-User-Id
             - id: booking
               uri: lb://booking
               # Booking absorbed the monolith's Theater + Scheduling contexts (schema §8.1), so it now
@@ -44,6 +62,8 @@ spring:
                 - Path=/api/bookings/**,/api/theaters/**,/api/screens/**,/api/seat-types/**,/api/showtimes/**
               filters:
                 - StripPrefix=1
+                # Phase 7 (decision C1): see the catalog route — strip the dead identity header.
+                - RemoveRequestHeader=X-User-Id
             - id: payment
               uri: lb://payment
               predicates:
@@ -51,6 +71,8 @@ spring:
               filters:
                 # /api/payments -> /payments, matching PaymentController's @RequestMapping("/payments").
                 - StripPrefix=1
+                # Phase 7 (decision C1): see the catalog route — strip the dead identity header.
+                - RemoveRequestHeader=X-User-Id
 
             # ---- OpenAPI docs proxying (see concepts/openapi-springdoc.md) --------------------------
             # The aggregated Swagger UI (below) fetches each service's spec from the browser, so those

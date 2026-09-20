@@ -24,6 +24,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.gr74.catalog.config.WebPagingConfig;
+import com.gr74.catalog.config.SecurityConfig;
 import com.gr74.catalog.controller.dto.MovieFilter;
 import com.gr74.catalog.exception.CatalogErrorCode;
 import com.gr74.catalog.exception.CatalogException;
@@ -40,9 +41,13 @@ import com.gr74.catalog.service.MovieService;
  * <p>Imports {@link WebPagingConfig} so the slice serializes the page as the stable {@code PagedModel}
  * envelope ({@code VIA_DTO}) — the same contract the running app uses — hence the assertions read the
  * nested {@code $.page.*} metadata, not the deprecated flat {@code $.totalElements}.
+ *
+ * <p>Also imports the real {@code SecurityConfig} so these cases run through the REAL
+ * filter chain (a slice does not component-scan it otherwise). The search is public,
+ * so every case below runs with NO token — that absence is itself the assertion.
  */
 @WebMvcTest(MovieController.class)
-@Import(WebPagingConfig.class)
+@Import({WebPagingConfig.class, SecurityConfig.class})
 class MovieSearchControllerTest {
 
     @Autowired

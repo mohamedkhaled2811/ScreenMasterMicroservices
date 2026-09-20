@@ -14,11 +14,16 @@
 #   - The stack is up (docker compose up) OR gateway + booking + catalog + discovery run locally.
 #   - Catalog has synced movies (TMDB_API_KEY set, sync enabled) — the MOVIE_IDS below must exist in
 #     Catalog, or POST /showtimes returns 404 BOOKING_MOVIE_NOT_FOUND (that's 5C doing its job).
+#   - Keycloak is up with the `cinema` realm (part of the stack) — every write below needs a token.
 #   - `jq` is installed (used to extract created ids).
 #
 # USAGE:
 #   ./scripts/seed-demo-cinema.sh                # against the gateway on localhost:8080
 #   GATEWAY=http://localhost:8080 ./scripts/seed-demo-cinema.sh
+#
+# AUTH (Phase 7): inventory + showtime writes need the ADMIN role, so the script mints an admin
+# token once via scripts/get-token.sh (Direct Access Grant against the cinema-dev-cli client)
+# and sends it on every call. Reads need any authenticated token — the same header covers them.
 #
 # The script is best-effort idempotent: duplicates (409 BOOKING_DUPLICATE) are tolerated and reported,
 # and the seat-grid generator itself skips already-placed seats.
@@ -26,6 +31,11 @@ set -euo pipefail
 
 GATEWAY="${GATEWAY:-http://localhost:8080}"
 API="$GATEWAY/api"
+
+# Phase 7: every call below is authenticated; the writes additionally need ADMIN.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TOKEN="$("$SCRIPT_DIR/get-token.sh" admin)"
+AUTH_HEADER="Authorization: Bearer $TOKEN"
 
 # Real TMDB ids that Catalog's popular/top-rated sync will have pulled in. Swap for any synced ids.
 MOVIE_FIGHT_CLUB=550
@@ -38,7 +48,7 @@ post() {
   local path="$1" body="$2"
   local resp code
   resp="$(curl -sS -w $'\n%{http_code}' -X POST "$API$path" \
-    -H 'Content-Type: application/json' -d "$body")"
+    -H 'Content-Type: application/json' -H "$AUTH_HEADER" -d "$body")"
   code="${resp##*$'\n'}"
   body="${resp%$'\n'*}"
   if [[ "$code" == 2* ]]; then
@@ -73,14 +83,20 @@ post /showtimes "{\"movieId\":$MOVIE_FIGHT_CLUB,\"screenId\":$SCREEN1_ID,\"showD
 post /showtimes "{\"movieId\":$MOVIE_FIGHT_CLUB,\"screenId\":$SCREEN1_ID,\"showDate\":\"2026-07-10\",\"showTime\":\"22:00\",\"basePrice\":12.50}" >/dev/null
 post /showtimes "{\"movieId\":$MOVIE_MATRIX,\"screenId\":$SCREEN2_ID,\"showDate\":\"2026-07-11\",\"showTime\":\"20:00\",\"basePrice\":15.00}" >/dev/null
 
-say "Done. Explore:"
-echo "  curl -s $API/theaters | jq"
-echo "  curl -s $API/theaters/$THEATER_ID/screens | jq"
-echo "  curl -s $API/screens/$SCREEN1_ID/seats | jq '. | length'"
-echo "  curl -s $API/showtimes/movie/$MOVIE_FIGHT_CLUB | jq"
+say "Done. Explore (reads need any authenticated token — reuse the admin one or mint alice's):"
+echo "  AUTH=\"Authorization: Bearer \$TOKEN\"; TOKEN=\$(./scripts/get-token.sh admin)"
+echo "  curl -s -H \"\$AUTH\" $API/theaters | jq"
+echo "  curl -s -H \"\$AUTH\" $API/theaters/$THEATER_ID/screens | jq"
+echo "  curl -s -H \"\$AUTH\" $API/screens/$SCREEN1_ID/seats | jq '.content | length'"
+echo "  curl -s -H \"\$AUTH\" $API/showtimes/movie/$MOVIE_FIGHT_CLUB | jq"
+echo "  # (browse the catalogue with NO token at all — GET /movies is public by decision B2a):"
+echo "  curl -s $API/movies/550 | jq"
 echo
 echo "  # See the cut: a bogus movieId is rejected by 5C, NOT by a DB FK ->"
 echo "  curl -s -o /dev/null -w '%{http_code}\\n' -X POST $API/showtimes \\"
-echo "    -H 'Content-Type: application/json' \\"
+echo "    -H 'Content-Type: application/json' -H \"\$AUTH\" \\"
 echo "    -d '{\"movieId\":99999999,\"screenId\":'$SCREEN1_ID',\"showDate\":\"2026-07-12\",\"showTime\":\"18:00\",\"basePrice\":10.00}'"
 echo "  # -> 404 (BOOKING_MOVIE_NOT_FOUND): Catalog said 'no such movie'"
+echo
+echo "  # See the fence: no token -> 401, alice (USER) seeding -> 403 on the ADMIN writes."
+echo "  # (TOKEN=\$(./scripts/get-token.sh alice) to try.)"

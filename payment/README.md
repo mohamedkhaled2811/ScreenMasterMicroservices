@@ -245,7 +245,7 @@ Each is wired in real code, not demoed.
 | **Signature authentication** | `parseAndVerifyWebhook` per adapter | Gateways have no JWT. A constant-time HMAC comparison over exact bytes proves the same thing a token would. |
 | **RFC 9457 error contract** | `PaymentErrorCode`, `GlobalExceptionHandler` | Every error is `application/problem+json` with a stable machine-readable `code` siblings can branch on. Errors are thrown, never returned. |
 | **Conditional bean registration** | `@ConditionalOnGatewayCredentials` | A blank credential means the bean does not exist — treating "absent" and "misconfigured" as the same thing, which is the safe one. |
-| **Auth seam** | `X-User-Id` header | Same seam Booking uses. Phase 7 swaps it for the JWT `sub` with no controller change. |
+| **Auth seam** | `@CurrentUser`, `CurrentUserArgumentResolver` | Same seam Booking uses: the verified JWT `sub` (Phase 7; the old `X-User-Id` header is ignored and stripped at the gateway). Users pay with their own token, which Payment relays to Booking's payability read. |
 
 ---
 

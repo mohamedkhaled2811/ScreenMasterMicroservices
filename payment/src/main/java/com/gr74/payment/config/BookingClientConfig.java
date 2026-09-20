@@ -10,6 +10,8 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
+import com.gr74.payment.security.UserTokenRelayInterceptor;
+
 /**
  * Builds the {@link RestClient}s this service makes outbound calls with: one to Booking (via the
  * registry) and one to the payment gateways (straight out to the internet).
@@ -30,8 +32,13 @@ import org.springframework.web.client.RestClient;
  *       takes seconds to open a session — but it is still bounded, because an unbounded HTTP client is
  *       how one slow third party exhausts the whole thread pool.</li>
  * </ul>
- * Resilience4j (retry, breaker, per-gateway bulkhead) layers on top in Phase 5; these timeouts are the
+ * Resilience4j (retry, breaker, per-gateway bulkhead) layers on top; these timeouts are the
  * floor beneath it.
+ *
+ * <p>The Booking client additionally carries a {@link UserTokenRelayInterceptor}: the payability read runs <em>on behalf of the user, inside the user's request</em>, so the
+ * user's own Bearer token rides along and Booking's ownership answer is a genuine authorization
+ * check rather than Payment's assertion. The interceptor is a plain {@code new} (not a bean) for
+ * the same Eureka reason as the builder — and being stateless, one instance is safe to share.
  */
 @Configuration
 public class BookingClientConfig {
@@ -43,6 +50,11 @@ public class BookingClientConfig {
      * Payment's window into Booking. {@code lbInterceptor} is the framework-registered
      * {@link DeferringLoadBalancerInterceptor} bean; it resolves the real blocking interceptor lazily,
      * so injecting it here is safe even though this config declares no {@code @LoadBalanced} builder.
+     *
+     * <p>The {@link UserTokenRelayInterceptor} runs <em>before</em> the load-balancer interceptor:
+     * the credential is attached while the request is still the logical {@code lb://booking} call,
+     * and routing resolves afterwards. Order between them is not load-bearing (headers survive
+     * routing either way), but "authenticate, then route" reads in the order the hop happens.
      */
     @Bean
     public RestClient bookingRestClient(DeferringLoadBalancerInterceptor lbInterceptor) {
@@ -52,6 +64,7 @@ public class BookingClientConfig {
         ClientHttpRequestFactory requestFactory = ClientHttpRequestFactoryBuilder.detect().build(settings);
         return RestClient.builder()          // fresh, NOT a bean — Eureka's transport can never autowire it
                 .baseUrl(BOOKING_BASE_URL)
+                .requestInterceptor(new UserTokenRelayInterceptor())
                 .requestInterceptor(lbInterceptor)
                 .requestFactory(requestFactory)
                 .build();

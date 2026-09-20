@@ -29,6 +29,36 @@ spring:
     username: ${RABBITMQ_USER:guest}
     password: ${RABBITMQ_PASSWORD:guest}
 
+  # Phase 7 (BUILD_PLAN 7.2/7.3 + 7.6): TWO OAuth2 roles in one service.
+  #
+  # 1. RESOURCE SERVER (inbound): this service validates the user's Bearer JWT itself (zero trust),
+  #    like every other service. ONE issuer URI everywhere: it feeds BOTH the accepted `iss` claim
+  #    and the derived JWKS fetch URL (see SecurityConfig), so the two can never drift apart. In
+  #    Compose this is `http://keycloak:8180/realms/cinema` (container DNS — the `keycloak` service
+  #    name); Keycloak is told to mint exactly that `iss` via KC_HOSTNAME (see compose.yaml).
+  # 2. CLIENT (outbound, machine token — decision B3a): the `notification-keycloak` registration is
+  #    this service's OWN identity toward Keycloak (client-credentials grant), spent in part 2 to
+  #    look up a user's email by `sub`. The secret travels via env (never committed — the dev
+  #    default below only matches the DEV realm JSON; production sets NOTIFICATION_SVC_SECRET).
+  #    NOTE the provider declares only `token-uri`, deliberately NOT `issuer-uri`: Boot resolves an
+  #    issuer-uri EAGERLY at startup (an OIDC discovery fetch), which would make this service
+  #    unbootable whenever Keycloak is briefly down — and untestable hermetically. The token-uri is
+  #    called lazily, on the first machine-token request, so boot never depends on the IdP.
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://keycloak:8180/realms/cinema}
+      client:
+        registration:
+          notification-keycloak:
+            client-id: notification-svc
+            client-secret: ${NOTIFICATION_SVC_SECRET:notification-svc-dev-secret}
+            authorization-grant-type: client_credentials
+        provider:
+          notification-keycloak:
+            token-uri: ${KEYCLOAK_ISSUER_URI:http://keycloak:8180/realms/cinema}/protocol/openid-connect/token
+
 # A Eureka CLIENT: registers with the discovery server on startup. (No register/fetch overrides —
 # those are server-only.) See docs/concepts/service-discovery.md.
 eureka:

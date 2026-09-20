@@ -22,6 +22,21 @@ public enum CatalogErrorCode {
     CATALOG_MOVIE_NOT_FOUND(HttpStatus.NOT_FOUND, "Movie not found"),
 
     /**
+     * No (or an invalid) Bearer token. Rendered by the security filter chain — which runs before
+     * any controller, so {@code GlobalExceptionHandler} can never see these — via
+     * {@code SecurityProblemSupport}, in the same ProblemDetail shape with the same flat
+     * {@code code}. Kept distinct from {@link #CATALOG_FORBIDDEN} on purpose: "log in" and "ask an
+     * admin" are different answers.
+     */
+    CATALOG_UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "Authentication required"),
+
+    /**
+     * A valid token without the role the endpoint needs (e.g. a {@code USER} calling an
+     * {@code ADMIN} method). Same filter-chain rendering as {@link #CATALOG_UNAUTHORIZED}.
+     */
+    CATALOG_FORBIDDEN(HttpStatus.FORBIDDEN, "Access denied"),
+
+    /**
      * The TMDB upstream call failed (network error, non-2xx, or unparseable body). Maps to 502 —
      * <em>we</em> didn't fail, our dependency did. Surfaces only on the (future) sync-status endpoint
      * or in logs; the scheduled sync catches it and records FAILED for a later resume.

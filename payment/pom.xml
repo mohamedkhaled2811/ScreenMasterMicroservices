@@ -97,6 +97,17 @@
 			<groupId>org.springframework.cloud</groupId>
 			<artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
 		</dependency>
+		<!--
+		  Phase 7 (BUILD_PLAN 7.3): zero trust — Payment validates the Bearer JWT itself. Session
+		  creation and payment reads need the caller's token (the user_id comes from the JWT `sub`,
+		  never a client-set header); refunds need ADMIN; /payments/webhooks/** stays permitAll at
+		  the security layer because gateways authenticate by HMAC signature instead (decision B).
+		  Version managed by the Spring Boot parent. See docs/concepts/security-jwt-oauth2.md.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+		</dependency>
 
 		<!--
 		  The fault-tolerance toolbox for the PaymentGateway decorator (BUILD_PLAN 5.1): per-gateway
@@ -157,6 +168,25 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!--
+		  Phase 7: spring-security-test provides the jwt() MockMvc post-processor, so slice tests
+		  exercise the REAL filter chain with a forged JWT instead of bypassing security.
+		-->
+		<dependency>
+			<groupId>org.springframework.security</groupId>
+			<artifactId>spring-security-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!--
+		  Boot 4 moved TestRestTemplate out of spring-boot-test into this module
+		  (org.springframework.boot.resttestclient.TestRestTemplate) — the Boot-3 import path no
+		  longer exists. Used by the full-context actuator/health tests (real HTTP, no MockMvc).
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-resttestclient</artifactId>
 			<scope>test</scope>
 		</dependency>
 		<!-- Boot 4 ships the @WebMvcTest / @DataJpaTest slices as separate test modules. -->

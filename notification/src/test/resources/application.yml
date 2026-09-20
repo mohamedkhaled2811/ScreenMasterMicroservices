@@ -12,6 +12,26 @@ spring:
   # Liquibase changesets are Postgres-flavoured; let Hibernate own the test schema instead.
   liquibase:
     enabled: false
+  # Phase 7: the test file SHADOWS the main application.yml (a full-context test does not see
+  # main-only nested keys — see the Boot-4 trap note in the Phase 7 report), so the resource-server
+  # issuer URI and the machine-token registration are repeated here. Both are lazy (the JWKS URL is
+  # fetched on first request, the token-uri on first machine-token call), so the hermetic suite —
+  # H2, Eureka off, listener stopped — still needs no Keycloak. The secret below is the DEV value
+  # matching the DEV realm JSON; it never leaves the test JVM.
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://keycloak:8180/realms/cinema
+      client:
+        registration:
+          notification-keycloak:
+            client-id: notification-svc
+            client-secret: notification-svc-dev-secret
+            authorization-grant-type: client_credentials
+        provider:
+          notification-keycloak:
+            token-uri: http://keycloak:8180/realms/cinema/protocol/openid-connect/token
 
 # Don't try to reach a Eureka server during tests.
 eureka:

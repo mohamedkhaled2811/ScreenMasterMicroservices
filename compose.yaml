@@ -36,7 +36,7 @@ services:
       dockerfile: discovery/Dockerfile
     image: screenmaster/discovery
     environment:
-      # Tracing (Phase 6): point the Zipkin exporter at the `zipkin` container (service name = DNS
+      # Tracing: point the Zipkin exporter at the `zipkin` container (service name = DNS
       # name). NO depends_on on purpose — the exporter is asynchronous and batches: if Zipkin is
       # down the app keeps serving and simply drops spans. Tracing must never be in the critical path.
       ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
@@ -60,7 +60,7 @@ services:
     environment:
       EUREKA_SERVICE_URL: http://discovery:8761/eureka/   # resolve the registry by service name
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"           # register a routable Compose-network IP
-      # Tracing (Phase 6): the Zipkin exporter endpoint. No depends_on — see the discovery block.
+      # Tracing: the Zipkin exporter endpoint. No depends_on — see the discovery block.
       ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
       # Boot 4 key (management.tracing.export.zipkin.endpoint) as a relaxed-binding env var.
       # Redundant with the YAML above, but it lets a config fix land without rebuilding images.
@@ -91,7 +91,7 @@ services:
       TMDB_SYNC_ENABLED: ${TMDB_SYNC_ENABLED:-false}
       # Catalog PUBLISHES MovieUpserted to the broker (CQRS read model, 2.3). service name = DNS name.
       RABBITMQ_HOST: rabbitmq
-      # Tracing (Phase 6): the Zipkin exporter endpoint. No depends_on — see the discovery block.
+      # Tracing: the Zipkin exporter endpoint. No depends_on — see the discovery block.
       ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
       # Boot 4 key (management.tracing.export.zipkin.endpoint) as a relaxed-binding env var.
       # Redundant with the YAML above, but it lets a config fix land without rebuilding images.
@@ -121,7 +121,7 @@ services:
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
       # Booking CONSUMES MovieUpserted from the broker into its movie_projections read model (2.3).
       RABBITMQ_HOST: rabbitmq
-      # Tracing (Phase 6): the Zipkin exporter endpoint. No depends_on — see the discovery block.
+      # Tracing: the Zipkin exporter endpoint. No depends_on — see the discovery block.
       ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
       # Boot 4 key (management.tracing.export.zipkin.endpoint) as a relaxed-binding env var.
       # Redundant with the YAML above, but it lets a config fix land without rebuilding images.
@@ -175,7 +175,7 @@ services:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: ${RABBITMQ_USER:-guest}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
-      # Tracing (Phase 6): the Zipkin exporter endpoint. No depends_on — see the discovery block.
+      # Tracing: the Zipkin exporter endpoint. No depends_on — see the discovery block.
       ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
       # Boot 4 key (management.tracing.export.zipkin.endpoint) as a relaxed-binding env var.
       # Redundant with the YAML above, but it lets a config fix land without rebuilding images.
@@ -207,7 +207,7 @@ services:
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
       # Notification CONSUMES Booking's booking-outcome stream from the broker (4.3).
       RABBITMQ_HOST: rabbitmq
-      # Tracing (Phase 6): the Zipkin exporter endpoint. No depends_on — see the discovery block.
+      # Tracing: the Zipkin exporter endpoint. No depends_on — see the discovery block.
       ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
       # Boot 4 key (management.tracing.export.zipkin.endpoint) as a relaxed-binding env var.
       # Redundant with the YAML above, but it lets a config fix land without rebuilding images.

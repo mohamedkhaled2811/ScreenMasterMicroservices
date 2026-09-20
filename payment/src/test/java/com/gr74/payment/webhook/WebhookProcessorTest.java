@@ -213,14 +213,14 @@ class WebhookProcessorTest {
         WebhookResult result = processor.process(PaymentGatewayType.SANDBOX, body, signed(body));
 
         // The @Observed on process() started a NEW trace (a webhook carries no traceparent by
-        // design, plan 2.3). Storing its id on the evidence row is what links any stored payload
+        // design). Storing its id on the evidence row is what links any stored payload
         // back to exactly what it did — the "customer says I paid and nothing happened" path.
         assertThat(result.outcome()).isEqualTo(WebhookResult.Outcome.PROCESSED);
         String eventTraceId = jdbc.queryForObject(
                 "select trace_id from webhook_events where event_id = 'evt_trace'", String.class);
         assertThat(eventTraceId).matches("[0-9a-f]{32}");
         // The same trace rides on the outbox row, so the relay can carry it to Booking and the
-        // whole confirm→email chain joins THIS trace (decision B1).
+        // whole confirm→email chain joins this trace.
         assertThat(jdbc.queryForObject("select trace_id from outbox", String.class))
                 .isEqualTo(eventTraceId);
     }

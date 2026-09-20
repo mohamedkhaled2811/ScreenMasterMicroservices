@@ -35,7 +35,7 @@ import io.micrometer.tracing.Tracer;
  * The thin AMQP shell's routing: which routing key is dispatched to which service method, with the
  * payload converted to the right record — and that an unexpected key is ignored, not thrown at.
  *
- * <p>Plus the Phase-6 trace restore (decision B1): a {@code traceparent} header is re-joined as a
+ * <p>Plus the trace restore: a {@code traceparent} header is re-joined as a
  * real child span and the {@code traceId} lands in the SLF4J MDC for the duration of the dispatch —
  * and is always cleared afterwards, so a pooled listener thread never mislabels a later message.
  *

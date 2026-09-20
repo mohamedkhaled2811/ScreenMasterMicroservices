@@ -83,7 +83,7 @@ public class BookingEventListener {
     }
 
     /**
-     * Re-join the trace Booking's outbox relay persisted — the consumer half of Phase-6 decision B1.
+     * Re-join the trace Booking's outbox relay persisted.
      *
      * <p>This listener runs on a RabbitMQ consumer thread where <em>no</em> live Micrometer context
      * exists: the outbox hop meant the trace was never propagated automatically (the relay publishes
@@ -109,7 +109,7 @@ public class BookingEventListener {
         } catch (RuntimeException e) {
             // Record the failure ON the span before it ends, then rethrow unchanged so the message
             // is still nacked and redelivered. Without this the span closes looking successful, and
-            // Zipkin would show a green waterfall for the exact failure this phase exists to debug.
+            // Zipkin would show a green waterfall for the exact failure being debugged.
             span.error(e);
             throw e;
         } finally {

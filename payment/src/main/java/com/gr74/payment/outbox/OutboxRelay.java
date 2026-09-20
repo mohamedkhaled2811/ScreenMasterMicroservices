@@ -48,7 +48,7 @@ public class OutboxRelay {
      * ({@code SKIP LOCKED}, so overlapping ticks or instances never block on each other) and walks
      * the backlog over several passes after a long outage rather than in one enormous loop.
      *
-     * <p>{@code @Observed} (Phase 6, decision D2): one span per drain tick, so a growing backlog —
+     * <p>{@code @Observed}: one span per drain tick, so a growing backlog —
      * the "why is PaymentSucceeded so late" question — is visible in Zipkin as one timed unit.
      * This span is a fresh trace by design: it runs on a scheduler thread with no request context,
      * which is exactly why the rows carry a persisted trace (see {@code 005-add-trace-context.yaml}).
@@ -82,13 +82,13 @@ public class OutboxRelay {
 
     /**
      * A {@link MessagePostProcessor} that stamps the persisted trace context onto the outgoing AMQP
-     * message as a W3C {@code traceparent} header — the whole Phase-6 trick (decision B1).
+     * message as a W3C {@code traceparent} header.
      *
      * <p>The trace is not live on this scheduler thread (that is why it was persisted), so this is
      * the only way the consumer can re-join the original trace. The stored span id becomes the
      * header's parent span id, so the consumer's restored span is a child of the span that caused
-     * the event. A row with no persisted trace (written before Phase 6, or genuinely trace-less)
-     * publishes with no header — exactly the behaviour every pre-Phase-6 consumer already expected.
+     * the event. A row with no persisted trace (written without trace context, or genuinely trace-less)
+     * publishes with no header — exactly the behaviour every older consumer already expected.
      */
     private MessagePostProcessor traceparent(OutboxMessage message) {
         String traceId = message.getTraceId();

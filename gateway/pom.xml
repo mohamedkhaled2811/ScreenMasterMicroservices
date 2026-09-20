@@ -29,14 +29,14 @@
 		</dependency>
 		<!--
 		  Actuator for /actuator/health — the gateway is the front door and needs a health surface
-		  for probes and Compose healthchecks (decision C1: default instrumentation only).
+		  for probes and Compose healthchecks (default instrumentation only).
 		-->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-actuator</artifactId>
 		</dependency>
 		<!--
-		  Distributed tracing (Phase 6, decision A1 + C1). The gateway is where traces are BORN (it is
+		  Distributed tracing. The gateway is where traces are born (it is
 		  the only public entry point), so it gets the same starter as everyone else. Micrometer
 		  Tracing is a facade; this is the OpenTelemetry bridge (NOT Brave), and the Zipkin exporter
 		  ships finished spans to the Zipkin in compose.yaml (port 9411). Versions are managed by the

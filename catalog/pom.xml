@@ -44,10 +44,10 @@
 			<artifactId>spring-boot-starter-actuator</artifactId>
 		</dependency>
 		<!--
-		  Distributed tracing (Phase 6, decision A1). Micrometer Tracing is a facade; this is the
+		  Distributed tracing. Micrometer Tracing is a facade; this is the
 		  OpenTelemetry bridge (NOT Brave — the vendor-neutral standard, see docs/concepts/observability.md),
 		  and the Zipkin exporter ships finished spans to the Zipkin in compose.yaml (port 9411).
-		  The log pattern has carried %X{traceId}/%X{spanId} since Phase 1; these jars are what make
+		  The log pattern already carries %X{traceId}/%X{spanId}; these jars are what make
 		  the ids appear. Versions are managed by the Spring Boot parent (micrometer-tracing + OTel
 		  BOMs) — no pin here.
 		-->

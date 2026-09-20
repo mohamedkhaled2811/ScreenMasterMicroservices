@@ -186,7 +186,7 @@ public class BookingConfirmer {
      * outbox row id onto the wire so redeliveries carry a stable dedupe key.
      *
      * <p>The trace context is captured HERE, on this thread, inside the transaction — the one moment
-     * the original trace is still live (Phase 6, decision B1). The relay publishes seconds later on
+     * the original trace is still live. The relay publishes seconds later on
      * a scheduler thread where no trace exists, so if the context were not persisted it would be
      * lost forever; persisting it is the same principle the outbox itself runs on. This thread is
      * the PaymentEventListener's consumer thread, whose trace the listener restores from the

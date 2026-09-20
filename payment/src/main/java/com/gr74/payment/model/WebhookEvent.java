@@ -97,7 +97,7 @@ public class WebhookEvent {
     private Instant processedAt;
 
     /**
-     * The trace id this delivery was processed under (Phase 6, plan 2.3). A webhook arrives with no
+     * The trace id this delivery was processed under. A webhook arrives with no
      * {@code traceparent} and starts a NEW trace by design; storing its id on the evidence row is
      * what links any stored payload back to exactly what it did — the "customer says I paid and
      * nothing happened" debugging path. Null when no trace was live (a test, or a synthetic

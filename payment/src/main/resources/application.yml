@@ -3,7 +3,7 @@ server:
 
 # Actuator endpoints the resilience demo (BUILD_PLAN 5.2) reads. payment previously had NO
 # management block; this is what makes the 5.2 talk track ("with numbers from /actuator") possible.
-# Tracing (Phase 6, decision E1) is MERGED into this same block — a second top-level `management:`
+# Tracing is MERGED into this same block — a second top-level `management:`
 # key would silently drop config.
 management:
   endpoints:
@@ -11,7 +11,7 @@ management:
       exposure:
         include: health,circuitbreakers,circuitbreakerevents,bulkheads,retries,metrics
   # Sample 100% in the lab so every demo request appears in Zipkin. Production runs ~0.1 (10%) —
-  # recording every trace is expensive (CPU + span storage), and the decision is made once at the
+  # recording every trace is expensive (CPU + span storage), and the sampling decision is made once at the
   # first service and carried in the traceparent flag. The endpoint defaults to the local Zipkin;
   # Compose points it at the `zipkin` container via ZIPKIN_ENDPOINT.
   tracing:

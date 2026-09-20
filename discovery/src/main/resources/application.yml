@@ -42,9 +42,9 @@ eureka:
     # A tighter interval makes "I stopped a service, watch it disappear" snappy.
     eviction-interval-timer-in-ms: 15000
 
-# Distributed tracing (Phase 6, decision E1): sample 100% in the lab so every demo request appears
+# Distributed tracing: sample 100% in the lab so every demo request appears
 # in Zipkin. Production runs ~0.1 (10%) — recording every trace is expensive (CPU + span storage),
-# and the decision is made once at the first service and carried in the traceparent flag. The
+# and the sampling decision is made once at the first service and carried in the traceparent flag. The
 # endpoint defaults to the local Zipkin; Compose points it at the `zipkin` container via ZIPKIN_ENDPOINT.
 # Eureka's registration chatter is deliberately not traced — discovery only shares the starters so
 # its log lines carry ids when a request routes through it.

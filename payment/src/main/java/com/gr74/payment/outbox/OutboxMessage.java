@@ -65,7 +65,7 @@ public class OutboxMessage {
 
     /**
      * The 32-hex W3C trace id active when the row was written — persisted so the async relay can
-     * carry the original trace across the commit boundary (Phase 6, decision B1). Null when no
+     * carry the original trace across the commit boundary. Null when no
      * trace was live (a test, a scheduled path), which is fine: the relay simply publishes without
      * a {@code traceparent} header.
      */

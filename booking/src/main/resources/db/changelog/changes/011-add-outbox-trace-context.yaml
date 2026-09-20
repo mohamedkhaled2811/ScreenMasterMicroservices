@@ -1,4 +1,4 @@
-# Changeset 011 — persist the trace context on outbox rows (BUILD_PLAN Phase 6, decision B1).
+# Changeset 011 — persist the trace context on outbox rows.
 #
 # The outbox relay publishes on a @Scheduled thread, seconds after the request that wrote the row
 # committed and ended. Micrometer can only propagate a trace context that is LIVE on the publishing

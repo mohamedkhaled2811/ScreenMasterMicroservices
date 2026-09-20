@@ -34,8 +34,8 @@ import io.micrometer.tracing.TraceContext;
 import io.micrometer.tracing.Tracer;
 
 /**
- * The thin AMQP shell over {@link BookingConfirmer}: routing-key dispatch, plus the Phase-6 trace
- * restore (decision B1). A {@code traceparent} header — stamped by Payment's outbox relay — is
+ * The thin AMQP shell over {@link BookingConfirmer}: routing-key dispatch, plus the trace
+ * restore. A {@code traceparent} header — stamped by Payment's outbox relay — is
  * re-joined as a real child span and the {@code traceId} lands in the SLF4J MDC for the duration of
  * the dispatch, then is always cleared so a pooled listener thread never mislabels a later message.
  *

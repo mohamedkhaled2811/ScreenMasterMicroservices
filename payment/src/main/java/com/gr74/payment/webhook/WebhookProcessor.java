@@ -49,7 +49,7 @@ public class WebhookProcessor {
      *                 re-serialized form
      * @param headers  delivery headers (signature + metadata), keys lower-cased by the controller
      *
-     * <p>{@code @Observed} (Phase 6, decision D2): the webhook's root span. A webhook arrives with
+     * <p>{@code @Observed}: the webhook's root span. A webhook arrives with
      * NO {@code traceparent} (Stripe has never heard of our traces), so this span starts a brand-new
      * trace — correct and deliberate: the payment outcome is a separate causal chain that begins
      * when the user finishes paying, possibly minutes after the booking request ended. The two

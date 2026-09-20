@@ -7,7 +7,7 @@ import io.micrometer.observation.ObservationRegistry;
 import io.micrometer.observation.aop.ObservedAspect;
 
 /**
- * Wires the aspect behind {@code @Observed} (Phase 6, decision D2).
+ * Wires the aspect behind {@code @Observed}.
  *
  * <p>{@code @Observed} is implemented by {@link ObservedAspect}, a real AspectJ aspect — without the
  * {@code ObservedAspect} bean on the context the annotation is silently inert: the method runs, no

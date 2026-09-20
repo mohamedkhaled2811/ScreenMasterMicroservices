@@ -48,8 +48,8 @@ public class PaymentEventListener {
     private final Tracer tracer;
 
     /**
-     * The one header the outbox relay restores the original trace with (Phase 6, decision B1).
-     * {@code required = false} is not optional: a message published before Phase 6 — or by any
+     * The one header the outbox relay restores the original trace with.
+     * {@code required = false} is not optional: a message published without trace context — or by any
      * producer that does not carry trace context — has no {@code traceparent}, and rejecting it
      * would break the stream.
      */
@@ -86,7 +86,7 @@ public class PaymentEventListener {
     }
 
     /**
-     * Re-join the trace the outbox relay persisted — the consumer half of Phase-6 decision B1.
+     * Re-join the trace the outbox relay persisted.
      *
      * <p>This listener runs on a RabbitMQ consumer thread where <em>no</em> live Micrometer context
      * exists: the outbox hop meant the trace was never propagated automatically (the relay publishes
@@ -112,7 +112,7 @@ public class PaymentEventListener {
         } catch (RuntimeException e) {
             // Record the failure ON the span before it ends, then rethrow unchanged so the message
             // is still nacked and redelivered. Without this the span closes looking successful, and
-            // Zipkin would show a green waterfall for the exact failure this phase exists to debug.
+            // Zipkin would show a green waterfall for the exact failure being debugged.
             span.error(e);
             throw e;
         } finally {

@@ -1,7 +1,6 @@
-# Changeset 005 — persist trace context on the outbox rows AND the webhook evidence store
-# (BUILD_PLAN Phase 6, decisions B1 + 2.3).
+# Changeset 005 — persist trace context on the outbox rows AND the webhook evidence store.
 #
-# Two different jobs, one phase:
+# Two different jobs:
 #
 # 1) outbox.trace_id + span_id — the async relay publishes on a @Scheduled thread, seconds after
 #    the request that wrote the row committed and ended. Micrometer can only propagate a trace that
@@ -12,7 +11,7 @@
 #    message as a W3C `traceparent` header.
 #
 # 2) webhook_events.trace_id — a Stripe/Paymob webhook arrives with NO traceparent and starts a
-#    NEW trace by design (plan 2.3). Storing the trace id on the evidence row is what lets an
+#    NEW trace by design. Storing the trace id on the evidence row is what lets an
 #    operator take any stored payload ("the customer says I paid and nothing happened") and open the
 #    exact trace of what that webhook did.
 #

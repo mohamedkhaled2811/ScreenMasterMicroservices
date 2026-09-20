@@ -59,7 +59,7 @@ public class PaymentSessionFactory {
      * @throws com.gr74.payment.exception.CurrencyNotSupportedException gateway can't settle it (400)
      * @throws com.gr74.payment.gateway.GatewayException                gateway unreachable (503)
      *
-     * <p>{@code @Observed} (Phase 6, decision D2): one span per opened session, so the waterfall
+     * <p>{@code @Observed}: one span per opened session, so the waterfall
      * distinguishes "our own seat query" from "the gateway call" — the two calls this method makes.
      */
     @Observed(name = "payment.session.open", contextualName = "open-session")

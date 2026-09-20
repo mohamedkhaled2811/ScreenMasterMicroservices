@@ -167,7 +167,7 @@ class OutboxRelayTest {
         return messageWithTrace(id, type, routingKey, payload, null, null);
     }
 
-    /** A row with a fixed id and the persisted trace context the Phase-6 relay reads back. */
+    /** A row with a fixed id and the persisted trace context the relay reads back. */
     private static OutboxMessage messageWithTrace(Long id, OutboxEventType type, String routingKey,
             String payload, String traceId, String spanId) {
         OutboxMessage message = new OutboxMessage(type, 500L, routingKey, payload, traceId, spanId);

@@ -274,8 +274,8 @@ public class WebhookWriter {
     }
 
     /**
-     * Tag the webhook's span — the {@code @Observed} on {@link WebhookProcessor#process} — with the
-     * business ids it turned out to be about (Phase 6, plan 2.3). A webhook arrives with NO
+     * Tag the webhook's span — the {@code @Observed} on {@code WebhookProcessor.process} — with the
+     * business ids it turned out to be about. A webhook arrives with NO
      * {@code traceparent} and starts a NEW trace by design: the payment outcome genuinely is a
      * separate causal chain, minutes after the booking request ended. These tags — plus the
      * {@code trace_id} stored on the evidence row — are therefore the only link between the

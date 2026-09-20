@@ -33,7 +33,7 @@
 			<artifactId>spring-boot-starter-actuator</artifactId>
 		</dependency>
 		<!--
-		  Distributed tracing (Phase 6, decision A1). The Eureka registration chatter is deliberately
+		  Distributed tracing. The Eureka registration chatter is deliberately
 		  NOT traced (no @Observed, no outbox here), but discovery shares the tracing starters so its
 		  log lines carry real ids when something routes through it. Micrometer Tracing is a facade;
 		  this is the OpenTelemetry bridge (NOT Brave), and the Zipkin exporter ships finished spans

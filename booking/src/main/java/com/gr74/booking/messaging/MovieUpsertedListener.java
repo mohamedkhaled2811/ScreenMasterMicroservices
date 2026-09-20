@@ -18,6 +18,14 @@ import lombok.extern.slf4j.Slf4j;
  * <p>The message body deserializes into a {@link MovieUpsertedEvent} via the JSON converter wired in
  * {@link RabbitConfig}. An exception thrown here (e.g. the DB is momentarily down) propagates, the message
  * is <em>not</em> acked, and RabbitMQ redelivers it — safe precisely because the projector is idempotent.
+ *
+ * <p><b>Tracing contrast (Phase 6):</b> this consumer does NOT restore a {@code traceparent} header.
+ * Catalog publishes {@code MovieUpserted} DIRECTLY at AFTER_COMMIT from the request thread, where the
+ * trace is still live — so the context rides along in the message headers and propagates
+ * automatically. That is exactly the hop that does not need manual help, in deliberate contrast to
+ * {@code PaymentEventListener} / Notification's {@code BookingEventListener}, whose messages went
+ * through the transactional outbox (publish on a scheduler thread, context long gone) and must be
+ * restored from the persisted trace. Both shapes in one system is the teaching point of the phase.
  */
 @Slf4j
 @Component

@@ -96,14 +96,30 @@ public class WebhookEvent {
     @Column(name = "processed_at")
     private Instant processedAt;
 
+    /**
+     * The trace id this delivery was processed under (Phase 6, plan 2.3). A webhook arrives with no
+     * {@code traceparent} and starts a NEW trace by design; storing its id on the evidence row is
+     * what links any stored payload back to exactly what it did — the "customer says I paid and
+     * nothing happened" debugging path. Null when no trace was live (a test, or a synthetic
+     * reconciliation delivery with tracing disabled).
+     */
+    @Column(name = "trace_id", updatable = false, length = 32)
+    private String traceId;
+
     public WebhookEvent(PaymentGatewayType gateway, String eventId, String eventType,
             String payload, String headers, boolean signatureValid) {
+        this(gateway, eventId, eventType, payload, headers, signatureValid, null);
+    }
+
+    public WebhookEvent(PaymentGatewayType gateway, String eventId, String eventType,
+            String payload, String headers, boolean signatureValid, String traceId) {
         this.gateway = gateway;
         this.eventId = eventId;
         this.eventType = eventType;
         this.payload = payload;
         this.headers = headers;
         this.signatureValid = signatureValid;
+        this.traceId = traceId;
         this.processingStatus = WebhookProcessingStatus.RECEIVED;
         this.receivedAt = Instant.now();
     }

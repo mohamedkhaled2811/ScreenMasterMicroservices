@@ -35,6 +35,14 @@ services:
       context: .
       dockerfile: discovery/Dockerfile
     image: screenmaster/discovery
+    environment:
+      # Tracing (Phase 6): point the Zipkin exporter at the `zipkin` container (service name = DNS
+      # name). NO depends_on on purpose — the exporter is asynchronous and batches: if Zipkin is
+      # down the app keeps serving and simply drops spans. Tracing must never be in the critical path.
+      ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
+      # Boot 4 key (management.tracing.export.zipkin.endpoint) as a relaxed-binding env var.
+      # Redundant with the YAML above, but it lets a config fix land without rebuilding images.
+      MANAGEMENT_TRACING_EXPORT_ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
     ports:
       - "8761:8761"          # publish the dashboard so you can open http://localhost:8761
     networks: [screenmaster]
@@ -52,6 +60,11 @@ services:
     environment:
       EUREKA_SERVICE_URL: http://discovery:8761/eureka/   # resolve the registry by service name
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"           # register a routable Compose-network IP
+      # Tracing (Phase 6): the Zipkin exporter endpoint. No depends_on — see the discovery block.
+      ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
+      # Boot 4 key (management.tracing.export.zipkin.endpoint) as a relaxed-binding env var.
+      # Redundant with the YAML above, but it lets a config fix land without rebuilding images.
+      MANAGEMENT_TRACING_EXPORT_ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
     depends_on:
       - discovery            # start after the registry process is up (clients retry anyway)
     networks: [screenmaster]
@@ -78,6 +91,11 @@ services:
       TMDB_SYNC_ENABLED: ${TMDB_SYNC_ENABLED:-false}
       # Catalog PUBLISHES MovieUpserted to the broker (CQRS read model, 2.3). service name = DNS name.
       RABBITMQ_HOST: rabbitmq
+      # Tracing (Phase 6): the Zipkin exporter endpoint. No depends_on — see the discovery block.
+      ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
+      # Boot 4 key (management.tracing.export.zipkin.endpoint) as a relaxed-binding env var.
+      # Redundant with the YAML above, but it lets a config fix land without rebuilding images.
+      MANAGEMENT_TRACING_EXPORT_ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
     depends_on:
       catalog-db:
         condition: service_healthy   # don't boot until Postgres answers pg_isready (no race)
@@ -103,6 +121,11 @@ services:
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
       # Booking CONSUMES MovieUpserted from the broker into its movie_projections read model (2.3).
       RABBITMQ_HOST: rabbitmq
+      # Tracing (Phase 6): the Zipkin exporter endpoint. No depends_on — see the discovery block.
+      ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
+      # Boot 4 key (management.tracing.export.zipkin.endpoint) as a relaxed-binding env var.
+      # Redundant with the YAML above, but it lets a config fix land without rebuilding images.
+      MANAGEMENT_TRACING_EXPORT_ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
     depends_on:
       booking-db:
         condition: service_healthy
@@ -152,6 +175,11 @@ services:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: ${RABBITMQ_USER:-guest}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      # Tracing (Phase 6): the Zipkin exporter endpoint. No depends_on — see the discovery block.
+      ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
+      # Boot 4 key (management.tracing.export.zipkin.endpoint) as a relaxed-binding env var.
+      # Redundant with the YAML above, but it lets a config fix land without rebuilding images.
+      MANAGEMENT_TRACING_EXPORT_ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
     depends_on:
       payment-db:
         condition: service_healthy
@@ -179,6 +207,11 @@ services:
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
       # Notification CONSUMES Booking's booking-outcome stream from the broker (4.3).
       RABBITMQ_HOST: rabbitmq
+      # Tracing (Phase 6): the Zipkin exporter endpoint. No depends_on — see the discovery block.
+      ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
+      # Boot 4 key (management.tracing.export.zipkin.endpoint) as a relaxed-binding env var.
+      # Redundant with the YAML above, but it lets a config fix land without rebuilding images.
+      MANAGEMENT_TRACING_EXPORT_ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
     depends_on:
       notification-db:
         condition: service_healthy   # don't boot until Postgres answers pg_isready (no race)

@@ -24,6 +24,8 @@ import com.gr74.booking.outbox.OutboxMessage;
 import com.gr74.booking.outbox.OutboxMessageRepository;
 import com.gr74.booking.repository.BookingRepository;
 
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -55,6 +57,7 @@ public class BookingConfirmer {
     private final OutboxMessageRepository outbox;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final Tracer tracer;
 
     /** What one {@code PaymentSucceeded} decided — returned so tests can assert the branch. */
     public enum ConfirmOutcome {
@@ -181,11 +184,22 @@ public class BookingConfirmer {
      * transaction, so the booking row and this row commit or roll back together (BUILD_PLAN 4.1).
      * The event is serialized once here with a placeholder {@code eventId}; the relay injects the
      * outbox row id onto the wire so redeliveries carry a stable dedupe key.
+     *
+     * <p>The trace context is captured HERE, on this thread, inside the transaction — the one moment
+     * the original trace is still live (Phase 6, decision B1). The relay publishes seconds later on
+     * a scheduler thread where no trace exists, so if the context were not persisted it would be
+     * lost forever; persisting it is the same principle the outbox itself runs on. This thread is
+     * the PaymentEventListener's consumer thread, whose trace the listener restores from the
+     * {@code traceparent} header the payment relay stamped — so the whole confirm→email chain stays
+     * in the payment webhook's trace.
      */
     private void writeOutbox(Object event, OutboxEventType type, Long aggregateId, String routingKey) {
         try {
+            Span current = tracer.currentSpan();
             outbox.save(new OutboxMessage(type, aggregateId, routingKey,
-                    objectMapper.writeValueAsString(event)));
+                    objectMapper.writeValueAsString(event),
+                    current == null ? null : current.context().traceId(),
+                    current == null ? null : current.context().spanId()));
         } catch (JsonProcessingException e) {
             // Serializing a record we control should never fail; if it does, fail the whole
             // transaction loudly rather than commit a booking with no announcement.

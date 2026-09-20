@@ -31,6 +31,8 @@ import com.gr74.payment.repository.RefundRepository;
 import com.gr74.payment.repository.WebhookEventRepository;
 import com.gr74.payment.webhook.WebhookResult;
 
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -60,6 +62,7 @@ public class WebhookWriter {
     private final WebhookEventRepository events;
     private final OutboxMessageRepository outbox;
     private final ObjectMapper objectMapper;
+    private final Tracer tracer;
 
     /**
      * Store a delivery whose signature did NOT verify — and keep it, in its own committed
@@ -74,7 +77,7 @@ public class WebhookWriter {
     public WebhookEvent storeInvalidEvent(PaymentGatewayType type, byte[] rawBody,
             Map<String, String> headers) {
         WebhookEvent stored = new WebhookEvent(type, "invalid-" + UUID.randomUUID(),
-                null, asString(rawBody), headersJson(headers), false);
+                null, asString(rawBody), headersJson(headers), false, currentTraceId());
         return events.saveAndFlush(stored);
     }
 
@@ -96,7 +99,7 @@ public class WebhookWriter {
             eventId = "no-id-" + UUID.randomUUID();
         }
         WebhookEvent stored = new WebhookEvent(type, eventId, event.rawEventType(),
-                asString(rawBody), headersJson(headers), true);
+                asString(rawBody), headersJson(headers), true, currentTraceId());
         try {
             return events.saveAndFlush(stored);
         } catch (DataIntegrityViolationException duplicate) {
@@ -144,6 +147,7 @@ public class WebhookWriter {
         Payment payment = payments.findWithAttemptsById(attempt.getPayment().getId())
                 .orElseThrow(() -> new PaymentException(PaymentErrorCode.PAYMENT_INTERNAL_ERROR,
                         "Payment for attempt " + attempt.getId() + " vanished mid-webhook"));
+        tagWebhookSpan(attempt.getId(), payment.getId(), payment.getBookingId());
 
         // The terminal-state guard: transitionTo returns false when the attempt is already terminal,
         // which is what drops the out-of-order case (a late FAILED must never overwrite SUCCEEDED).
@@ -269,6 +273,42 @@ public class WebhookWriter {
         events.findById(webhookEventId).ifPresent(stored -> stored.recordOutcome(status, attemptId));
     }
 
+    /**
+     * Tag the webhook's span — the {@code @Observed} on {@link WebhookProcessor#process} — with the
+     * business ids it turned out to be about (Phase 6, plan 2.3). A webhook arrives with NO
+     * {@code traceparent} and starts a NEW trace by design: the payment outcome genuinely is a
+     * separate causal chain, minutes after the booking request ended. These tags — plus the
+     * {@code trace_id} stored on the evidence row — are therefore the only link between the
+     * booking/session trace and the payment-outcome trace. No parent-child edge is faked.
+     */
+    private void tagWebhookSpan(Long attemptId, Long paymentId, Long bookingId) {
+        Span span = tracer.currentSpan();
+        if (span == null) {
+            return;
+        }
+        if (attemptId != null) {
+            span.tag("attemptId", String.valueOf(attemptId));
+        }
+        if (paymentId != null) {
+            span.tag("paymentId", String.valueOf(paymentId));
+        }
+        if (bookingId != null) {
+            span.tag("bookingId", String.valueOf(bookingId));
+        }
+    }
+
+    /** The current trace id, or null when no trace is live — never throw (a scheduled path has none). */
+    private String currentTraceId() {
+        Span current = tracer.currentSpan();
+        return current == null ? null : current.context().traceId();
+    }
+
+    /** The current span id, or null when no trace is live — never throw (a scheduled path has none). */
+    private String currentSpanId() {
+        Span current = tracer.currentSpan();
+        return current == null ? null : current.context().spanId();
+    }
+
     private OutboxMessage buildOutboxMessage(Payment payment, PaymentAttempt attempt, GatewayEvent event) {
         try {
             if (event.status() == PaymentAttemptStatus.SUCCEEDED) {
@@ -279,14 +319,16 @@ public class WebhookWriter {
                         payment.getUserId(), java.time.Instant.now());
                 return new OutboxMessage(OutboxEventType.PAYMENT_SUCCEEDED, payment.getId(),
                         RabbitConfig.PAYMENT_SUCCEEDED_ROUTING_KEY,
-                        objectMapper.writeValueAsString(announced));
+                        objectMapper.writeValueAsString(announced),
+                        currentTraceId(), currentSpanId());
             }
             PaymentFailedEvent announced = new PaymentFailedEvent(
                     0L, payment.getId(), payment.getBookingId(), attempt.getId(),
                     attempt.getGateway().name(), event.failureReason(), java.time.Instant.now());
             return new OutboxMessage(OutboxEventType.PAYMENT_FAILED, payment.getId(),
                     RabbitConfig.PAYMENT_FAILED_ROUTING_KEY,
-                    objectMapper.writeValueAsString(announced));
+                    objectMapper.writeValueAsString(announced),
+                    currentTraceId(), currentSpanId());
         } catch (JsonProcessingException e) {
             throw new PaymentException(PaymentErrorCode.PAYMENT_INTERNAL_ERROR,
                     "Could not serialize outbox event for payment " + payment.getId(), e);

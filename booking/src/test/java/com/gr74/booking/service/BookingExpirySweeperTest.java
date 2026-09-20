@@ -20,6 +20,7 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,6 +38,7 @@ import com.gr74.booking.outbox.OutboxMessageRepository;
 import com.gr74.booking.repository.BookingRepository;
 import com.gr74.booking.service.BookingConfirmer.ConfirmOutcome;
 
+import io.micrometer.tracing.Tracer;
 import jakarta.persistence.EntityManager;
 
 /**
@@ -98,6 +100,11 @@ class BookingExpirySweeperTest {
 
     @Autowired
     private EntityManager em;
+
+    /** BookingConfirmer captures the trace context onto outbox rows; mocked here so the sweep
+     * tests do not need a tracing setup (the slice has none). */
+    @MockitoBean
+    private Tracer tracer;
 
     @Test
     void lapsedHoldExpiresSeatsFreedButRowsKept() {

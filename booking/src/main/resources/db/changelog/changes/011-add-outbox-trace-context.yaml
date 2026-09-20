@@ -1,0 +1,36 @@
+# Changeset 011 — persist the trace context on outbox rows (BUILD_PLAN Phase 6, decision B1).
+#
+# The outbox relay publishes on a @Scheduled thread, seconds after the request that wrote the row
+# committed and ended. Micrometer can only propagate a trace context that is LIVE on the publishing
+# thread — and there it is not — so auto-instrumentation would silently end the trace at the outbox
+# row, and Booking's async hop to Notification would fall out of it. The fix is the same principle
+# the outbox itself runs on: if a fact must survive a commit boundary, write it to the database.
+# These columns are captured at write time (inside the business transaction, where the trace is
+# still live) and read back by the relay, which stamps a W3C `traceparent` header on the outgoing
+# AMQP message so each consumer can restore the original trace.
+#
+# Design notes (mirrors payment's 005-add-outbox-trace-context.yaml — same deliberate duplication
+# as the pattern itself):
+# - Both columns are NULLABLE: rows written before this changeset carry no trace, and a trace is not
+#   required for delivery — a row without one simply publishes without the header, exactly as before.
+# - trace_id is the 32-hex W3C trace id; span_id is the 16-hex id of the span that wrote the row.
+#   On the wire the stored span_id becomes the traceparent's PARENT span id, so the consumer's
+#   restored span is a child of the span that caused the event — a true causal chain across the hop.
+# - VARCHAR(32)/VARCHAR(16) match the W3C traceparent fixed widths; the values are Micrometer-
+#   generated hex, so the widths are exact and never padded.
+databaseChangeLog:
+  - changeSet:
+      id: 011-1-add-outbox-trace-context
+      author: mohamed
+      changes:
+        - addColumn:
+            tableName: outbox
+            columns:
+              - column:
+                  name: trace_id
+                  type: VARCHAR(32)
+                  remarks: The 32-hex W3C trace id active when the row was written (null when none was).
+              - column:
+                  name: span_id
+                  type: VARCHAR(16)
+                  remarks: The 16-hex id of the writing span - the consumer's restored span is its child.

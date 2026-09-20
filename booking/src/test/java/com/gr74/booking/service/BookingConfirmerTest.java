@@ -1,6 +1,8 @@
 package com.gr74.booking.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mock;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -15,6 +17,7 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,6 +38,10 @@ import com.gr74.booking.outbox.OutboxMessage;
 import com.gr74.booking.outbox.OutboxMessageRepository;
 import com.gr74.booking.repository.BookingRepository;
 import com.gr74.booking.service.BookingConfirmer.ConfirmOutcome;
+
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.TraceContext;
+import io.micrometer.tracing.Tracer;
 
 /**
  * The saga step, tested by <b>direct invocation</b> of {@link BookingConfirmer} on H2 — no broker
@@ -93,6 +100,10 @@ class BookingConfirmerTest {
 
     @Autowired
     private TransactionTemplate transactionTemplate;
+
+    /** The confirmer captures the trace context onto the outbox row — mocked here so tests control it. */
+    @MockitoBean
+    private Tracer tracer;
 
     @Test
     void confirmOnLivePendingHoldConfirmsAndWritesOutboxRow() {
@@ -183,6 +194,40 @@ class BookingConfirmerTest {
 
         assertThat(outcome).isEqualTo(ConfirmOutcome.UNKNOWN_BOOKING);
         assertThat(outbox.count()).isZero();
+    }
+
+    @Test
+    void outboxRowCapturesTheActiveTraceContext() {
+        Booking booking = persist("BK-TRACE0001", BookingStatus.PENDING, NOW.plusSeconds(900));
+        String traceId = "7f3ab9e2c1d44a02b8e1f0c3d5a67890";
+        String spanId = "a1b2c3d4e5f60718";
+        TraceContext context = mock(TraceContext.class);
+        given(context.traceId()).willReturn(traceId);
+        given(context.spanId()).willReturn(spanId);
+        Span span = mock(Span.class);
+        given(span.context()).willReturn(context);
+        given(tracer.currentSpan()).willReturn(span);
+
+        ConfirmOutcome outcome = confirmer.confirmFromPayment(succeeded(booking.getId(), 520L));
+
+        assertThat(outcome).isEqualTo(ConfirmOutcome.CONFIRMED);
+        OutboxMessage row = outbox.findAll().get(0);
+        assertThat(row.getTraceId()).isEqualTo(traceId);
+        assertThat(row.getSpanId()).isEqualTo(spanId);
+    }
+
+    @Test
+    void outboxRowStoresNullTraceWhenNoSpanIsActive() {
+        Booking booking = persist("BK-NOTRACE01", BookingStatus.PENDING, NOW.plusSeconds(900));
+        // The default mock returns null from currentSpan() — the null-safe capture path (a test,
+        // a scheduled path, a consumer with no restored trace).
+
+        ConfirmOutcome outcome = confirmer.confirmFromPayment(succeeded(booking.getId(), 521L));
+
+        assertThat(outcome).isEqualTo(ConfirmOutcome.CONFIRMED);
+        OutboxMessage row = outbox.findAll().get(0);
+        assertThat(row.getTraceId()).isNull();
+        assertThat(row.getSpanId()).isNull();
     }
 
     /**

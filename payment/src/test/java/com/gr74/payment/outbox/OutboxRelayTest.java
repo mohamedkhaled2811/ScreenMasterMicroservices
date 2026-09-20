@@ -20,6 +20,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.springframework.amqp.AmqpException;
+import org.springframework.amqp.core.Message;
+import org.springframework.amqp.core.MessagePostProcessor;
+import org.springframework.amqp.core.MessageProperties;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -32,7 +35,8 @@ import com.gr74.payment.service.OutboxWriter;
  * {@code SELECT ... FOR UPDATE SKIP LOCKED}, so the query itself is never exercised here — the
  * boundary test proves the row commits and rolls back with the business write instead).
  *
- * <p>A plain unit test on purpose: the logic under test is ordering and error handling, not wiring.
+ * <p>A plain unit test on purpose: the logic under test is ordering, error handling, and the
+ * traceparent stamping, not wiring.
  */
 class OutboxRelayTest {
 
@@ -58,12 +62,14 @@ class OutboxRelayTest {
         order.verify(rabbit).convertAndSend(
                 eq(RabbitConfig.EXCHANGE),
                 eq(RabbitConfig.PAYMENT_SUCCEEDED_ROUTING_KEY),
-                any(Map.class));
+                any(Map.class),
+                any(MessagePostProcessor.class));
         order.verify(writer).markPublished(first);
         order.verify(rabbit).convertAndSend(
                 eq(RabbitConfig.EXCHANGE),
                 eq(RabbitConfig.PAYMENT_FAILED_ROUTING_KEY),
-                any(Map.class));
+                any(Map.class),
+                any(MessagePostProcessor.class));
         order.verify(writer).markPublished(second);
         // The loop claims once more to confirm the backlog is empty, then returns.
         verify(writer, times(2)).claimBatch(50);
@@ -83,9 +89,50 @@ class OutboxRelayTest {
         verify(rabbit).convertAndSend(
                 eq(RabbitConfig.EXCHANGE),
                 eq(RabbitConfig.PAYMENT_SUCCEEDED_ROUTING_KEY),
-                payload.capture());
+                payload.capture(),
+                any(MessagePostProcessor.class));
         assertThat(payload.getValue()).containsEntry("eventId", 42L);
         assertThat(payload.getValue()).containsEntry("paymentId", 500);
+    }
+
+    @Test
+    @DisplayName("a row with a persisted trace stamps a W3C traceparent header on the message")
+    void rowWithTraceStampsTraceparentHeader() {
+        OutboxMessage row = messageWithTrace(7L, OutboxEventType.PAYMENT_SUCCEEDED,
+                RabbitConfig.PAYMENT_SUCCEEDED_ROUTING_KEY, "{\"paymentId\":500}",
+                "7f3ab9e2c1d44a02b8e1f0c3d5a67890", "a1b2c3d4e5f60718");
+        given(writer.claimBatch(anyInt())).willReturn(List.of(row), List.of());
+
+        relay.drain();
+
+        ArgumentCaptor<MessagePostProcessor> processor = ArgumentCaptor.forClass(MessagePostProcessor.class);
+        verify(rabbit).convertAndSend(
+                eq(RabbitConfig.EXCHANGE),
+                eq(RabbitConfig.PAYMENT_SUCCEEDED_ROUTING_KEY),
+                any(Map.class),
+                processor.capture());
+        Message stamped = processor.getValue().postProcessMessage(new Message(new byte[0], new MessageProperties()));
+        assertThat(stamped.getMessageProperties().getHeaders())
+                .containsEntry("traceparent", "00-7f3ab9e2c1d44a02b8e1f0c3d5a67890-a1b2c3d4e5f60718-01");
+    }
+
+    @Test
+    @DisplayName("a row with no persisted trace publishes WITHOUT a traceparent header (backwards compatible)")
+    void rowWithoutTracePublishesNoTraceparentHeader() {
+        OutboxMessage row = message(7L, OutboxEventType.PAYMENT_SUCCEEDED,
+                RabbitConfig.PAYMENT_SUCCEEDED_ROUTING_KEY, "{\"paymentId\":500}");
+        given(writer.claimBatch(anyInt())).willReturn(List.of(row), List.of());
+
+        relay.drain();
+
+        ArgumentCaptor<MessagePostProcessor> processor = ArgumentCaptor.forClass(MessagePostProcessor.class);
+        verify(rabbit).convertAndSend(
+                eq(RabbitConfig.EXCHANGE),
+                eq(RabbitConfig.PAYMENT_SUCCEEDED_ROUTING_KEY),
+                any(Map.class),
+                processor.capture());
+        Message stamped = processor.getValue().postProcessMessage(new Message(new byte[0], new MessageProperties()));
+        assertThat(stamped.getMessageProperties().getHeaders()).doesNotContainKey("traceparent");
     }
 
     @Test
@@ -95,7 +142,8 @@ class OutboxRelayTest {
                 RabbitConfig.PAYMENT_SUCCEEDED_ROUTING_KEY, "{\"paymentId\":500}");
         given(writer.claimBatch(anyInt())).willReturn(List.of(row));
         willThrow(new AmqpException("broker down")).given(rabbit)
-                .convertAndSend(any(String.class), any(String.class), any(Map.class));
+                .convertAndSend(any(String.class), any(String.class), any(Map.class),
+                        any(MessagePostProcessor.class));
 
         relay.drain(); // must not throw — the next tick retries
 
@@ -109,13 +157,20 @@ class OutboxRelayTest {
 
         relay.drain();
 
-        verify(rabbit, never()).convertAndSend(any(String.class), any(String.class), any(Object.class));
+        verify(rabbit, never()).convertAndSend(any(String.class), any(String.class),
+                any(Object.class), any(MessagePostProcessor.class));
         verify(writer, never()).markPublished(any());
     }
 
     /** An outbox row with a fixed id, bypassing the generated-value path unit tests cannot use. */
     private static OutboxMessage message(Long id, OutboxEventType type, String routingKey, String payload) {
-        OutboxMessage message = new OutboxMessage(type, 500L, routingKey, payload);
+        return messageWithTrace(id, type, routingKey, payload, null, null);
+    }
+
+    /** A row with a fixed id and the persisted trace context the Phase-6 relay reads back. */
+    private static OutboxMessage messageWithTrace(Long id, OutboxEventType type, String routingKey,
+            String payload, String traceId, String spanId) {
+        OutboxMessage message = new OutboxMessage(type, 500L, routingKey, payload, traceId, spanId);
         try {
             var idField = OutboxMessage.class.getDeclaredField("id");
             idField.setAccessible(true);

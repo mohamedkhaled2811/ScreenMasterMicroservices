@@ -14,6 +14,7 @@ import com.gr74.payment.model.WebhookProcessingStatus;
 import com.gr74.payment.repository.WebhookEventRepository;
 import com.gr74.payment.service.WebhookWriter;
 
+import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -47,7 +48,15 @@ public class WebhookProcessor {
      * @param rawBody  the exact bytes received — signatures are computed over these, never over a
      *                 re-serialized form
      * @param headers  delivery headers (signature + metadata), keys lower-cased by the controller
+     *
+     * <p>{@code @Observed}: the webhook's root span. A webhook arrives with
+     * NO {@code traceparent} (Stripe has never heard of our traces), so this span starts a brand-new
+     * trace — correct and deliberate: the payment outcome is a separate causal chain that begins
+     * when the user finishes paying, possibly minutes after the booking request ended. The two
+     * traces are linked by the tags {@code WebhookWriter} adds (paymentId/attemptId/bookingId) and
+     * by the {@code trace_id} stored on the evidence row — not by a parent-child edge.
      */
+    @Observed(name = "payment.webhook.process", contextualName = "process-webhook")
     public WebhookResult process(PaymentGatewayType type, byte[] rawBody, Map<String, String> headers) {
         PaymentGateway gateway = registry.require(type);
         GatewayEvent event;

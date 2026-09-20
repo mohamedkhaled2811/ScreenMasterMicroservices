@@ -14,6 +14,7 @@ import com.gr74.payment.model.PaymentAttempt;
 import com.gr74.payment.model.PaymentAttemptStatus;
 import com.gr74.payment.model.PaymentGatewayType;
 
+import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -57,7 +58,11 @@ public class PaymentSessionFactory {
      * @throws com.gr74.payment.exception.GatewayNotAvailableException  gateway not registered (400)
      * @throws com.gr74.payment.exception.CurrencyNotSupportedException gateway can't settle it (400)
      * @throws com.gr74.payment.gateway.GatewayException                gateway unreachable (503)
+     *
+     * <p>{@code @Observed}: one span per opened session, so the waterfall
+     * distinguishes "our own seat query" from "the gateway call" — the two calls this method makes.
      */
+    @Observed(name = "payment.session.open", contextualName = "open-session")
     public PaymentAttempt openNewSession(Payment payment, PaymentGatewayType gatewayType, String currency) {        // Guard 6, before anything is written: a gateway that isn't registered, or can't settle this
         // currency, must be rejected without leaving a dead attempt row behind.
         PaymentGateway gateway = gatewaySelector.select(gatewayType, currency);

@@ -15,6 +15,8 @@
 #                           one column on it. Booking-private table, so a plain forward-only rename.
 #   010-create-outbox      outbox — transactional outbox: saga events written atomically with the
 #                           booking write; the Phase-4 relay publishes them (BUILD_PLAN 4.1/4.2)
+#   011-add-outbox-trace-  outbox.trace_id + span_id — the originating trace, persisted so the
+#     context              async relay can carry it across the commit boundary
 #
 # See docs/concepts/liquibase.md.
 databaseChangeLog:
@@ -38,3 +40,5 @@ databaseChangeLog:
       file: db/changelog/changes/009-add-currency.yaml
   - include:
       file: db/changelog/changes/010-create-outbox.yaml
+  - include:
+      file: db/changelog/changes/011-add-outbox-trace-context.yaml

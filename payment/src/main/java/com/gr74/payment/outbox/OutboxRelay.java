@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.amqp.AmqpException;
+import org.springframework.amqp.core.MessagePostProcessor;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -14,6 +15,7 @@ import com.gr74.payment.config.OutboxProps;
 import com.gr74.payment.config.RabbitConfig;
 import com.gr74.payment.service.OutboxWriter;
 
+import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -45,7 +47,13 @@ public class OutboxRelay {
      * Drain pending rows until the backlog is empty. Claims in bounded batches
      * ({@code SKIP LOCKED}, so overlapping ticks or instances never block on each other) and walks
      * the backlog over several passes after a long outage rather than in one enormous loop.
+     *
+     * <p>{@code @Observed}: one span per drain tick, so a growing backlog —
+     * the "why is PaymentSucceeded so late" question — is visible in Zipkin as one timed unit.
+     * This span is a fresh trace by design: it runs on a scheduler thread with no request context,
+     * which is exactly why the rows carry a persisted trace (see {@code 005-add-trace-context.yaml}).
      */
+    @Observed(name = "outbox.drain", contextualName = "drain-outbox")
     @Scheduled(fixedDelayString = "${payment.outbox.relay-interval-millis:2000}")
     void drain() {
         try {
@@ -58,7 +66,8 @@ public class OutboxRelay {
                     // The wire eventId is the outbox row id: stable across redeliveries, so the
                     // consumer can dedupe a republished event onto the same id.
                     rabbit.convertAndSend(
-                            RabbitConfig.EXCHANGE, message.getRoutingKey(), payloadWithEventId(message));
+                            RabbitConfig.EXCHANGE, message.getRoutingKey(), payloadWithEventId(message),
+                            traceparent(message));
                     // AFTER the publish — never before. See the class javadoc for why.
                     writer.markPublished(message);
                 }
@@ -69,6 +78,29 @@ public class OutboxRelay {
             // lesson fixed — a lost PaymentSucceeded costs real money, so waiting beats dropping.
             log.warn("Outbox relay deferred: broker unavailable — rows stay pending for the next tick", e);
         }
+    }
+
+    /**
+     * A {@link MessagePostProcessor} that stamps the persisted trace context onto the outgoing AMQP
+     * message as a W3C {@code traceparent} header.
+     *
+     * <p>The trace is not live on this scheduler thread (that is why it was persisted), so this is
+     * the only way the consumer can re-join the original trace. The stored span id becomes the
+     * header's parent span id, so the consumer's restored span is a child of the span that caused
+     * the event. A row with no persisted trace (written without trace context, or genuinely trace-less)
+     * publishes with no header — exactly the behaviour every older consumer already expected.
+     */
+    private MessagePostProcessor traceparent(OutboxMessage message) {
+        String traceId = message.getTraceId();
+        String spanId = message.getSpanId();
+        if (traceId == null || spanId == null) {
+            return m -> m;
+        }
+        String header = "00-" + traceId + "-" + spanId + "-01";
+        return m -> {
+            m.getMessageProperties().setHeader("traceparent", header);
+            return m;
+        };
     }
 
     @SuppressWarnings("unchecked")

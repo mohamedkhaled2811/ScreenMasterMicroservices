@@ -31,6 +31,7 @@ import com.gr74.booking.repository.BookingRepository;
 import com.gr74.booking.repository.SeatRepository;
 import com.gr74.booking.repository.ShowtimeRepository;
 
+import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -96,6 +97,7 @@ public class BookingService {
     }
 
     @Transactional
+    @Observed(name = "booking.create", contextualName = "create-booking")
     public Booking create(String userId, CreateBookingRequest request) {
         // 1) The showtime must exist — it carries the screen (seats must belong to it) and the movieId
         //    we snapshot onto the booking, plus the basePrice the per-seat price is derived from.

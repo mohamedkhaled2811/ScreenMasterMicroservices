@@ -2,6 +2,7 @@ package com.gr74.booking.messaging;
 
 import java.util.Map;
 
+import org.slf4j.MDC;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.support.AmqpHeaders;
 import org.springframework.messaging.handler.annotation.Header;
@@ -11,6 +12,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gr74.booking.config.RabbitConfig;
 import com.gr74.booking.service.BookingConfirmer;
 
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.TraceContext;
+import io.micrometer.tracing.Tracer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -41,10 +45,26 @@ public class PaymentEventListener {
 
     private final BookingConfirmer confirmer;
     private final ObjectMapper objectMapper;
+    private final Tracer tracer;
 
+    /**
+     * The one header the outbox relay restores the original trace with.
+     * {@code required = false} is not optional: a message published without trace context — or by any
+     * producer that does not carry trace context — has no {@code traceparent}, and rejecting it
+     * would break the stream.
+     */
     @RabbitListener(queues = RabbitConfig.PAYMENT_EVENTS_QUEUE)
     public void onPaymentEvent(Map<String, Object> payload,
-            @Header(AmqpHeaders.RECEIVED_ROUTING_KEY) String routingKey) {
+            @Header(AmqpHeaders.RECEIVED_ROUTING_KEY) String routingKey,
+            @Header(value = "traceparent", required = false) String traceparent) {
+        runInTrace(traceparent, () -> dispatch(payload, routingKey));
+    }
+
+    /**
+     * The original business dispatch — kept a private method so {@link #runInTrace} can wrap it
+     * without tangling the trace-restore lifecycle into the routing switch.
+     */
+    private void dispatch(Map<String, Object> payload, String routingKey) {
         switch (routingKey) {
             case RabbitConfig.PAYMENT_SUCCEEDED_ROUTING_KEY -> {
                 PaymentSucceededEvent event =
@@ -63,5 +83,63 @@ public class PaymentEventListener {
             default -> log.warn("Ignoring payment event with unexpected routing key '{}' — "
                     + "no binding should deliver this; check RabbitConfig", routingKey);
         }
+    }
+
+    /**
+     * Re-join the trace the outbox relay persisted.
+     *
+     * <p>This listener runs on a RabbitMQ consumer thread where <em>no</em> live Micrometer context
+     * exists: the outbox hop meant the trace was never propagated automatically (the relay publishes
+     * on a scheduler thread, long after the request context died), so the relay stamped it onto the
+     * message instead. Here we read it back, build a real child span of the persisted parent, and
+     * make it current for the duration of the dispatch — which is what lets {@code BookingConfirmer}
+     * capture the trace again when IT writes its own outbox row, carrying the same id one hop further.
+     *
+     * <p>The MDC {@code traceId} is set explicitly because the log pattern renders {@code %X{traceId}}
+     * — if the bridge does not auto-populate it for a hand-started span, this guarantees the line is
+     * still correlated. The try/finally is not optional: a leaked MDC entry on a pooled listener
+     * thread would mislabel every later message that thread handles.
+     */
+    private void runInTrace(String traceparent, Runnable work) {
+        Span span = spanFrom(traceparent);
+        if (span == null) {
+            work.run();
+            return;
+        }
+        try (Tracer.SpanInScope scope = tracer.withSpan(span)) {
+            MDC.put("traceId", span.context().traceId());
+            work.run();
+        } catch (RuntimeException e) {
+            // Record the failure ON the span before it ends, then rethrow unchanged so the message
+            // is still nacked and redelivered. Without this the span closes looking successful, and
+            // Zipkin would show a green waterfall for the exact failure being debugged.
+            span.error(e);
+            throw e;
+        } finally {
+            MDC.remove("traceId");
+            span.end();
+        }
+    }
+
+    /**
+     * Parse a W3C {@code traceparent} ({@code 00-{traceId}-{spanId}-{flags}}) and create a started
+     * child span of the persisted parent. Null when the header is absent or malformed — the
+     * backwards-compatible path that simply processes without a restored trace.
+     */
+    private Span spanFrom(String traceparent) {
+        if (traceparent == null || traceparent.isBlank()) {
+            return null;
+        }
+        String[] parts = traceparent.split("-");
+        if (parts.length < 4 || !"00".equals(parts[0])) {
+            log.debug("Ignoring malformed traceparent '{}' — processing without a restored trace", traceparent);
+            return null;
+        }
+        TraceContext parent = tracer.traceContextBuilder()
+                .traceId(parts[1])
+                .spanId(parts[2])
+                .sampled("01".equals(parts[3]))
+                .build();
+        return tracer.spanBuilder().setParent(parent).name("consume-payment-event").start();
     }
 }

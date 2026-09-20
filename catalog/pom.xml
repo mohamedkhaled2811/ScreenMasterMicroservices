@@ -44,6 +44,45 @@
 			<artifactId>spring-boot-starter-actuator</artifactId>
 		</dependency>
 		<!--
+		  Distributed tracing. Micrometer Tracing is a facade; this is the
+		  OpenTelemetry bridge (NOT Brave — the vendor-neutral standard, see docs/concepts/observability.md),
+		  and the Zipkin exporter ships finished spans to the Zipkin in compose.yaml (port 9411).
+		  The log pattern already carries %X{traceId}/%X{spanId}; these jars are what make
+		  the ids appear. Versions are managed by the Spring Boot parent (micrometer-tracing + OTel
+		  BOMs) — no pin here.
+		-->
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-tracing-bridge-otel</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>io.opentelemetry</groupId>
+			<artifactId>opentelemetry-exporter-zipkin</artifactId>
+		</dependency>
+		<!--
+		  Boot 4's tracing auto-configuration ships in its own artifact (it was split out of the
+		  actuator jar): without it the bridge+exporter above sit on the classpath but no Tracer bean
+		  is created and %X{traceId} stays empty. This is the targeted auto-config module (NOT
+		  spring-boot-starter-opentelemetry, which would drag in an OTLP exporter and registry we do
+		  not use — we ship spans to Zipkin).
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-micrometer-tracing-opentelemetry</artifactId>
+		</dependency>
+		<!--
+		  The Zipkin *sender*. The auto-config above only builds the ZipkinSpanExporter when a
+		  BytesMessageSender bean already exists (@ConditionalOnBean) — and in Boot 4 that bean comes
+		  from this separate module, which reads management.zipkin.tracing.endpoint and wires the
+		  okhttp sender. Without it the condition silently never matches: spans are still recorded and
+		  %X{traceId} still fills in, but nothing is ever shipped and Zipkin stays empty. Having
+		  zipkin-sender-okhttp3 on the classpath transitively is NOT enough — a library is not a bean.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-zipkin</artifactId>
+		</dependency>
+		<!--
 		  Synchronous HTTP client for calling TMDB from the @Scheduled sync job. RestClient (not
 		  WebClient): the sync runs on a scheduler thread where blocking is fine, and it keeps one
 		  HTTP-client story across services (Booking → Payment/Catalog also uses RestClient). See

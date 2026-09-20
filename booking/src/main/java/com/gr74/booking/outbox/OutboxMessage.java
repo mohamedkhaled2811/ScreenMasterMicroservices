@@ -65,11 +65,39 @@ public class OutboxMessage {
     @Column(name = "published_at")
     private Instant publishedAt;
 
+    /**
+     * The 32-hex W3C trace id active when the row was written — persisted so the async relay can
+     * carry the original trace across the commit boundary. Null when no
+     * trace was live (a test, a scheduled path), which is fine: the relay simply publishes without
+     * a {@code traceparent} header.
+     */
+    @Column(name = "trace_id", updatable = false, length = 32)
+    private String traceId;
+
+    /**
+     * The 16-hex id of the span that wrote the row. On the wire it becomes the traceparent's
+     * PARENT span id, so the consumer's restored span is a child of the span that caused this event.
+     */
+    @Column(name = "span_id", updatable = false, length = 16)
+    private String spanId;
+
     public OutboxMessage(OutboxEventType eventType, Long aggregateId, String routingKey, String payload) {
+        this(eventType, aggregateId, routingKey, payload, null, null);
+    }
+
+    /**
+     * The production constructor: captures the trace context that was live when the business change
+     * committed, so the relay can re-create it on the consumer's thread. The four-arg form above is
+     * for rows genuinely written outside a trace (tests, backfills) and stores {@code null}.
+     */
+    public OutboxMessage(OutboxEventType eventType, Long aggregateId, String routingKey, String payload,
+            String traceId, String spanId) {
         this.eventType = eventType;
         this.aggregateId = aggregateId;
         this.routingKey = routingKey;
         this.payload = payload;
+        this.traceId = traceId;
+        this.spanId = spanId;
         this.createdAt = Instant.now();
     }
 

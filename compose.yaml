@@ -60,6 +60,9 @@ services:
     environment:
       EUREKA_SERVICE_URL: http://discovery:8761/eureka/   # resolve the registry by service name
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"           # register a routable Compose-network IP
+      # Phase 7: the ONE issuer URI every service pins (container DNS — the `keycloak` service
+      # name; Keycloak mints exactly this `iss` via KC_HOSTNAME, see the keycloak block).
+      KEYCLOAK_ISSUER_URI: http://keycloak:8180/realms/cinema
       # Tracing: the Zipkin exporter endpoint. No depends_on — see the discovery block.
       ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
       # Boot 4 key (management.tracing.export.zipkin.endpoint) as a relaxed-binding env var.
@@ -91,6 +94,8 @@ services:
       TMDB_SYNC_ENABLED: ${TMDB_SYNC_ENABLED:-false}
       # Catalog PUBLISHES MovieUpserted to the broker (CQRS read model, 2.3). service name = DNS name.
       RABBITMQ_HOST: rabbitmq
+      # Phase 7: the ONE issuer URI every service pins (see the gateway block).
+      KEYCLOAK_ISSUER_URI: http://keycloak:8180/realms/cinema
       # Tracing: the Zipkin exporter endpoint. No depends_on — see the discovery block.
       ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
       # Boot 4 key (management.tracing.export.zipkin.endpoint) as a relaxed-binding env var.
@@ -121,6 +126,8 @@ services:
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
       # Booking CONSUMES MovieUpserted from the broker into its movie_projections read model (2.3).
       RABBITMQ_HOST: rabbitmq
+      # Phase 7: the ONE issuer URI every service pins (see the gateway block).
+      KEYCLOAK_ISSUER_URI: http://keycloak:8180/realms/cinema
       # Tracing: the Zipkin exporter endpoint. No depends_on — see the discovery block.
       ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
       # Boot 4 key (management.tracing.export.zipkin.endpoint) as a relaxed-binding env var.
@@ -175,6 +182,8 @@ services:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: ${RABBITMQ_USER:-guest}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      # Phase 7: the ONE issuer URI every service pins (see the gateway block).
+      KEYCLOAK_ISSUER_URI: http://keycloak:8180/realms/cinema
       # Tracing: the Zipkin exporter endpoint. No depends_on — see the discovery block.
       ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
       # Boot 4 key (management.tracing.export.zipkin.endpoint) as a relaxed-binding env var.
@@ -207,6 +216,12 @@ services:
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
       # Notification CONSUMES Booking's booking-outcome stream from the broker (4.3).
       RABBITMQ_HOST: rabbitmq
+      # Phase 7: the ONE issuer URI every service pins (see the gateway block).
+      KEYCLOAK_ISSUER_URI: http://keycloak:8180/realms/cinema
+      # Phase 7 (7.6): this service's OWN identity toward Keycloak (client-credentials grant for
+      # the notification-svc client). Dev default matches the DEV realm JSON; production sets this
+      # in .env — never committed.
+      NOTIFICATION_SVC_SECRET: ${NOTIFICATION_SVC_SECRET:-notification-svc-dev-secret}
       # Tracing: the Zipkin exporter endpoint. No depends_on — see the discovery block.
       ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
       # Boot 4 key (management.tracing.export.zipkin.endpoint) as a relaxed-binding env var.
@@ -304,6 +319,86 @@ services:
       retries: 10
     networks: [screenmaster]
 
+  # keycloak-db: the 5th Postgres, owned by Keycloak alone. Same shape as its siblings; unlike them
+  # it is also internal-only (no host port — the realm is managed through Keycloak's own console).
+  keycloak-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - keycloak-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d keycloak"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [screenmaster]
+
+  # ===========================================================================
+  #  Identity — Keycloak, the only service that ever sees a password (Phase 7,
+  #  field guide M7). Owns users, credentials, emails and roles; every other service
+  #  only ever sees the signed JWTs it mints.
+  #
+  #  THE ONE-ISSUER RULE (the #1 Keycloak-in-Docker problem): a JWT's `iss` is the URL
+  #  Keycloak was reached at — EXCEPT Keycloak is told a fixed frontend hostname here
+  #  (KC_HOSTNAME=keycloak, strict), so it ALWAYS mints `iss=http://keycloak:8180/...`
+  #  no matter who asked. Host callers reach it as localhost:8180 (published port) to
+  #  FETCH tokens; container callers reach it as keycloak:8180 (service DNS) to VALIDATE
+  #  them and fetch the JWKS — and both sides agree on ONE `iss`, which is what the
+  #  services' `issuer-uri` pins. Two URLs for transport, one URL for identity.
+  #
+  #  Why 8180 on BOTH sides (not 8080 inside): the gateway already owns host port 8080,
+  #  so Keycloak listens on 8180 inside its container too (KC_HTTP_PORT) — container
+  #  callers use keycloak:8180, host callers use localhost:8180, and the minted `iss`
+  #  matches both. A host-local `./mvnw spring-boot:run` needs `keycloak` to resolve —
+  #  add `127.0.0.1 keycloak` to /etc/hosts — because `localhost` would mint a
+  #  different `iss` and fail validation.
+  #
+  #  Realm `cinema` is imported from the committed keycloak/realms/cinema-realm.json
+  #  (--import-realm over a read-only mount): `docker compose up` alone brings the realm
+  #  up correctly — no manual console clicking. First boot takes ~30-60s (migrations).
+  # ===========================================================================
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    # start-dev: HTTP, relaxed prod checks — right for a local lab (production runs
+    # `start --optimized` behind TLS at an ingress). --import-realm loads the realm file.
+    command: start-dev --import-realm
+    ports:
+      - "8180:8180"          # token fetching from the host (get-token.sh hits localhost:8180)
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: postgres
+      KC_DB_PASSWORD: postgres
+      # Bootstrap console admin (dev default; override in .env — never the seeded app users).
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      # The one-issuer rule above, as env: listen on 8180, mint `iss` for keycloak:8180, strictly.
+      KC_HTTP_PORT: 8180
+      KC_HOSTNAME: http://keycloak:8180
+      KC_HOSTNAME_ADMIN: http://localhost:8180
+      KC_HOSTNAME_STRICT: "true"
+      # Tracing: the Zipkin exporter endpoint. No depends_on — see the discovery block.
+      ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
+      MANAGEMENT_TRACING_EXPORT_ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
+    volumes:
+      - ./keycloak/realms:/opt/keycloak/data/import:ro   # the realm JSON (committed, reviewed)
+    healthcheck:
+      # Keycloak's own readiness probe. Generous start_period: the first boot runs DB
+      # migrations and realm import (~30-60s). Nothing gates on this health (services boot
+      # WITHOUT Keycloak thanks to their lazy JWKS decoders) — it is observability only.
+      test: ["CMD-SHELL", "curl -f http://localhost:8180/health/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 90s
+    depends_on:
+      keycloak-db:
+        condition: service_healthy   # don't boot until Postgres answers pg_isready (no race)
+    networks: [screenmaster]
+
   # ===========================================================================
   #  Broker + tracing — run now, WIRED LATER. RabbitMQ is consumed in Phase 4;
   #  Zipkin receives traces in Phase 6. Present here so the topology is complete
@@ -340,3 +435,4 @@ volumes:
   booking-db-data:
   payment-db-data:
   notification-db-data:
+  keycloak-db-data:

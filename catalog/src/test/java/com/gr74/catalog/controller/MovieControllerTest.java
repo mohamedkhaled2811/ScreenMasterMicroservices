@@ -9,10 +9,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.gr74.catalog.config.SecurityConfig;
 import com.gr74.catalog.exception.MovieNotFoundException;
 import com.gr74.catalog.model.Genre;
 import com.gr74.catalog.model.Movie;
@@ -26,7 +28,13 @@ import com.gr74.catalog.service.MovieService;
  *
  * <p>{@code GlobalExceptionHandler} is a {@code @RestControllerAdvice}, so it is picked up by the
  * {@code @WebMvcTest} slice and renders the thrown {@link MovieNotFoundException}.
+ *
+ * <p>Imports the real {@link SecurityConfig} so these cases run through the REAL filter
+ * chain (a slice does not component-scan it otherwise). The catalogue reads are public,
+ * so every case below runs with NO token — and that absence is itself the assertion: browsing
+ * works anonymously.
  */
+@Import(SecurityConfig.class)
 @WebMvcTest(MovieController.class)
 class MovieControllerTest {
 

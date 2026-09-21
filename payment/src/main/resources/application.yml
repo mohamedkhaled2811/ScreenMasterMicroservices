@@ -60,6 +60,19 @@ spring:
     username: ${RABBITMQ_USER:guest}
     password: ${RABBITMQ_PASSWORD:guest}
 
+  # Phase 7 (BUILD_PLAN 7.2/7.3): this service is an OAuth2 resource server — it validates the
+  # user's Bearer JWT itself (zero trust, not just the gateway). ONE issuer URI everywhere: it feeds
+  # BOTH the accepted `iss` claim and the derived JWKS fetch URL (see SecurityConfig), so the two can
+  # never drift apart. In Compose this is `http://keycloak:8180/realms/cinema` (container DNS — the
+  # `keycloak` service name); Keycloak is told to mint exactly that `iss` via KC_HOSTNAME (see
+  # compose.yaml). A host-local run needs `keycloak` to resolve — add `127.0.0.1 keycloak` to
+  # /etc/hosts — because reaching Keycloak as `localhost` would mint a different `iss` and fail.
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://keycloak:8180/realms/cinema}
+
 # A Eureka CLIENT: it registers with the discovery server on startup. We do NOT set
 # register-with-eureka/fetch-registry to false — those are server-only (the discovery node sets
 # them because it has no peers). See docs/concepts/service-discovery.md.

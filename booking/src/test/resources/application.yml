@@ -9,6 +9,15 @@ spring:
       ddl-auto: create-drop
   liquibase:
     enabled: false
+  # Phase 7: the test file SHADOWS the main application.yml (a full-context test does not see
+  # main-only nested keys — see the Boot-4 trap note in the Phase 7 report), so the resource-server
+  # issuer URI is repeated here. The value only feeds the lazy JwtDecoder bean definition (no
+  # network at boot) and the converter — hermetic tests never call Keycloak.
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://keycloak:8180/realms/cinema
 
 eureka:
   client:

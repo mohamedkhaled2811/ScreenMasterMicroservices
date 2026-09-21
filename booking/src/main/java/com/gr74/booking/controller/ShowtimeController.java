@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -33,12 +34,17 @@ import lombok.extern.slf4j.Slf4j;
  *
  * <p>Bare paths ({@code /showtimes/...}); the gateway strips the {@code /api} prefix. Reads mirror the
  * monolith's showtime endpoints (by id, by movie, upcoming-by-movie, by screen). {@code POST /showtimes}
- * validates the movie against Catalog synchronously (plan option 5C) — a bad {@code movieId} comes back
+ * validates the movie against Catalog synchronously — a bad {@code movieId} comes back
  * as {@code BOOKING_MOVIE_NOT_FOUND} (404) and a Catalog outage as {@code BOOKING_CATALOG_UNAVAILABLE}
  * (503), both rendered by {@code GlobalExceptionHandler}. DTOs cross the wire, not entities.
  *
  * <p>A {@link Clock} is injected (rather than calling {@code LocalDate.now()} directly) so "upcoming"
  * has a testable notion of "today" — a test can pin the clock.
+ *
+ * <p><b>Authorization:</b> reads need any authenticated token; creating or
+ * deleting a showtime needs the {@code ADMIN} realm role ({@code @PreAuthorize} below — the check
+ * lives next to the thing it protects). The coarse "authenticated by default" rule is in
+ * {@code SecurityConfig}.
  */
 @Slf4j
 @RestController
@@ -52,6 +58,7 @@ public class ShowtimeController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Create a showtime",
             description = "Schedules a showtime on a screen for a movie. The movieId is validated live against the Catalog service (this service does not own movies).")
     @ApiResponse(responseCode = "201", description = "Showtime created.")
@@ -115,6 +122,7 @@ public class ShowtimeController {
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Delete a showtime")
     @ApiResponse(responseCode = "204", description = "Deleted.")
     @ApiResponse(responseCode = "404", description = "No such showtime. code = BOOKING_SHOWTIME_NOT_FOUND.",

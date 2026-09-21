@@ -7,6 +7,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -55,6 +56,12 @@ import org.springdoc.core.annotations.ParameterObject;
  * methods describe only the happy path and never {@code return} an error. DTOs cross the wire, not
  * entities (project convention).
  *
+ * <p><b>Authorization:</b> reads need any authenticated token; every write
+ * (create/delete across theaters, screens, seats and seat-types) needs the {@code ADMIN} realm
+ * role, enforced with {@code @PreAuthorize} right here — next to the thing it protects, so it
+ * survives a route refactor. The coarse "authenticated by default" rule lives in
+ * {@code SecurityConfig}; these annotations are the fine-grained half.
+ *
  * <p>Every listing endpoint is <b>paged</b> (never an unbounded array) — per the repo convention in
  * {@code docs/concepts/pagination-and-filtering.md}. Each returns a {@code Page<…>} (serialized as the
  * stable {@code PagedModel} envelope via {@code WebPagingConfig}), takes an optional filter DTO bound
@@ -88,6 +95,7 @@ public class TheaterController {
 
     @PostMapping("/theaters")
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Create a theater")
     @ApiResponse(responseCode = "201", description = "Theater created.")
     @ApiResponse(responseCode = "400", description = "Invalid body. code = BOOKING_VALIDATION_ERROR.",
@@ -100,6 +108,7 @@ public class TheaterController {
 
     @DeleteMapping("/theaters/{theaterId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Delete a theater")
     @ApiResponse(responseCode = "204", description = "Deleted.")
     @ApiResponse(responseCode = "404", description = "No theater with that id. code = BOOKING_THEATER_NOT_FOUND.",
@@ -129,6 +138,7 @@ public class TheaterController {
 
     @PostMapping("/theaters/{theaterId}/screens")
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Create a screen under a theater")
     @ApiResponse(responseCode = "201", description = "Screen created.")
     @ApiResponse(responseCode = "400", description = "Invalid body. code = BOOKING_VALIDATION_ERROR.",
@@ -144,6 +154,7 @@ public class TheaterController {
 
     @DeleteMapping("/screens/{screenId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Delete a screen")
     @ApiResponse(responseCode = "204", description = "Deleted.")
     @ApiResponse(responseCode = "404", description = "No such screen. code = BOOKING_SCREEN_NOT_FOUND.",
@@ -172,6 +183,7 @@ public class TheaterController {
 
     @PostMapping("/screens/{screenId}/seats")
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Create a single seat on a screen")
     @ApiResponse(responseCode = "201", description = "Seat created.")
     @ApiResponse(responseCode = "400", description = "Invalid body. code = BOOKING_VALIDATION_ERROR.",
@@ -185,9 +197,10 @@ public class TheaterController {
         return SeatResponse.from(theaterService.createSeat(screenId, request));
     }
 
-    /** Bulk grid generator (plan option 5B) — returns the seats actually created (idempotent). */
+    /** Bulk grid generator — returns the seats actually created (idempotent). */
     @PostMapping("/screens/{screenId}/seats/grid")
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Generate a seat grid (bulk, idempotent)",
             description = "Bulk-creates a rows×columns grid of seats. Idempotent: re-running skips seats that already exist and returns only the seats actually created this call — a plain array (NOT the PagedModel envelope).")
     @ApiResponse(responseCode = "201", description = "The seats created by this call (may be empty on a repeat run).")
@@ -204,6 +217,7 @@ public class TheaterController {
 
     @DeleteMapping("/seats/{seatId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Delete a seat")
     @ApiResponse(responseCode = "204", description = "Deleted.")
     @ApiResponse(responseCode = "404", description = "No such seat. code = BOOKING_SEAT_NOT_FOUND.",
@@ -230,6 +244,7 @@ public class TheaterController {
 
     @PostMapping("/seat-types")
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Create a seat type")
     @ApiResponse(responseCode = "201", description = "Seat type created.")
     @ApiResponse(responseCode = "400", description = "Invalid body. code = BOOKING_VALIDATION_ERROR.",
@@ -242,6 +257,7 @@ public class TheaterController {
 
     @DeleteMapping("/seat-types/{seatTypeId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Delete a seat type")
     @ApiResponse(responseCode = "204", description = "Deleted.")
     @ApiResponse(responseCode = "404", description = "No such seat type. code = BOOKING_SEAT_TYPE_NOT_FOUND.",

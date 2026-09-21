@@ -16,9 +16,12 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+
+import com.gr74.payment.config.SecurityConfig;
 
 /**
  * The HTTP contract of {@code POST /payments/webhooks/{gateway}}.
@@ -27,7 +30,14 @@ import org.springframework.test.web.servlet.MockMvc;
  * processor untouched (a Jackson round-trip would break HMAC verification), and that each outcome
  * maps to the documented status + coded body — 200 for almost everything, 400 only for a bad
  * signature or an unknown gateway segment.
+ *
+ * <p>Imports the real {@link SecurityConfig} so the raw-byte path is proven
+ * <em>under the security filter chain</em> — the chain must not consume or wrap the body before the
+ * controller reads it, or every genuine delivery would fail verification looking like a forged one.
+ * Every case below runs with NO token (gateways hold no JWT): webhooks are signature-authed, not
+ * token-authed, and a forged signature still yields 400 (not 401, not 500).
  */
+@Import(SecurityConfig.class)
 @WebMvcTest(WebhookController.class)
 class WebhookControllerTest {
 

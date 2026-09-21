@@ -40,16 +40,15 @@ import org.springdoc.core.annotations.ParameterObject;
 /**
  * REST surface for bookings.
  *
- * <p>Two endpoints, both keyed on the authenticated caller ({@code @CurrentUser} — the {@code X-User-Id}
- * header today, the JWT {@code sub} in Phase 7; identity never rides in the URL or the body):
+ * <p>Two endpoints, both keyed on the authenticated caller ({@code @CurrentUser} — the JWT
+ * {@code sub}; identity never rides in the URL or the body):
  * <ul>
- *   <li>{@code POST /bookings} — create a {@code PENDING} booking holding its seats (no Payment yet; the
- *       saga is Phase 3). Price and movie are derived and snapshotted server-side.</li>
+ *   <li>{@code POST /bookings} — create a {@code PENDING} booking holding its seats (no Payment yet).
+ *       Price and movie are derived and snapshotted server-side.</li>
  *   <li>{@code GET /bookings/my} — a paged list of the caller's bookings, each merged with its movie title.
- *       {@code ?source=} selects how the title is resolved: {@code composition} (default, way A — live from
- *       Catalog, degrades to {@code null} if Catalog is down) or {@code readmodel} (way B — Booking's local
- *       title cache, survives a Catalog outage for cached movies). Both are the M2 cross-service-query
- *       lesson; keeping them side-by-side is what 2.4 demos.</li>
+ *       {@code ?source=} selects how the title is resolved: {@code composition} (default — live from
+ *       Catalog, degrades to {@code null} if Catalog is down) or {@code readmodel} (Booking's local
+ *       title cache, survives a Catalog outage for cached movies).</li>
  * </ul>
  * Bare paths ({@code /bookings/...}); the gateway strips the {@code /api} prefix. DTOs cross the wire.
  */
@@ -71,9 +70,8 @@ public class BookingController {
     @Operation(summary = "Create a booking",
             description = """
                     Reserves the given seats for a showtime as a PENDING booking with a 15-minute hold.
-                    The user is taken from the X-User-Id header (the JWT sub in Phase 7), never the body.
-                    Price is derived server-side and snapshotted. No payment is taken here — that is the
-                    Phase-3 saga.""")
+                    The user is taken from the authenticated JWT subject, never the body.
+                    Price is derived server-side and snapshotted. No payment is taken here.""")
     @ApiResponse(responseCode = "201", description = "Booking created (PENDING).")
     @ApiResponse(responseCode = "400", description = "Invalid body, a seat not on the showtime's screen, or a missing X-User-Id header. code = BOOKING_VALIDATION_ERROR.",
             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ApiError.class)))
@@ -115,14 +113,17 @@ public class BookingController {
     /**
      * The facts the Payment service needs before opening a checkout session.
      *
-     * <p><b>Internal, service-to-service.</b> It exists so Payment never takes an amount from a client:
-     * Booking owns pricing, so Booking states the price. The endpoint reports facts (status, owner, hold
-     * deadline, amount, currency) and deliberately makes no payability <em>judgement</em> — those guards
-     * live in Payment, and splitting them across both services is how the two sets of rules would drift.
+     * <p><b>Internal, service-to-service — authenticated with the USER's token, not a machine
+     * token</b>. {@code POST /payments} arrives at Payment with the user's
+     * Bearer token and Payment relays that same token here, so Booking sees the <em>user</em> — and
+     * Payment's "caller owns this booking" comparison runs against a verified identity instead of
+     * Payment's word about who's calling. The endpoint reports facts (status, owner, hold deadline,
+     * amount, currency) and deliberately makes no payability <em>judgement</em> — those guards live
+     * in Payment, and splitting them across both services is how the two sets of rules would drift.
      *
-     * <p>Note there is no {@code @CurrentUser} here: the caller is a service, not a person, and it is
-     * Payment that compares {@code userId} against its own request's user. Phase 7 locks this to a
-     * client-credentials token rather than leaving it open on the internal network.
+     * <p>Note there is no {@code @CurrentUser} here: the caller is a service relaying a user, not a
+     * person hitting this endpoint directly, and it is Payment that compares {@code userId} against
+     * its own request's user.
      */
     @GetMapping("/{bookingId}/payability")
     @Operation(summary = "Booking facts for the payment service (internal)",

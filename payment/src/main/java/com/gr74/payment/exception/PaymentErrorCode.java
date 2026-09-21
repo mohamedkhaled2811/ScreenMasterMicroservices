@@ -74,6 +74,24 @@ public enum PaymentErrorCode {
     /** A webhook's signature did not verify — forged, or our secret is misconfigured. */
     PAYMENT_WEBHOOK_SIGNATURE_INVALID(HttpStatus.BAD_REQUEST, "Webhook signature invalid"),
 
+    /**
+     * No (or an invalid) Bearer token. Rendered by the security filter chain — which runs before
+     * any controller, so {@code GlobalExceptionHandler} can never see these — via
+     * {@code SecurityProblemSupport}, in the same ProblemDetail shape with the same flat
+     * {@code code}. Kept distinct from {@link #PAYMENT_ACCESS_DENIED} on purpose: "log in" and
+     * "ask an admin" are different answers.
+     */
+    PAYMENT_UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "Authentication required"),
+
+    /**
+     * A valid token without the role the endpoint needs (a {@code USER} calling the
+     * {@code ADMIN}-only refund endpoint). Same filter-chain rendering as
+     * {@link #PAYMENT_UNAUTHORIZED}. Deliberately <em>not</em> {@link #PAYMENT_FORBIDDEN} — that
+     * code already means "this payment belongs to another user", and conflating a role denial with
+     * an ownership denial would teach clients the wrong retry.
+     */
+    PAYMENT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "Access denied"),
+
     /** A refund would exceed what remains refundable on the payment. */
     PAYMENT_REFUND_EXCEEDS_REMAINING(HttpStatus.CONFLICT, "Refund exceeds remaining refundable amount"),
 

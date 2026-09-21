@@ -3,6 +3,8 @@ package com.gr74.booking.controller;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -24,6 +26,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.gr74.booking.config.SecurityConfig;
 import com.gr74.booking.config.WebMvcConfig;
 import com.gr74.booking.config.WebPagingConfig;
 import com.gr74.booking.dto.CreateBookingRequest;
@@ -37,17 +40,21 @@ import com.gr74.booking.service.MovieDataSource;
 
 /**
  * Web-layer slice for {@link BookingController}. Imports {@link WebMvcConfig} so the real
- * {@link CurrentUserArgumentResolver} is registered — that's the seam under test: the {@code X-User-Id}
- * header is resolved to {@code @CurrentUser String userId}, and a missing header is a coded 400 (not a
- * 500, not a silent null). The services are mocked, so these cases assert only the controller wiring +
- * {@code GlobalExceptionHandler} translation, including that the {@code GET /bookings/my} page serializes
- * as the {@code PagedModel} envelope.
+ * {@link CurrentUserArgumentResolver} is registered, and the real {@link SecurityConfig} so every
+ * case runs through the REAL filter chain (a slice does not component-scan it otherwise).
+ *
+ * <p>Identity is the JWT {@code sub}, never the old {@code X-User-Id} header. The
+ * {@code jwt()} post-processor forges the token (subject = the user); the hermetic suite never
+ * calls Keycloak because the forged authentication never reaches the {@code JwtDecoder}. Cases
+ * below pin: the {@code sub} reaches the service, a missing token is a coded 401 (not a 500, not a
+ * silent null), and a forged {@code X-User-Id} header is IGNORED — it cannot spoof the user.
  */
 @WebMvcTest(BookingController.class)
-@Import({WebMvcConfig.class, WebPagingConfig.class})
+@Import({WebMvcConfig.class, WebPagingConfig.class, SecurityConfig.class})
 class BookingControllerTest {
 
     private static final String USER = "11111111-1111-1111-1111-111111111111";
+    private static final String VICTIM = "22222222-2222-2222-2222-222222222222";
     private static final String CREATE_BODY = """
             {"showtimeId":1,"seatIds":[10,11]}
             """;
@@ -63,7 +70,7 @@ class BookingControllerTest {
         given(bookingService.create(eq(USER), any(CreateBookingRequest.class))).willReturn(sampleBooking());
 
         mockMvc.perform(post("/bookings")
-                        .header("X-User-Id", USER)
+                        .with(jwt().jwt(jwt -> jwt.subject(USER)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(CREATE_BODY))
                 .andExpect(status().isCreated())
@@ -76,19 +83,47 @@ class BookingControllerTest {
     }
 
     @Test
-    void missingUserHeaderReturns400ProblemDetail() throws Exception {
+    void missingTokenReturns401ProblemDetail() throws Exception {
         mockMvc.perform(post("/bookings")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(CREATE_BODY))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isUnauthorized())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
-                .andExpect(jsonPath("$.code").value("BOOKING_VALIDATION_ERROR"));
+                .andExpect(jsonPath("$.code").value("BOOKING_UNAUTHORIZED"));
+    }
+
+    @Test
+    void spoofedUserHeaderIsIgnoredAndCannotImpersonate() throws Exception {
+        // The attacker holds a valid token for USER but sends the victim's id in the dead header.
+        // The booking must be created for the TOKEN holder (USER) — the header changes nothing.
+        given(bookingService.create(eq(USER), any(CreateBookingRequest.class))).willReturn(sampleBooking());
+
+        mockMvc.perform(post("/bookings")
+                        .with(jwt().jwt(jwt -> jwt.subject(USER)))
+                        .header("X-User-Id", VICTIM)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(CREATE_BODY))
+                .andExpect(status().isCreated());
+
+        org.mockito.Mockito.verify(bookingService).create(eq(USER), any(CreateBookingRequest.class));
+    }
+
+    @Test
+    void nonJwtPrincipalIsRejectedWith401() throws Exception {
+        // Strict JWT-only seam: even an AUTHENTICATED non-JWT principal resolves to nobody.
+        // (@WithMockUser builds a plain UsernamePasswordAuthenticationToken — no `sub` to read.)
+        mockMvc.perform(post("/bookings")
+                        .with(user("someone"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(CREATE_BODY))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("BOOKING_UNAUTHORIZED"));
     }
 
     @Test
     void emptySeatsReturns400ProblemDetail() throws Exception {
         mockMvc.perform(post("/bookings")
-                        .header("X-User-Id", USER)
+                        .with(jwt().jwt(jwt -> jwt.subject(USER)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"showtimeId\":1,\"seatIds\":[]}"))
                 .andExpect(status().isBadRequest())
@@ -98,11 +133,11 @@ class BookingControllerTest {
     @Test
     void myBookingsReturnsPagedEnvelopeWithTitles() throws Exception {
         MyBookingDto row = MyBookingDto.of(sampleBooking(), "The Matrix");
-        // No source param -> defaults to COMPOSITION (way A).
+        // No source param -> defaults to COMPOSITION.
         given(bookingService.myBookings(eq(USER), any(), eq(MovieDataSource.COMPOSITION)))
                 .willReturn(new PageImpl<>(List.of(row), PageRequest.of(0, 20), 1));
 
-        mockMvc.perform(get("/bookings/my").header("X-User-Id", USER))
+        mockMvc.perform(get("/bookings/my").with(jwt().jwt(jwt -> jwt.subject(USER))))
                 .andExpect(status().isOk())
                 // VIA_DTO PagedModel envelope: content[] + a nested page{} object.
                 .andExpect(jsonPath("$.content[0].movieTitle").value("The Matrix"))
@@ -111,26 +146,39 @@ class BookingControllerTest {
     }
 
     @Test
+    void myBookingsWithoutTokenIs401() throws Exception {
+        mockMvc.perform(get("/bookings/my"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("BOOKING_UNAUTHORIZED"));
+    }
+
+    @Test
     void myBookingsWithSourceReadmodelSelectsWayB() throws Exception {
         MyBookingDto row = MyBookingDto.of(sampleBooking(), "The Matrix");
         given(bookingService.myBookings(eq(USER), any(), eq(MovieDataSource.READMODEL)))
                 .willReturn(new PageImpl<>(List.of(row), PageRequest.of(0, 20), 1));
 
-        mockMvc.perform(get("/bookings/my").header("X-User-Id", USER).param("source", "readmodel"))
+        mockMvc.perform(get("/bookings/my")
+                        .with(jwt().jwt(jwt -> jwt.subject(USER)))
+                        .param("source", "readmodel"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].movieTitle").value("The Matrix"));
     }
 
     @Test
     void myBookingsRejectsUnknownSourceWithCoded400() throws Exception {
-        mockMvc.perform(get("/bookings/my").header("X-User-Id", USER).param("source", "wat"))
+        mockMvc.perform(get("/bookings/my")
+                        .with(jwt().jwt(jwt -> jwt.subject(USER)))
+                        .param("source", "wat"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("BOOKING_VALIDATION_ERROR"));
     }
 
     @Test
     void myBookingsRejectsNonWhitelistedSort() throws Exception {
-        mockMvc.perform(get("/bookings/my").header("X-User-Id", USER).param("sort", "userId"))
+        mockMvc.perform(get("/bookings/my")
+                        .with(jwt().jwt(jwt -> jwt.subject(USER)))
+                        .param("sort", "userId"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("BOOKING_VALIDATION_ERROR"));
     }

@@ -41,7 +41,7 @@ public enum BookingErrorCode {
 
     /**
      * A showtime referenced a {@code movieId} that Catalog does not have. This is the cross-service
-     * cut, validated synchronously at showtime-create time (plan option 5C) — the DB can't enforce it,
+     * cut, validated synchronously at showtime-create time — the DB can't enforce it,
      * so the service does.
      */
     BOOKING_MOVIE_NOT_FOUND(HttpStatus.NOT_FOUND, "Movie not found in catalog"),
@@ -50,12 +50,27 @@ public enum BookingErrorCode {
      * We could not reach Catalog to validate the {@code movieId} (down, timed out). Distinct from
      * {@link #BOOKING_MOVIE_NOT_FOUND} ("Catalog answered: no such movie") so the caller can tell
      * "try again later" apart from "that movie doesn't exist". This is the temporal-coupling cost of
-     * choosing 5C option 2 — validating on the write path ties showtime creation to Catalog's uptime.
+     * validating on the write path, which ties showtime creation to Catalog's uptime.
      */
     BOOKING_CATALOG_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Catalog service unavailable"),
 
     /** A uniqueness constraint was violated (duplicate name, seat, or showtime slot). */
     BOOKING_DUPLICATE(HttpStatus.CONFLICT, "Duplicate resource"),
+
+    /**
+     * No (or an invalid) Bearer token. Rendered by the security filter chain — which runs before
+     * any controller, so {@code GlobalExceptionHandler} can never see these — via
+     * {@code SecurityProblemSupport}, in the same ProblemDetail shape with the same flat
+     * {@code code}. Kept distinct from {@link #BOOKING_FORBIDDEN} on purpose: "log in" and "ask an
+     * admin" are different answers.
+     */
+    BOOKING_UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "Authentication required"),
+
+    /**
+     * A valid token without the role the endpoint needs (e.g. a {@code USER} calling an
+     * {@code ADMIN} inventory write). Same filter-chain rendering as {@link #BOOKING_UNAUTHORIZED}.
+     */
+    BOOKING_FORBIDDEN(HttpStatus.FORBIDDEN, "Access denied"),
 
     /**
      * Deleting a showtime would orphan existing bookings. Rejected by the FK (ON DELETE NO ACTION)

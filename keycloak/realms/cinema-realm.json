@@ -1,0 +1,127 @@
+{
+  "realm": "cinema",
+  "enabled": true,
+  "displayName": "ScreenMaster Cinema",
+  "registrationAllowed": true,
+  "registrationEmailAsUsername": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "rememberMe": true,
+  "verifyEmail": false,
+  "sslRequired": "none",
+  "accessTokenLifespan": 300,
+  "defaultRoles": ["offline_access", "uma_authorization", "USER"],
+  "roles": {
+    "realm": [
+      {
+        "name": "USER",
+        "description": "Cinema customer — creates bookings, reads showtimes, opens checkout sessions."
+      },
+      {
+        "name": "ADMIN",
+        "description": "Cinema operator — inventory/showtime writes, refunds, resilience internals."
+      }
+    ]
+  },
+  "users": [
+    {
+      "username": "alice",
+      "enabled": true,
+      "email": "alice@screenmaster.local",
+      "emailVerified": true,
+      "firstName": "Alice",
+      "lastName": "Viewer",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["USER"],
+      "clientRoles": {},
+      "attributes": {}
+    },
+    {
+      "username": "admin",
+      "enabled": true,
+      "email": "admin@screenmaster.local",
+      "emailVerified": true,
+      "firstName": "Sam",
+      "lastName": "Operator",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["USER", "ADMIN"],
+      "clientRoles": {},
+      "attributes": {}
+    },
+    {
+      "username": "service-account-notification-svc",
+      "enabled": true,
+      "serviceAccountClientId": "notification-svc",
+      "realmRoles": [],
+      "clientRoles": {
+        "realm-management": ["view-users"]
+      }
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "cinema-web",
+      "name": "Cinema web — the real user-facing client (public, Authorization Code + PKCE)",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["http://localhost:8080/*"],
+      "webOrigins": ["http://localhost:8080"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
+    },
+    {
+      "clientId": "cinema-dev-cli",
+      "name": "Cinema dev CLI — Direct Access Grant ONLY, so curl/scripts get a token in one line",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [],
+      "webOrigins": []
+    },
+    {
+      "clientId": "payment-svc",
+      "name": "Payment service account (confidential, client-credentials)",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "payment-svc-dev-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true
+    },
+    {
+      "clientId": "notification-svc",
+      "name": "Notification service account (confidential, client-credentials, view-users only)",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "notification-svc-dev-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true
+    }
+  ]
+}

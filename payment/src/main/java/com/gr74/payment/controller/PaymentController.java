@@ -7,7 +7,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -18,6 +17,7 @@ import com.gr74.payment.dto.PaymentResponse;
 import com.gr74.payment.dto.PaymentSessionResponse;
 import com.gr74.payment.exception.ApiError;
 import com.gr74.payment.gateway.GatewayRegistry;
+import com.gr74.payment.security.CurrentUser;
 import com.gr74.payment.service.PaymentService;
 import com.gr74.payment.service.PaymentService.SessionOutcome;
 
@@ -29,7 +29,6 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -37,11 +36,12 @@ import lombok.extern.slf4j.Slf4j;
  * The payment API.
  *
  * <p>Three read-or-create endpoints; the webhook endpoints that actually decide outcomes live
- * separately (BUILD_PLAN 3.2) because they are authenticated by signature rather than by user.
+ * separately because they are authenticated by signature rather than by user.
  *
- * <p>{@code X-User-Id} is the same seam Booking uses: an opaque user id today, swapped for the JWT
- * {@code sub} in Phase 7 with no controller change (see
- * {@code docs/concepts/current-user-resolution.md}).
+ * <p>{@code @CurrentUser} is the same seam Booking uses: the acting user's id, resolved from the
+ * verified JWT {@code sub} — never a client-set header, never the body.
+ * A forged {@code X-User-Id} is ignored entirely (and stripped at the gateway), so "your bookings"
+ * can only ever mean the token holder's.
  *
  * <p>Errors are thrown, never returned: {@link com.gr74.payment.exception.GlobalExceptionHandler}
  * renders every one as an RFC 9457 {@code ProblemDetail} with a stable {@code code}.
@@ -103,8 +103,8 @@ public class PaymentController {
                     content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ApiError.class)))
     })
     public ResponseEntity<PaymentSessionResponse> createSession(
-            @Parameter(description = "The acting user; becomes the JWT sub in Phase 7.", required = true)
-            @RequestHeader("X-User-Id") @NotBlank String userId,
+            @Parameter(description = "The acting user, from the verified JWT sub.", required = true)
+            @CurrentUser String userId,
             @Valid @RequestBody CreatePaymentRequest request) {
 
         SessionOutcome outcome = paymentService.createSession(request, userId);
@@ -159,7 +159,7 @@ public class PaymentController {
                     content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ApiError.class)))
     })
     public PaymentResponse findById(
-            @RequestHeader("X-User-Id") @NotBlank String userId,
+            @CurrentUser String userId,
             @PathVariable Long paymentId) {
         return paymentService.findById(paymentId, userId);
     }
@@ -187,7 +187,7 @@ public class PaymentController {
                     content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ApiError.class)))
     })
     public PaymentResponse findByBooking(
-            @RequestHeader("X-User-Id") @NotBlank String userId,
+            @CurrentUser String userId,
             @PathVariable Long bookingId) {
         return paymentService.findByBookingId(bookingId, userId);
     }

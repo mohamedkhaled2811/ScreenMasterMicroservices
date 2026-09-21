@@ -19,6 +19,13 @@ import java.time.Instant;
  * <ul>
  *   <li>{@code id} — the movie id; the consumer's UPSERT key. The whole point.</li>
  *   <li>{@code title} — the new title; what Booking caches.</li>
+ *   <li>{@code posterPath} — TMDB's artwork path ("/abc123.jpg"), cached alongside the title. Added
+ *       because Notification's ticket email renders the movie's poster, and the only way it can do
+ *       that WITHOUT a synchronous Catalog call on the consume path is for Booking to already hold
+ *       the value and snapshot it onto {@code BookingConfirmed}. Note it is the PATH, not a URL: the
+ *       CDN host and image size are rendering decisions the consumer composes, so changing image
+ *       width never means re-publishing the catalogue. Nullable — TMDB has no artwork for some
+ *       titles.</li>
  *   <li>{@code updatedAt} — the movie row's {@code @LastModifiedDate} in <em>Catalog's</em> clock
  *       (per-row monotonic, one clock, bumps on every write). The consumer enforces an ordering guard
  *       with it: an event whose {@code updatedAt} is {@code <=} the stored one is dropped, so a
@@ -38,6 +45,7 @@ import java.time.Instant;
 public record MovieUpserted(
         Long id,
         String title,
+        String posterPath,
         Instant updatedAt,
         String eventId) {
 }

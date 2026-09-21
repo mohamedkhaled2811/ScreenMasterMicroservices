@@ -119,8 +119,8 @@ public class CatalogUpserter {
                 // clock, per-row monotonic) — the consumer's ordering guard depends on that, not on a
                 // publish-time stamp. Backfill (upsertPage) deliberately publishes nothing.
                 events.publishEvent(new MovieUpserted(
-                        saved.getId(), saved.getTitle(), saved.getLastModifiedDate(),
-                        UUID.randomUUID().toString()));
+                        saved.getId(), saved.getTitle(), saved.getPosterPath(),
+                        saved.getLastModifiedDate(), UUID.randomUUID().toString()));
             }
         }
         SyncStatus managed = syncStatusRepository.findById(status.getId()).orElse(status);

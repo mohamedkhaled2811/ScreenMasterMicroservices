@@ -3,6 +3,8 @@ package com.gr74.notification.config;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.Queue;
+import org.springframework.amqp.core.DirectExchange;
+import org.springframework.amqp.core.QueueBuilder;
 import org.springframework.amqp.core.TopicExchange;
 import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
@@ -58,6 +60,25 @@ public class RabbitConfig {
      */
     public static final String NOTIFICATION_BOOKING_EVENTS_QUEUE = "notification-booking-events-queue";
 
+    /**
+     * Where a message goes when this consumer can <em>never</em> succeed with it.
+     *
+     * <p>Sending an email is not always retryable. A user with no address in Keycloak, a malformed
+     * payload, a template that cannot render — none of those improve by trying again, and with
+     * {@code default-requeue-rejected: false} plus the retry/backoff in {@code application.yml}, a
+     * message that exhausts its attempts is rejected rather than requeued into a hot loop.
+     *
+     * <p>Rejected is not the same as discarded. Binding the queue to this dead-letter exchange means
+     * the failed message lands somewhere a human can look at it, with its original payload intact. A
+     * ticket that could not be sent is a customer who paid and got nothing — that must be inspectable,
+     * not a line in a log that rolled over. Browse it at the RabbitMQ console
+     * ({@code http://localhost:15672}).
+     */
+    public static final String NOTIFICATION_DLX = "notification-dlx";
+
+    /** The dead-letter queue itself — bound to {@link #NOTIFICATION_DLX} by {@link #deadLetterBinding}. */
+    public static final String NOTIFICATION_DLQ = "notification-booking-events-dlq";
+
     @Bean
     public TopicExchange screenmasterExchange() {
         return new TopicExchange(EXCHANGE);
@@ -68,7 +89,33 @@ public class RabbitConfig {
         // Durable so booking outcomes wait here while Notification is briefly down — a lost
         // BookingConfirmationRejected strands a customer's refund, so the queue (not just the
         // publisher) must survive.
-        return new Queue(NOTIFICATION_BOOKING_EVENTS_QUEUE, true);
+        return QueueBuilder.durable(NOTIFICATION_BOOKING_EVENTS_QUEUE)
+                .deadLetterExchange(NOTIFICATION_DLX)
+                .deadLetterRoutingKey(NOTIFICATION_DLQ)
+                .build();
+    }
+
+    /**
+     * The dead-letter exchange. A {@code direct} exchange, not a topic: there is exactly one
+     * destination and the routing key is a fixed string, so pattern matching would buy nothing.
+     */
+    @Bean
+    public DirectExchange notificationDeadLetterExchange() {
+        return new DirectExchange(NOTIFICATION_DLX);
+    }
+
+    /** Durable, because the whole point is that these messages outlive the failure that made them. */
+    @Bean
+    public Queue notificationDeadLetterQueue() {
+        return QueueBuilder.durable(NOTIFICATION_DLQ).build();
+    }
+
+    @Bean
+    public Binding deadLetterBinding(Queue notificationDeadLetterQueue,
+            DirectExchange notificationDeadLetterExchange) {
+        return BindingBuilder.bind(notificationDeadLetterQueue)
+                .to(notificationDeadLetterExchange)
+                .with(NOTIFICATION_DLQ);
     }
 
     @Bean

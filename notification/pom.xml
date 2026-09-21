@@ -111,6 +111,41 @@
 		</dependency>
 
 		<!--
+		  JavaMail. The actual SEND: JavaMailSender talks SMTP to whatever spring.mail.host points at
+		  — Mailpit in Compose, a real provider (SES/SendGrid) in production via env vars only, with
+		  NO code change. This is what turns NotificationService's log.info into a real side effect.
+		  See docs/concepts/notification-channels.md.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-mail</artifactId>
+		</dependency>
+
+		<!--
+		  Thymeleaf renders the ticket HTML. Used here as a STANDALONE template engine (no web MVC
+		  view resolution): EmailChannel builds a Context of variables and calls process() to get a
+		  String body. Keeping the email copy in a template instead of a Java text block is what lets
+		  the ticket markup — which is table-based, inline-styled HTML-email markup, not modern CSS —
+		  be edited without recompiling logic. See docs/concepts/html-email-rendering.md.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-thymeleaf</artifactId>
+		</dependency>
+
+		<!--
+		  Caffeine backs the @Cacheable on the Keycloak email lookup. A user's email changes rarely,
+		  but the lookup sits on the consume path of EVERY booking event — so without a cache this
+		  service hammers the IdP once per booking and a brief Keycloak blip fails sends that had no
+		  need to touch it. Spring's cache abstraction picks Caffeine up automatically when it is on
+		  the classpath. See docs/concepts/notification-channels.md.
+		-->
+		<dependency>
+			<groupId>com.github.ben-manes.caffeine</groupId>
+			<artifactId>caffeine</artifactId>
+		</dependency>
+
+		<!--
 		  JPA persistence for the processed_events dedupe table (the claim that makes the consumer
 		  idempotent). Schema owned by Liquibase, ddl-auto=validate — never ddl-auto=update.
 		-->
@@ -158,16 +193,20 @@
 			<scope>test</scope>
 		</dependency>
 		<!--
-		  Test-scope ONLY, and only here for the health test above: TestRestTemplate's auto-config
-		  introspects RestTemplateBuilder (Boot 4's spring-boot-restclient module), which no other
-		  notification dependency pulls in — Boot 4 split RestClient out of the web starter and this
-		  consumer-only service makes no outbound REST calls of its own. (Part 2's Keycloak Admin
-		  API lookup will add the real client then; this entry stays test-scoped.)
+		  COMPILE scope as of 4.3b — it was test-only, and the comment here said "Part 2's Keycloak
+		  Admin API lookup will add the real client then". This is then: KeycloakUserClient resolves
+		  the ticket's recipient from Keycloak's Admin API, so RestClient is now a main-source
+		  dependency, not a test fixture.
+		  Boot 4 split RestClient out of the web starter into its own module, so without this entry it
+		  is on the main classpath only TRANSITIVELY — which compiles, but auto-configures nothing.
+		  That is precisely how the first container boot failed: "No qualifying bean of type
+		  'RestClient$Builder'". The client is built explicitly in KeycloakClientConfig (with
+		  timeouts, and deliberately not as a builder bean — see that class), and this starter is what
+		  puts ClientHttpRequestFactoryBuilder / HttpClientSettings on the main classpath to do it.
 		-->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-restclient</artifactId>
-			<scope>test</scope>
 		</dependency>
 		<!--
 		  Spring Boot 4 split the test slices out of spring-boot-test-autoconfigure into per-technology

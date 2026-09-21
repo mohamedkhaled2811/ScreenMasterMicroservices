@@ -33,6 +33,18 @@ spring:
           notification-keycloak:
             token-uri: http://keycloak:8180/realms/cinema/protocol/openid-connect/token
 
+  # MailSenderAutoConfiguration is @ConditionalOnProperty("spring.mail.host") — and because this
+  # test file SHADOWS the main application.yml (the same Boot-4 trap the block above documents), the
+  # main file's spring.mail.host is invisible here. Without this, no JavaMailSender bean exists and
+  # EmailChannel cannot be constructed, so the whole context fails to load.
+  #
+  # Nothing is ever sent: no test drives EmailChannel against this host, and JavaMailSender connects
+  # LAZILY — on the first send, not at startup — so pointing at a port with nothing behind it keeps
+  # the suite hermetic while still proving the bean wires up.
+  mail:
+    host: localhost
+    port: 1025
+
 # Don't try to reach a Eureka server during tests.
 eureka:
   client:

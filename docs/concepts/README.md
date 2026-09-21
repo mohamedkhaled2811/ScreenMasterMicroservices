@@ -38,6 +38,7 @@ Each concept file follows the same shape so they're predictable:
 | [transactional-outbox.md](transactional-outbox.md) | Dual-write problem, outbox table, relay, at-least-once delivery |
 | [pessimistic-locking.md](pessimistic-locking.md) | `SELECT ... FOR UPDATE`, check-then-insert without races, never hold a lock across I/O |
 | [idempotent-consumer.md](idempotent-consumer.md) | Dedupe by event id, exactly-once *effect* |
+| [notification-channels.md](notification-channels.md) | The deliver-vs-decide seam, why one interface + one impl earns its place here, throw-never-swallow under a claim, retry + dead-letter queue, the machine-token recipient lookup and the coupling it buys |
 | [payment-gateway-integration.md](payment-gateway-integration.md) | Hosted checkout sessions vs charges, Payment vs PaymentAttempt, the gateway port + registry, webhook verification/storage/idempotency, money in minor units, refunds, reconciliation |
 | [api-gateway-and-bff.md](api-gateway-and-bff.md) | Single front door, routing, edge auth, BFF variant |
 | [service-discovery.md](service-discovery.md) | Eureka, client- vs server-side discovery, K8s DNS |
@@ -48,6 +49,7 @@ Each concept file follows the same shape so they're predictable:
 | [sync-vs-async-comms.md](sync-vs-async-comms.md) | The first fork, REST vs gRPC, command vs event |
 | [rabbitmq.md](rabbitmq.md) | Exchange/queue/routing key, producer/consumer, the ScreenMaster email + booking queues |
 | [scheduled-resumable-sync.md](scheduled-resumable-sync.md) | `@Scheduled` trigger + cursor table, per-page transactions, bounded runs, idempotent upsert — the Catalog↔TMDB sync |
+| [html-email-rendering.md](html-email-rendering.md) | Why email markup is tables + inline styles, no CSS `background-image`, readable with images blocked, multipart HTML+text, and the Thymeleaf comment leak that shipped developer notes to customers |
 
 ### Resilience
 | File | Covers |

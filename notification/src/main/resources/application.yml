@@ -29,6 +29,51 @@ spring:
     username: ${RABBITMQ_USER:guest}
     password: ${RABBITMQ_PASSWORD:guest}
 
+    # RETRY + DEAD-LETTER. A send can fail for reasons that fix themselves (Mailpit restarting,
+    # Keycloak briefly down) and reasons that never will (a user with no email address). Without
+    # this block, a failing send nacks and RabbitMQ redelivers IMMEDIATELY, forever — a hot loop
+    # that buries the broker and the logs.
+    #
+    # How it interacts with the idempotent consumer: the claim and the send are in ONE transaction,
+    # so a failed send rolls the claim back too. The retry therefore re-claims successfully and
+    # re-sends — no double-send, because no send ever succeeded. See NotificationService's javadoc.
+    #
+    # After max-attempts the message is REJECTED, and because the queue is declared with a
+    # dead-letter exchange (RabbitConfig), it lands in the DLQ instead of vanishing. A ticket that
+    # cannot be sent is a customer problem, not a log line — it must be inspectable.
+    listener:
+      simple:
+        default-requeue-rejected: false   # exhausted -> dead-letter, do NOT requeue into the hot loop
+        retry:
+          enabled: true
+          max-attempts: 5
+          initial-interval: 2s
+          multiplier: 2.0
+          max-interval: 30s               # 2s, 4s, 8s, 16s, 30s -> ~60s of grace before the DLQ
+
+  # SMTP. Every property is env-driven: pointing at SES/SendGrid instead of Mailpit is a config
+  # change with ZERO code change, which is the reason the send goes through JavaMailSender at all.
+  # Defaults target a locally-running Mailpit (`docker compose up mailpit`).
+  mail:
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:1025}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          # Both false for Mailpit (no auth, no TLS on a local network). A real provider sets these
+          # to true via env — still no code change.
+          auth: ${MAIL_SMTP_AUTH:false}
+          starttls:
+            enable: ${MAIL_SMTP_STARTTLS:false}
+          # Never let a hung SMTP connection pin a listener thread forever: an unbounded socket read
+          # would hold the consumer (and its open transaction) open indefinitely. Fail fast, nack,
+          # and let the retry/backoff above handle it.
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
+
   # Phase 7 (BUILD_PLAN 7.2/7.3 + 7.6): TWO OAuth2 roles in one service.
   #
   # 1. RESOURCE SERVER (inbound): this service validates the user's Bearer JWT itself (zero trust),
@@ -81,6 +126,28 @@ management:
     export:
       zipkin:
         endpoint: ${ZIPKIN_ENDPOINT:http://localhost:9411/api/v2/spans}
+
+# This service's own settings (bound by NotificationProps, @ConfigurationProperties("notification")).
+notification:
+  mail:
+    # The From: address on every ticket. A real provider only lets you send as a domain you own.
+    from: ${NOTIFICATION_MAIL_FROM:tickets@screenmaster.local}
+    from-name: ${NOTIFICATION_MAIL_FROM_NAME:ScreenMaster}
+  # Poster rendering. Catalog snapshots TMDB *paths* ("/abc.jpg") onto the event, never full URLs —
+  # the CDN host and the size are a rendering concern, and baking them into stored data would mean a
+  # re-sync to change image size. The email builds {base}/{size}{path} at render time.
+  image:
+    base-url: ${NOTIFICATION_IMAGE_BASE_URL:https://image.tmdb.org/t/p}
+    poster-size: ${NOTIFICATION_IMAGE_POSTER_SIZE:w780}
+  identity:
+    # Keycloak Admin API base. The email lookup is GET {base}/admin/realms/{realm}/users/{sub}.
+    # Derived from the SAME issuer URI every other Keycloak setting pins, so they cannot drift.
+    server-url: ${KEYCLOAK_SERVER_URL:http://keycloak:8180}
+    realm: ${KEYCLOAK_REALM:cinema}
+    # How long a resolved email is cached. Emails change rarely; the lookup is on the consume path
+    # of EVERY booking event. Short enough that a changed address is picked up the same session.
+    email-cache-ttl: ${NOTIFICATION_EMAIL_CACHE_TTL:10m}
+    email-cache-max-size: ${NOTIFICATION_EMAIL_CACHE_MAX_SIZE:10000}
 
 logging:
   pattern:

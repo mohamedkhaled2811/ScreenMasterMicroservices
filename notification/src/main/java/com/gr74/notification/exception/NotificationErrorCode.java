@@ -38,6 +38,23 @@ public enum NotificationErrorCode {
      */
     NOTIFICATION_IDENTITY_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Identity provider unavailable"),
 
+    /**
+     * The message could not be delivered — SMTP refused it, the mail host was unreachable, or the
+     * template failed to render. Thrown by a {@code NotificationChannel} and deliberately allowed to
+     * propagate out of {@code NotificationService}: that rolls the idempotency claim back with the
+     * transaction, so the broker redelivers and the retry can succeed. Like
+     * {@link #NOTIFICATION_IDENTITY_UNAVAILABLE}, it is a queue-retry code rather than an HTTP status.
+     */
+    NOTIFICATION_SEND_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "Notification delivery failed"),
+
+    /**
+     * Keycloak knows the {@code sub} but the user has no email address on file, so there is nowhere
+     * to send the ticket. Unlike every other code here this is NOT retryable — redelivering cannot
+     * conjure an address — so the consumer lets it exhaust its attempts and dead-letter, where it is
+     * inspectable, rather than looping forever.
+     */
+    NOTIFICATION_RECIPIENT_UNKNOWN(HttpStatus.UNPROCESSABLE_ENTITY, "No email address for user"),
+
     /** A fallback for anything we did not anticipate — never leak internals to the caller. */
     NOTIFICATION_INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Internal error");
 

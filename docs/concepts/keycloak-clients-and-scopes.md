@@ -1,6 +1,6 @@
 # Keycloak clients & client scopes — what they are, and ours specifically
 
-> **Why this file:** Phase 7 put four clients and a wall of scopes in the Keycloak admin
+> **Why this file:** The realm defines four clients and a wall of scopes in the Keycloak admin
 > console. This explains what a *client* is, how a user actually reaches `cinema-web`, and
 > what *client scopes* do — with claims decoded from real tokens minted by this realm.
 >
@@ -63,14 +63,13 @@ These live in [`keycloak/realms/cinema-realm.json`](../../keycloak/realms/cinema
 ### 2.2 How a user actually opens `cinema-web` — and why you can't today
 
 **You can't open it yet, because there is no frontend.** `cinema-web` is a *registration*
-for an app that Phase 7 did not build. Its `redirectUris` point at
+for an app that has not been built yet. Its `redirectUris` point at
 `http://localhost:8080/*` — the gateway — which currently serves the API and returns `401`
 at `/`, not a web page.
 
 That is not a bug or an oversight; a browser SPA was explicitly out of scope. The client
-exists so the realm models the real design (see
-[`docs/plans/2026-09-20-phase7-keycloak-security.md`](../plans/2026-09-20-phase7-keycloak-security.md)
-Decision A1), and so the user-facing flow is configured correctly the day a frontend lands.
+exists so the realm models the real design, and so the user-facing flow is configured
+correctly the day a frontend lands.
 
 **When a frontend does exist, the flow a user experiences is:**
 
@@ -115,7 +114,7 @@ a real app logs users in. Keeping it as a *separate client* (rather than a flag 
 via **client credentials**: no user involved, the service authenticates as *itself*.
 
 This is the direct answer to the project constraint *"don't assume I will always make the
-services use the user token."* The rule from the Phase 7 plan:
+services use the user token."* The rule we follow:
 
 > Relay the **user's token** when the call is made on behalf of the user, in the user's
 > request. Use a **machine token** when the service is acting as itself — background jobs,
@@ -123,7 +122,7 @@ services use the user token."* The rule from the Phase 7 plan:
 
 Notification consuming a `BookingConfirmed` event has **no user request to borrow a token
 from**, so it authenticates as itself. `notification-svc` is granted `view-users` only —
-least privilege, exactly enough to look up a booking user's email address (Phase 7.7).
+least privilege, exactly enough to look up a booking user's email address.
 
 ---
 
@@ -188,7 +187,7 @@ Decoded from a real `alice` token minted by this realm:
 |---|---|---|---|
 | `iss` | `http://keycloak:8180/realms/cinema` | the realm | every service's `JwtDecoder` — must match exactly |
 | `sub` | `8f86b77e-…` | `basic` | **`@CurrentUser`** → `bookings.user_id` |
-| `email` | `alice@screenmaster.local` | **`email`** | Notification, Phase 7.7 |
+| `email` | `alice@screenmaster.local` | **`email`** | Notification |
 | `preferred_username` | `alice` | `profile` | logs / display only |
 | `realm_access.roles` | `["USER"]` | **`roles`** | **`KeycloakRealmRoleConverter`** → `hasRole("ADMIN")` |
 
@@ -197,10 +196,8 @@ Two of these are load-bearing and worth remembering:
 1. **`roles`** puts roles in `realm_access.roles`. Spring Security's *default* converter
    reads the `scope` claim instead, so `hasRole("ADMIN")` silently fails until you install a
    custom converter. That is why every service has a `KeycloakRealmRoleConverter`.
-2. **`email`** is what unblocks notifications. Before Phase 7 there was no email address
-   anywhere in the system — the documented blocker in
-   [`2026-09-13-notification-real-delivery.md`](../plans/2026-09-13-notification-real-delivery.md).
-   Keycloak is now the user store that supplies it.
+2. **`email`** is what unblocks notifications. Previously there was no email address
+   anywhere in the system. Keycloak is now the user store that supplies it.
 
 Access tokens are short-lived here — **`expires_in: 300`** (5 minutes). If a Postman request
 starts 401-ing mid-session, re-run the token request; it is expiry, not a broken config.

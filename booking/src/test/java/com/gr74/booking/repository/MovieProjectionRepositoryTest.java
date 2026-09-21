@@ -29,8 +29,8 @@ class MovieProjectionRepositoryTest {
         Instant t1 = Instant.parse("2026-08-01T10:00:00Z");
         Instant t2 = Instant.parse("2026-08-02T10:00:00Z");
 
-        repository.saveAndFlush(new MovieProjection(603L, "The Matrix", t1));
-        repository.saveAndFlush(new MovieProjection(603L, "The Matrix Resurrections", t2));
+        repository.saveAndFlush(new MovieProjection(603L, "The Matrix", "/matrix.jpg", t1));
+        repository.saveAndFlush(new MovieProjection(603L, "The Matrix Resurrections", "/resurrections.jpg", t2));
 
         assertThat(repository.count()).isEqualTo(1);
         MovieProjection row = repository.findById(603L).orElseThrow();
@@ -41,10 +41,10 @@ class MovieProjectionRepositoryTest {
     @Test
     void applyUpdatesTitleAndTimestampInPlace() {
         Instant t1 = Instant.parse("2026-08-01T10:00:00Z");
-        MovieProjection row = repository.saveAndFlush(new MovieProjection(550L, "Fight Club", t1));
+        MovieProjection row = repository.saveAndFlush(new MovieProjection(550L, "Fight Club", "/fightclub.jpg", t1));
 
         Instant t2 = Instant.parse("2026-08-05T10:00:00Z");
-        row.apply("Fight Club (Director's Cut)", t2);
+        row.apply("Fight Club (Director's Cut)", "/fightclub-dc.jpg", t2);
         repository.saveAndFlush(row);
 
         MovieProjection reloaded = repository.findById(550L).orElseThrow();
@@ -54,9 +54,9 @@ class MovieProjectionRepositoryTest {
 
     @Test
     void findByIdInLoadsOnlyRequestedIds() {
-        repository.saveAndFlush(new MovieProjection(1L, "A", null));
-        repository.saveAndFlush(new MovieProjection(2L, "B", null));
-        repository.saveAndFlush(new MovieProjection(3L, "C", null));
+        repository.saveAndFlush(new MovieProjection(1L, "A", null, null));
+        repository.saveAndFlush(new MovieProjection(2L, "B", null, null));
+        repository.saveAndFlush(new MovieProjection(3L, "C", null, null));
 
         List<MovieProjection> found = repository.findByIdIn(List.of(1L, 3L, 999L));
 
@@ -65,7 +65,7 @@ class MovieProjectionRepositoryTest {
 
     @Test
     void updatedAtMayBeNullForLazyBackfilledRow() {
-        repository.saveAndFlush(new MovieProjection(42L, "Backfilled by Catalog fetch", null));
+        repository.saveAndFlush(new MovieProjection(42L, "Backfilled by Catalog fetch", null, null));
 
         MovieProjection row = repository.findById(42L).orElseThrow();
         assertThat(row.getUpdatedAt()).isNull();

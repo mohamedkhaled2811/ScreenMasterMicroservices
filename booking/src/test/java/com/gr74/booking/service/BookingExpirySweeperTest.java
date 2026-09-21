@@ -106,6 +106,11 @@ class BookingExpirySweeperTest {
     @MockitoBean
     private Tracer tracer;
 
+    /** BookingConfirmer reads this for the ticket snapshot on BookingConfirmed. Mocked for the same
+     * reason as the tracer: this class tests the expiry race, not how a movie title is resolved. */
+    @MockitoBean
+    private MovieReadModel movies;
+
     @Test
     void lapsedHoldExpiresSeatsFreedButRowsKept() {
         Booking booking = persist("BK-SWEEP0001", BookingStatus.PENDING, NOW.minusSeconds(60), 10L);

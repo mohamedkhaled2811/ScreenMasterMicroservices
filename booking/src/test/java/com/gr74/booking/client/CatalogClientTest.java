@@ -137,35 +137,54 @@ class CatalogClientTest {
         server.verify();
     }
 
-    // ---- titleById (the way-B lazy-backfill cache-fill) ------------------------------------------
+    // ---- projectionById (the way-B lazy-backfill cache-fill) -------------------------------------
     // Distinct from titlesByIds: it writes into a persistent cache, so it must tell 404 (safe to treat as
     // "unknown") apart from unavailable (must NOT be cached — would poison the cache).
 
     @Test
-    void titleByIdReturnsTitleOn200() {
+    void projectionByIdReturnsTitleAndPosterOn200() {
         server.expect(requestTo(BASE + "/movies/603"))
                 .andExpect(method(HttpMethod.GET))
-                .andRespond(withSuccess("{\"id\":603,\"title\":\"The Matrix\"}", MediaType.APPLICATION_JSON));
+                .andRespond(withSuccess(
+                        "{\"id\":603,\"title\":\"The Matrix\",\"posterPath\":\"/matrix.jpg\"}",
+                        MediaType.APPLICATION_JSON));
 
-        assertThat(client.titleById(603L)).contains("The Matrix");
+        // Both projected columns come back from ONE fetch — the poster is what the ticket email renders.
+        assertThat(client.projectionById(603L)).get()
+                .extracting(CatalogClient.MovieProjectionData::title, CatalogClient.MovieProjectionData::posterPath)
+                .containsExactly("The Matrix", "/matrix.jpg");
         server.verify();
     }
 
     @Test
-    void titleByIdReturnsEmptyOn404() {
+    void projectionByIdKeepsTitleWhenTheMovieHasNoPoster() {
+        // TMDB genuinely lacks artwork for some titles. A null poster must NOT suppress the title —
+        // the ticket renders without the image band rather than without the film's name.
+        server.expect(requestTo(BASE + "/movies/604"))
+                .andRespond(withSuccess("{\"id\":604,\"title\":\"Obscure Film\"}",
+                        MediaType.APPLICATION_JSON));
+
+        assertThat(client.projectionById(604L)).get()
+                .extracting(CatalogClient.MovieProjectionData::title, CatalogClient.MovieProjectionData::posterPath)
+                .containsExactly("Obscure Film", null);
+        server.verify();
+    }
+
+    @Test
+    void projectionByIdReturnsEmptyOn404() {
         // A definitive "no such movie" — empty, NOT an exception (the caller serves null and won't retry).
         server.expect(requestTo(BASE + "/movies/999999")).andRespond(withResourceNotFound());
 
-        assertThat(client.titleById(999_999L)).isEmpty();
+        assertThat(client.projectionById(999_999L)).isEmpty();
         server.verify();
     }
 
     @Test
-    void titleByIdThrowsOnUnavailableSoTheCacheIsNotPoisoned() {
+    void projectionByIdThrowsOnUnavailableSoTheCacheIsNotPoisoned() {
         // A 5xx is an outage, not a bad id — throw so the caller writes NOTHING and retries next read.
         server.expect(requestTo(BASE + "/movies/603")).andRespond(withServerError());
 
-        assertThatThrownBy(() -> client.titleById(603L))
+        assertThatThrownBy(() -> client.projectionById(603L))
                 .isInstanceOf(CatalogUnavailableException.class)
                 .extracting("errorCode")
                 .isEqualTo(BookingErrorCode.BOOKING_CATALOG_UNAVAILABLE);

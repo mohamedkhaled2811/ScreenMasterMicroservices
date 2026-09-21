@@ -52,9 +52,10 @@ public class MovieProjector {
         }
 
         if (existing == null) {
-            movieProjectionRepository.save(new MovieProjection(event.id(), event.title(), event.updatedAt()));
+            movieProjectionRepository.save(new MovieProjection(
+                    event.id(), event.title(), event.posterPath(), event.updatedAt()));
         } else {
-            existing.apply(event.title(), event.updatedAt());
+            existing.apply(event.title(), event.posterPath(), event.updatedAt());
             movieProjectionRepository.save(existing);
         }
         log.debug("Applied MovieUpserted id={} title='{}' updatedAt={}",

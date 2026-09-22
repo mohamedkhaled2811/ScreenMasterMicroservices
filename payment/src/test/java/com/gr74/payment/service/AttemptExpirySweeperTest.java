@@ -31,19 +31,7 @@ import com.gr74.payment.repository.PaymentAttemptRepository;
 import com.gr74.payment.repository.PaymentRepository;
 
 /**
- * The session-expiry sweeper against a frozen clock.
- *
- * <p>What it proves:
- * <ol>
- *   <li>a PENDING attempt past {@code expires_at} <em>and</em> past the reconciliation window
- *       flips to EXPIRED, while the payment stays PENDING for Pay Again;</li>
- *   <li><b>the ordering constraint</b> (the regression test that matters most here): a PENDING
- *       attempt past {@code expires_at} but still <em>inside</em> the reconciliation window is
- *       left alone — reconciliation decides first, blind expiry is only for what the gateway has
- *       disowned;</li>
- *   <li>live sessions and terminal attempts are untouched, and re-runs are no-ops;</li>
- *   <li>a tick whose repository throws still does not kill the scheduler (caught internally).</li>
- * </ol>
+ * Session-expiry sweeper against a frozen clock.
  */
 @DataJpaTest
 @Import(AttemptExpirySweeper.class)

@@ -60,13 +60,7 @@ import com.gr74.payment.repository.RefundRepository;
 import com.gr74.payment.webhook.WebhookProcessor;
 
 /**
- * Refunds: the invariant, the two-transaction shape, the async confirmation, and the
- * compensation loop end to end.
- *
- * <p>Runs the full context on H2 with the real sandbox gateway. Its webhook delivery is mocked
- * ({@code SandboxWebhookClient}) so no HTTP ever leaves the suite: the tests capture the signed
- * payload the gateway <em>would</em> deliver and feed it back through the real
- * {@link WebhookProcessor}, which is exactly the path production takes.
+ * Refund lifecycle: capacity invariant, webhook confirmation, and compensation end to end.
  */
 @SpringBootTest
 class RefundServiceTest {

@@ -25,15 +25,7 @@ import io.github.resilience4j.springboot3.circuitbreaker.monitoring.endpoint.Cir
 import io.github.resilience4j.springboot3.retry.monitoring.endpoint.RetryEndpoint;
 
 /**
- * Proves the PRODUCTION {@code resilience4j.*} block in {@code src/main/resources/application.yml}
- * actually binds on this Boot-4 stack: the Boot-3 starter's auto-configuration reads those keys
- * (with the version verifier excluded) and the three per-gateway instances come up with the
- * intended policy numbers.
- *
- * <p>This test deliberately loads the MAIN application.yml (via {@code spring.config.location},
- * which replaces the default locations — including the test file that would otherwise shadow it)
- * and overrides the infrastructure bits to stay hermetic. If the {@code resilience4j.*} keys were
- * misnamed or mis-typed, or the auto-config failed to bind them, these assertions fail.
+ * Production resilience4j block binds the intended breaker, bulkhead and retry numbers.
  */
 @SpringBootTest(properties = {
         "spring.config.location=file:src/main/resources/application.yml",

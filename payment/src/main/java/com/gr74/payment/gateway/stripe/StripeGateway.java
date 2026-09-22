@@ -40,28 +40,14 @@ import com.gr74.payment.model.RefundStatus;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Stripe, via <b>hosted Checkout Sessions</b> — the card form lives on Stripe's page, never ours.
- *
- * <p>Registered only when {@code payment.gateway.stripe.secret-key} holds a non-blank value: with no
- * credentials the bean is conditioned out of the context, so it never appears in the
- * {@link com.gr74.payment.gateway.GatewayRegistry} and is never offered to a client. A misconfigured
- * gateway is absent, not broken. (The custom condition matters — plain {@code @ConditionalOnProperty}
- * counts an empty string as present; see {@link ConditionalOnGatewayCredentials}.)
- *
- * <p>Talks Stripe's REST API directly with a {@link RestClient} rather than pulling in the Stripe
- * SDK: the surface we need is three calls, and going direct keeps the adapter's translation work —
- * form-encoding, minor units, status vocabulary — visible instead of hidden behind a library. That is
- * the point of the exercise.
- *
- * <p><b>Test mode only.</b> {@link StripeGatewayProps} rejects a live {@code sk_live_} key outside the
- * {@code production} profile, so this project is structurally incapable of moving real money.
+ * Stripe via hosted Checkout Sessions. Registered only when its secret key is configured; test mode only.
  */
 @Slf4j
 @Component
 @ConditionalOnGatewayCredentials("payment.gateway.stripe.secret-key")
 public class StripeGateway implements PaymentGateway {
 
-    /** Stripe signs the raw body; the header carries a timestamp and one or more v1 signatures. */
+    /** Stripe signs the raw body; header carries timestamp plus v1 signatures. */
     private static final String SIGNATURE_HEADER = "stripe-signature";
     private static final String HMAC_ALGORITHM = "HmacSHA256";
 
@@ -88,14 +74,7 @@ public class StripeGateway implements PaymentGateway {
         return props.supportedCurrencies();
     }
 
-    /**
-     * Create a Checkout Session.
-     *
-     * <p>Two details that matter: the amount is converted to <b>minor units</b> here (Stripe wants
-     * {@code 30050}, not {@code 300.50}) and never in the domain; and the idempotency key is sent as
-     * Stripe's own {@code Idempotency-Key} header, which is what makes a retry after a timeout safe
-     * rather than a second charge.
-     */
+    /** Create a Checkout Session; amount in minor units, idempotency via Idempotency-Key header. */
     @Override
     public GatewaySession createSession(GatewaySessionRequest request) {
         long minorUnits = MoneyConverter.toMinorUnits(request.amount(), request.currency());
@@ -111,8 +90,7 @@ public class StripeGateway implements PaymentGateway {
         form.add("line_items[0][price_data][unit_amount]", String.valueOf(minorUnits));
         form.add("line_items[0][price_data][product_data][name]",
                 "ScreenMaster booking #" + request.bookingId());
-        // Metadata is how a human reading Stripe's dashboard can tell what a charge was for, and how
-        // reconciliation correlates a Stripe payment back to our rows.
+        // Metadata for dashboard readability and reconciliation correlation.
         form.add("metadata[paymentId]", String.valueOf(request.paymentId()));
         form.add("metadata[attemptId]", String.valueOf(request.attemptId()));
         form.add("metadata[bookingId]", String.valueOf(request.bookingId()));
@@ -125,7 +103,7 @@ public class StripeGateway implements PaymentGateway {
             throw new GatewayException(type(), "checkout session response missing id or url");
         }
 
-        // Stripe returns expires_at as epoch seconds; fall back to our own TTL when absent.
+        // expires_at is epoch seconds; fall back to our TTL when absent.
         Instant expiresAt = response.hasNonNull("expires_at")
                 ? Instant.ofEpochSecond(response.get("expires_at").asLong())
                 : Instant.now().plus(props.sessionTtl());
@@ -136,12 +114,7 @@ public class StripeGateway implements PaymentGateway {
         return new GatewaySession(sessionId, checkoutUrl, expiresAt);
     }
 
-    /**
-     * Ask Stripe about a checkout session. Keyed by the <b>session</b> id — Stripe's status API
-     * answers per session, not per payment intent — so this adapter reads
-     * {@code query.gatewaySessionId()} and only falls back to the payment id when no session was
-     * ever recorded.
-     */
+    /** Status lookup keyed by session id, falling back to the payment id. */
     @Override
     public GatewayPaymentStatus fetchStatus(GatewayStatusQuery query) {
         String sessionId = query.gatewaySessionId() != null && !query.gatewaySessionId().isBlank()
@@ -168,7 +141,7 @@ public class StripeGateway implements PaymentGateway {
         String refundId = text(response, "id");
         String status = text(response, "status");
 
-        // Stripe: succeeded | pending | failed | canceled. Only "succeeded" has moved money.
+        // Only "succeeded" has moved money.
         RefundStatus normalized = switch (status == null ? "" : status) {
             case "succeeded" -> RefundStatus.SUCCEEDED;
             case "failed", "canceled" -> RefundStatus.FAILED;
@@ -178,14 +151,7 @@ public class StripeGateway implements PaymentGateway {
                 normalized == RefundStatus.FAILED ? "stripe_refund_" + status : null);
     }
 
-    /**
-     * Verify Stripe's {@code Stripe-Signature} header and normalize the event.
-     *
-     * <p>The signed payload is {@code "{timestamp}.{raw body}"}, HMAC-SHA256 with the endpoint's
-     * webhook secret. We compare in constant time and, when a tolerance is configured, reject
-     * timestamps outside it — that is what stops an attacker replaying a genuine, correctly-signed
-     * delivery indefinitely.
-     */
+    /** Verify Stripe-Signature (timestamp.body HMAC, constant-time) and normalize the event. */
     @Override
     public GatewayEvent parseAndVerifyWebhook(String rawPayload, Map<String, String> headers) {
         String header = headers.get(SIGNATURE_HEADER);
@@ -266,7 +232,7 @@ public class StripeGateway implements PaymentGateway {
         }
     }
 
-    /** The first refund id on a refunded charge, when Stripe itemized any. */
+    /** First refund id on a refunded charge, if any. */
     private static String firstRefundId(JsonNode charge) {
         JsonNode data = charge.path("refunds").path("data");
         if (data.isArray() && !data.isEmpty()) {
@@ -279,7 +245,7 @@ public class StripeGateway implements PaymentGateway {
         return primary != null ? primary : fallback;
     }
 
-    /** Stripe's event vocabulary → ours. Anything else is stored but not acted on. */
+    /** Stripe event vocabulary to ours; unknown types are stored but not acted on. */
     private PaymentAttemptStatus normalizeEventType(String rawType) {
         if (rawType == null) {
             return null;
@@ -290,7 +256,7 @@ public class StripeGateway implements PaymentGateway {
             case "checkout.session.async_payment_failed", "payment_intent.payment_failed" ->
                     PaymentAttemptStatus.FAILED;
             case "checkout.session.expired" -> PaymentAttemptStatus.EXPIRED;
-            // Refund vocabulary never reaches here — it returns early above as GatewayEventKind.REFUND.
+            // Refund vocabulary returns early above.
             default -> null;
         };
     }
@@ -327,7 +293,7 @@ public class StripeGateway implements PaymentGateway {
             String body = client.post()
                     .uri(path)
                     .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                    // Stripe's own idempotency mechanism: the reason a retry after a timeout is safe.
+                    // Stripe idempotency mechanism; makes retry after timeout safe.
                     .header("Idempotency-Key", idempotencyKey)
                     .body(form)
                     .retrieve()

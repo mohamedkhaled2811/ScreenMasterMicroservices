@@ -7,12 +7,7 @@ import com.gr74.payment.model.Refund;
 import com.gr74.payment.model.RefundStatus;
 
 /**
- * One refund row — what {@code POST /payments/{id}/refunds} returns.
- *
- * <p>A {@code PENDING} status means the gateway accepted the request and the money has NOT
- * demonstrably moved yet: only the refund webhook promotes it to {@code SUCCEEDED}. Poll the
- * payment ({@code refundedAmount} accumulates only confirmed refunds) rather than treating this
- * response as proof.
+ * One refund row; PENDING until the gateway webhook confirms it.
  */
 public record RefundResponse(
         Long id,

@@ -40,16 +40,7 @@ import com.gr74.payment.service.PaymentService;
 import com.gr74.payment.service.PaymentService.SessionOutcome;
 
 /**
- * The HTTP contract of {@code POST /payments} — status codes and the coded error bodies.
- *
- * <p>The <em>rules</em> are tested in {@code PaymentServiceTest}; this slice asserts that each rule's
- * outcome reaches the client in the documented shape, because the {@code code} in the ProblemDetail is
- * the stable contract a client branches on — not the message, and not the HTTP status alone.
- *
- * <p>Imports the real {@link SecurityConfig} (plus {@link WebMvcConfig} for the
- * {@code @CurrentUser} resolver) so every case runs through the REAL filter chain. Identity is the
- * JWT {@code sub} — the forged token's subject below is what the service receives as
- * {@code userId}, and a forged {@code X-User-Id} header is ignored entirely.
+ * HTTP contract of {@code POST /payments}: status codes and coded error bodies.
  */
 @Import({WebMvcConfig.class, SecurityConfig.class})
 @WebMvcTest(PaymentController.class)

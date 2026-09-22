@@ -11,11 +11,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
 /**
- * Minor-unit conversion — the arithmetic every gateway adapter depends on.
- *
- * <p>Worth testing properly because it is the one place a rounding bug would silently cost real
- * money, and because the currency-aware exponent only pays off for currencies this project does not
- * use day to day (JPY, KWD) — exactly the case a hand test would skip.
+ * Minor-unit conversion per currency exponent.
  */
 class MoneyConverterTest {
 

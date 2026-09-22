@@ -16,13 +16,7 @@ import com.gr74.payment.model.SandboxCharge;
 import com.gr74.payment.repository.SandboxChargeRepository;
 
 /**
- * The regression test for the random-draw bug: {@code fetchStatus} must answer the <b>recorded</b>
- * outcome, not roll dice.
- *
- * <p>Previously every call drew against the failure rate, so asking twice about the same payment
- * could give two different answers — and reconciliation could confirm a booking that was never paid
- * for. Now the outcome is drawn once at pay time, recorded in {@code sandbox_charges}, and every
- * read after that reports the same answer.
+ * fetchStatus answers the recorded outcome, never re-draws.
  */
 @SpringBootTest
 class SandboxDeterminismTest {

@@ -34,17 +34,7 @@ import com.gr74.payment.model.RefundStatus;
 import com.gr74.payment.service.RefundService;
 
 /**
- * The HTTP contract of {@code POST /payments/{id}/refunds} — status codes and the coded error
- * bodies.
- *
- * <p>The <em>rules</em> are tested in {@code RefundServiceTest}; this slice asserts that each
- * rule's outcome reaches the client in the documented shape, because the {@code code} in the
- * ProblemDetail is the stable contract a client branches on.
- *
- * <p>Refunds need the {@code ADMIN} realm role. The real {@link SecurityConfig} is imported so the fence cases
- * below run through the REAL chain: no token → {@code 401 PAYMENT_UNAUTHORIZED}; a valid USER
- * token → {@code 403 PAYMENT_ACCESS_DENIED} (deliberately <em>not</em> {@code PAYMENT_FORBIDDEN},
- * which already means "someone else's payment").
+ * HTTP contract of {@code POST /payments/{id}/refunds}: status codes and coded error bodies.
  */
 @Import(SecurityConfig.class)
 @WebMvcTest(RefundController.class)

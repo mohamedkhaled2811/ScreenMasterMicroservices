@@ -22,22 +22,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * The payment <b>obligation</b> for one booking: "booking #1001 owes 300.00 EGP".
- *
- * <p>This is the row that answers "is this booking paid?". It is created once per booking — the
- * {@code UNIQUE booking_id} constraint makes "create-or-retrieve" race-free — and it survives any
- * number of failed {@link PaymentAttempt}s. A user who abandons checkout and returns gets a new
- * attempt on <em>this same</em> payment, never a second obligation. That split is what makes "Pay
- * Again" safe; see {@code docs/concepts/payment-gateway-integration.md}.
- *
- * <p>{@code bookingId} and {@code userId} are <b>cross-service references</b> (schema §8.2): plain
- * columns with no FK, because Booking owns bookings and Identity owns users. The amount is
- * <em>snapshotted from Booking</em> at creation and never recomputed — and never taken from the
- * client.
- *
- * <p>Money is {@link BigDecimal} plus an ISO-4217 {@code currency}, never a {@code double} and never
- * an amount without its currency. Enums are {@code STRING} (never ordinal — §2.4 fix). Schema owned
- * by Liquibase ({@code ddl-auto=validate}); must match {@code 002-rebuild-payment-domain.yaml}.
+ * Payment obligation for one booking, created once (UNIQUE booking_id) and settled via attempts.
+ * bookingId/userId are plain cross-service ids; amount is snapshotted from Booking, never client-supplied.
  */
 @Entity
 @Table(
@@ -51,19 +37,19 @@ public class Payment {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** Cross-service reference to Booking. No FK — Booking owns the booking row. */
+    /** Cross-service id, no FK. */
     @Column(name = "booking_id", nullable = false, updatable = false)
     private Long bookingId;
 
-    /** Cross-service reference to Identity (the Keycloak {@code sub} from Phase 7). */
+    /** Cross-service id, no FK. */
     @Column(name = "user_id", nullable = false, updatable = false, length = 36)
     private String userId;
 
-    /** Snapshotted from Booking at creation. Never recomputed, never client-supplied. */
+    /** Snapshotted from Booking at creation; never recomputed. */
     @Column(nullable = false, updatable = false, precision = 14, scale = 2)
     private BigDecimal amount;
 
-    /** ISO-4217 code, e.g. {@code EGP} or {@code USD}. Always travels with the amount. */
+    /** ISO-4217 code, e.g. {@code EGP}. Always stored with the amount. */
     @Column(nullable = false, updatable = false, length = 3)
     private String currency;
 
@@ -71,14 +57,11 @@ public class Payment {
     @Column(nullable = false, length = 24)
     private PaymentStatus status;
 
-    /** Running total of {@link RefundStatus#SUCCEEDED} refunds. Drives the two refunded states. */
+    /** Running total of SUCCEEDED refunds; drives the refunded states. */
     @Column(name = "refunded_amount", nullable = false, precision = 14, scale = 2)
     private BigDecimal refundedAmount;
 
-    /**
-     * Every attempt made against this obligation. Cascaded because an attempt has no life of its
-     * own outside its payment.
-     */
+    /** Attempts against this payment; cascaded, owned by the payment. */
     @OneToMany(mappedBy = "payment", cascade = CascadeType.ALL, orphanRemoval = true)
     private final List<PaymentAttempt> attempts = new ArrayList<>();
 
@@ -102,14 +85,7 @@ public class Payment {
         this.updatedAt = this.createdAt;
     }
 
-    /**
-     * Promote to {@link PaymentStatus#PAID} because an attempt succeeded.
-     *
-     * <p>Idempotent by design: calling it on an already-{@code PAID} payment is a no-op, because a
-     * gateway may deliver the same webhook many times and reconciliation may race with it. Returns
-     * whether this call actually changed anything, so the caller can decide whether to publish an
-     * event — publishing twice would confirm a booking twice.
-     */
+    /** Promote to PAID; no-op if already PAID so duplicate webhooks are safe. Returns true if changed. */
     public boolean markPaid() {
         if (status == PaymentStatus.PAID) {
             return false;
@@ -119,7 +95,7 @@ public class Payment {
         return true;
     }
 
-    /** Close the obligation as unpayable (e.g. its booking expired before anything succeeded). */
+    /** Close as unpayable; no-op if already terminal. */
     public boolean markFailed() {
         if (status.isTerminal()) {
             return false;
@@ -129,15 +105,12 @@ public class Payment {
         return true;
     }
 
-    /** What may still be refunded: the amount less everything already refunded. */
+    /** Amount still refundable: amount less refunded total. */
     public BigDecimal remainingRefundable() {
         return amount.subtract(refundedAmount);
     }
 
-    /**
-     * Add a confirmed refund to the running total and re-derive the status from it. Called only
-     * once a refund's own gateway webhook confirms it — a requested refund has moved no money.
-     */
+    /** Add a webhook-confirmed refund to the total and re-derive status. */
     public void applyRefund(BigDecimal refundAmount) {
         this.refundedAmount = this.refundedAmount.add(refundAmount);
         // compareTo, not equals: 500.0 and 500.00 are equal in value but not as BigDecimals.
@@ -147,7 +120,7 @@ public class Payment {
         touch();
     }
 
-    /** Attach an attempt, keeping both sides of the relationship consistent. */
+    /** Attach an attempt, keeping both sides consistent. */
     public void addAttempt(PaymentAttempt attempt) {
         attempts.add(attempt);
         attempt.assignTo(this);

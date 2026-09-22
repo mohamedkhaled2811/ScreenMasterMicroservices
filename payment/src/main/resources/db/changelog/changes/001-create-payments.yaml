@@ -1,9 +1,4 @@
-# Changeset 001 — the payments table.
-#
-# One row per distinct idempotency key. The UNIQUE constraint on idempotency_key is the real
-# double-charge guard (see Payment.java / PaymentService.java): even two concurrent first-time
-# requests with the same key can only insert one row. ddl-auto=validate means the Payment entity
-# must match this table exactly at startup, or the app refuses to boot.
+# Changeset 001 — payments table. UNIQUE(idempotency_key) is the double-charge guard.
 databaseChangeLog:
   - changeSet:
       id: 001-create-payments

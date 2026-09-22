@@ -17,18 +17,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * The sandbox gateway's <b>own ledger</b> — what it remembers about each checkout it hosted.
- *
- * <p>This table belongs to the fake third party, not to Payment: it merely happens to be parked in
- * payment-db for this lab (a separate sandbox-gateway container with its own database would be
- * truer to life, but is scope-heavy for the lesson). <b>Payment domain code must never read it</b> —
- * only the sandbox gateway and its checkout controller touch it. Payment learns outcomes the way it
- * learns everything: through signed webhooks, or by asking the gateway (which consults this table).
- *
- * <p>Why it exists: {@code fetchStatus} must answer <em>the recorded outcome</em>, not roll dice —
- * reconciliation decides real money from that answer, and a random draw would confirm bookings that
- * were never paid for. Recording once at pay time also makes the answer survive a restart, which is
- * exactly the recovery the chaos demo (3.7) exercises.
+ * Sandbox gateway's own ledger of hosted checkouts. Only the sandbox gateway touches it;
+ * fetchStatus reports the recorded outcome, never a fresh draw.
  */
 @Entity
 @Table(
@@ -44,15 +34,15 @@ public class SandboxCharge {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** The checkout session this outcome belongs to — the lookup key. */
+    /** Checkout session this outcome belongs to. */
     @Column(name = "session_id", nullable = false, updatable = false, length = 255)
     private String sessionId;
 
-    /** The sandbox's own payment id, minted at pay time. What webhooks and fetchStatus report. */
+    /** Sandbox payment id minted at pay time. */
     @Column(name = "gateway_payment_id", updatable = false, length = 255)
     private String gatewayPaymentId;
 
-    /** The outcome drawn once at pay time via {@code shouldSucceed()} — never re-drawn. */
+    /** Outcome drawn once at pay time; never re-drawn. */
     @Enumerated(EnumType.STRING) // never ordinal
     @Column(nullable = false, updatable = false, length = 24)
     private PaymentAttemptStatus outcome;

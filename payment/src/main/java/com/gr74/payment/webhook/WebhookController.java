@@ -31,24 +31,8 @@ import lombok.extern.slf4j.Slf4j;
 import static java.util.Collections.list;
 
 /**
- * Gateway webhooks — the ONLY path to {@code PAID}.
- *
- * <p>One endpoint per gateway, reading the <b>raw body bytes</b> ({@code @RequestBody byte[]}):
- * signatures are computed over exact bytes, and a Jackson round-trip (reordered keys, changed
- * whitespace) would break verification. This is not negotiable — a parsed DTO here would silently
- * reject every genuine delivery.
- *
- * <p>Reached through the front door as {@code /api/payments/webhooks/{gateway}} (the existing
- * {@code /api/payments/**} route already covers it). Gateways have no JWT, so this path is
- * authenticated by <b>signature verification</b> instead — a different mechanism proving the same
- * thing (Phase 7 permits the path for exactly this reason).
- *
- * <p>The signature itself does not always arrive in a header: Stripe and sandbox sign in one,
- * while Paymob appends {@code ?hmac=<sha512-hex>} to the callback URL. Both channels are folded
- * into a single lower-cased map by {@link #signalsFrom}, so adapters read one place.
- *
- * <p>Errors are thrown, never returned: {@code GlobalExceptionHandler} renders every one as an RFC
- * 9457 {@code ProblemDetail} with a stable {@code code}.
+ * Receives gateway webhooks over raw body bytes; signature-authenticated, not JWT.
+ * Answers 200 to almost everything; 400 only for bad signatures or unknown gateways.
  */
 @Slf4j
 @RestController
@@ -60,11 +44,7 @@ public class WebhookController {
     private final WebhookProcessor processor;
 
     /**
-     * Receive one gateway delivery.
-     *
-     * <p>200 for processed, duplicate, unknown session, or uninteresting type — a gateway retries
-     * any non-2xx for hours, so 200 is the answer to almost everything. 400 only for a bad-or-missing
-     * signature (stored with {@code signature_valid=false} first) or an unknown gateway segment.
+     * Receives one gateway delivery; 200 for processed, duplicate, unknown, or uninteresting.
      */
     @PostMapping(
             path = "/{gateway}",
@@ -96,9 +76,7 @@ public class WebhookController {
             HttpServletRequest request) {
 
         PaymentGatewayType type = parseGateway(gateway);
-        // Signature channel differs per gateway (header for Stripe/sandbox, query string for
-        // Paymob) and containers preserve the sent casing — normalize both into one lower-cased
-        // map here rather than in every adapter.
+        // Normalize headers and query params into one lower-cased map; headers win on collision.
         Map<String, String> headers = signalsFrom(request);
 
         WebhookResult result = processor.process(type, rawBody, headers);
@@ -124,22 +102,7 @@ public class WebhookController {
         }
     }
 
-    /**
-     * Every signature-bearing signal on the delivery, keyed lower-case: headers first, then query
-     * parameters.
-     *
-     * <p>Gateways disagree on the channel. Stripe and sandbox sign in a header; <b>Paymob sends no
-     * signature header at all</b> — its HMAC rides the callback query string
-     * ({@code ?hmac=<sha512-hex>}). Merging both here once means no adapter has to know which
-     * channel its gateway chose, and the port keeps its single map.
-     *
-     * <p>Headers win on collision ({@code putIfAbsent} after the header pass): a query parameter
-     * must never be able to shadow a real signature header, or appending
-     * {@code ?stripe-signature=...} to a callback URL would override the genuine one.
-     *
-     * <p>Reading {@code getParameterMap()} is safe on this POST: the endpoint consumes JSON and
-     * binds the body as {@code byte[]}, so the container never form-parses the body into it.
-     */
+    /** Merges headers and query parameters into one lower-cased map; headers win on collision. */
     private static Map<String, String> signalsFrom(HttpServletRequest request) {
         Map<String, String> signals = new TreeMap<>();
         for (String name : list(request.getHeaderNames())) {
@@ -153,7 +116,7 @@ public class WebhookController {
         return signals;
     }
 
-    /** What a 200 to a gateway looks like — a small ack, never an entity. */
+    /** Small ack returned to the gateway; never an entity. */
     public record WebhookAck(String gateway, String outcome, String detail) {
     }
 }

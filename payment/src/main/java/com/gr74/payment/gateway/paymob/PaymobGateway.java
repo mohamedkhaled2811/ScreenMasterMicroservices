@@ -39,26 +39,8 @@ import com.gr74.payment.model.RefundStatus;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Paymob (sandbox), via its hosted iframe checkout.
- *
- * <p>Registered only when {@code payment.gateway.paymob.api-key} holds a non-blank value, so a
- * deployment without Paymob credentials simply never offers it (see
- * {@link ConditionalOnGatewayCredentials} for why a blank check is needed).
- *
- * <p><b>Why this adapter earns its place:</b> Paymob is genuinely unlike Stripe, and that is the
- * point of having two. Its differences all stay behind this class:
- * <ul>
- *   <li><b>Three-step session creation</b> — authenticate for a token, register an order, then request
- *       a payment key — where Stripe needs one call. The port still exposes a single
- *       {@link #createSession}.</li>
- *   <li><b>Integer piastres</b> ({@code 30050} for 300.50 EGP) via the shared {@link MoneyConverter}.</li>
- *   <li><b>HMAC over a fixed, concatenated field list</b> in a documented order — not over the raw
- *       body like Stripe — and delivered as a <b>query parameter</b> ({@code ?hmac=...}), not a
- *       header. Getting either wrong is the classic Paymob integration bug.</li>
- *   <li><b>No native idempotency key</b>, so our key travels as the order's
- *       {@code merchant_order_id}, which Paymob rejects as a duplicate — the same protection by a
- *       different mechanism.</li>
- * </ul>
+ * Paymob sandbox via hosted iframe checkout. Registered only when its API key is configured.
+ * Three-step session (auth token, order, payment key); HMAC over a fixed field list via ?hmac query param.
  */
 @Slf4j
 @Component
@@ -67,10 +49,7 @@ public class PaymobGateway implements PaymentGateway {
 
     private static final String HMAC_ALGORITHM = "HmacSHA512";
 
-    /**
-     * The exact fields, in the exact order, Paymob concatenates to build a webhook's HMAC. The order
-     * is defined by Paymob and must not be "tidied" — reordering silently breaks every signature.
-     */
+    /** Fixed Paymob-signed fields in order; must not be reordered. */
     private static final String[] HMAC_FIELDS = {
             "amount_cents", "created_at", "currency", "error_occured", "has_parent_transaction",
             "id", "integration_id", "is_3d_secure", "is_auth", "is_capture", "is_refunded",
@@ -102,14 +81,13 @@ public class PaymobGateway implements PaymentGateway {
     public GatewaySession createSession(GatewaySessionRequest request) {
         long amountCents = MoneyConverter.toMinorUnits(request.amount(), request.currency());
 
-        // 1. Authenticate — Paymob issues a short-lived bearer token per session creation.
+        // 1. Authenticate for a short-lived token.
         String authToken = text(post("/api/auth/tokens", Map.of("api_key", props.apiKey())), "token");
         if (authToken == null) {
             throw new GatewayException(type(), "authentication returned no token");
         }
 
-        // 2. Register the order. merchant_order_id carries OUR idempotency key: Paymob rejects a
-        //    duplicate, which is how a retried create avoids becoming a second order.
+        // 2. Register order; merchant_order_id carries our idempotency key.
         Map<String, Object> orderBody = new LinkedHashMap<>();
         orderBody.put("auth_token", authToken);
         orderBody.put("delivery_needed", false);
@@ -123,7 +101,7 @@ public class PaymobGateway implements PaymentGateway {
             throw new GatewayException(type(), "order registration returned no id");
         }
 
-        // 3. Request a payment key — the token the hosted iframe is opened with.
+        // 3. Request payment key for the hosted iframe.
         Map<String, Object> keyBody = new LinkedHashMap<>();
         keyBody.put("auth_token", authToken);
         keyBody.put("amount_cents", amountCents);
@@ -143,15 +121,11 @@ public class PaymobGateway implements PaymentGateway {
         log.info("PAYMOB session created orderId={} attemptId={} amountCents={} {} expiresAt={}",
                 orderId, request.attemptId(), amountCents, request.currency(), expiresAt);
 
-        // The ORDER id is the stable handle a webhook carries, so it is our session id.
+        // Order id is the stable handle webhooks carry.
         return new GatewaySession(orderId, checkoutUrl, expiresAt);
     }
 
-    /**
-     * Ask Paymob about a transaction. Keyed by the <b>transaction</b> id — Paymob's lookup answers
-     * per transaction, not per order — so this adapter reads {@code query.gatewayPaymentId()} and
-     * only falls back to the session (order) id when no transaction was ever reported.
-     */
+    /** Status lookup keyed by transaction id, falling back to the order id. */
     @Override
     public GatewayPaymentStatus fetchStatus(GatewayStatusQuery query) {
         String transactionId = query.gatewayPaymentId() != null && !query.gatewayPaymentId().isBlank()
@@ -195,18 +169,7 @@ public class PaymobGateway implements PaymentGateway {
                 : new RefundResult(RefundStatus.FAILED, refundId, "paymob_refund_rejected");
     }
 
-    /**
-     * Verify Paymob's HMAC and normalize the callback.
-     *
-     * <p>Unlike Stripe, Paymob does not sign the raw body: it concatenates a fixed list of fields in
-     * a documented order and HMACs <em>that</em>. We still take the raw body (the port's contract, and
-     * what gets stored), but we parse it to rebuild the signed string.
-     *
-     * <p><b>Paymob also sends the signature on a different channel:</b> there is no {@code hmac}
-     * header — it is appended to the callback URL as {@code ?hmac=<sha512-hex>}. The controller
-     * folds query parameters into the same lower-cased map as headers, so the lookup below is
-     * channel-agnostic. Reading headers alone is what silently rejects every genuine delivery.
-     */
+    /** Verify HMAC (fixed field list, ?hmac param) and normalize the callback. */
     @Override
     public GatewayEvent parseAndVerifyWebhook(String rawPayload, Map<String, String> headers) {
         String provided = headers.get("hmac");
@@ -280,7 +243,7 @@ public class PaymobGateway implements PaymentGateway {
                 status == PaymentAttemptStatus.FAILED ? text(obj.path("data"), "message") : null);
     }
 
-    /** Rebuild the exact string Paymob signed: the fixed field list, in order, concatenated. */
+    /** Rebuild the signed string: fixed fields concatenated in order. */
     private String concatenateSignedFields(JsonNode obj) {
         StringBuilder sb = new StringBuilder();
         for (String field : HMAC_FIELDS) {
@@ -293,7 +256,7 @@ public class PaymobGateway implements PaymentGateway {
         return sb.toString();
     }
 
-    /** Paymob requires a full billing block; we have no such data, so we send its documented filler. */
+    /** Required billing block; uses documented filler values. */
     private Map<String, Object> billingData(GatewaySessionRequest request) {
         Map<String, Object> billing = new LinkedHashMap<>();
         for (String field : new String[]{"apartment", "floor", "street", "building", "shipping_method",

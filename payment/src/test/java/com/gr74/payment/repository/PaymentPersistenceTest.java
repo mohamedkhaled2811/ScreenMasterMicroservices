@@ -27,16 +27,7 @@ import com.gr74.payment.model.WebhookEvent;
 import jakarta.persistence.EntityManager;
 
 /**
- * The payment schema on a real database — mappings, constraints, and the money arithmetic.
- *
- * <p>Runs on H2 with Hibernate generating the schema (see {@code src/test/resources/application.yml}),
- * so it proves the <em>entities</em> agree with themselves. The Liquibase changesets are the
- * production schema, and {@code ddl-auto=validate} is what proves the two agree — that check runs on
- * a real Postgres boot, not here.
- *
- * <p><b>Not covered here:</b> the partial unique index ({@code uq_active_attempt_per_payment}) is
- * Postgres-only, since H2 has no partial-index support. Its <em>behaviour</em> is asserted at the
- * service level instead ({@code PaymentServiceTest#reusesLiveAttempt}).
+ * Payment schema mappings, constraints, and money arithmetic on H2.
  */
 @DataJpaTest
 class PaymentPersistenceTest {

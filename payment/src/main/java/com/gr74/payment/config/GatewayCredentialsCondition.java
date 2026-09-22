@@ -8,10 +8,7 @@ import org.springframework.core.type.AnnotatedTypeMetadata;
 import org.springframework.util.StringUtils;
 
 /**
- * The matcher behind {@link ConditionalOnGatewayCredentials}: the named property must exist
- * <em>and</em> be non-blank.
- *
- * <p>The blank check is the entire reason this class exists — see the annotation's javadoc.
+ * Matches when the named property exists and is non-blank.
  */
 public class GatewayCredentialsCondition implements Condition {
 

@@ -3,14 +3,11 @@ package com.gr74.payment.gateway;
 import java.time.Instant;
 
 /**
- * What a gateway returns when it opens a checkout session — normalized into our terms.
+ * Gateway checkout session, normalized. expiresAt is the session clock, not the booking hold.
  *
- * @param gatewaySessionId the gateway's id for this session; the key the webhook is matched on
- * @param checkoutUrl      where the client redirects the user
- * @param expiresAt        when this SESSION lapses. Deliberately a different clock from the booking
- *                         hold: a lapsed session is recoverable ("Pay Again"), a lapsed booking is
- *                         not. May be {@code null} when a gateway does not say, in which case our
- *                         own configured TTL applies.
+ * @param gatewaySessionId gateway session id; webhook correlation key
+ * @param checkoutUrl      user redirect target
+ * @param expiresAt        session expiry, or null when the gateway does not say
  */
 public record GatewaySession(String gatewaySessionId, String checkoutUrl, Instant expiresAt) {
 }

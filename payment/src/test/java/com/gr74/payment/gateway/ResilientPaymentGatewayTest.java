@@ -38,12 +38,7 @@ import io.github.resilience4j.retry.RetryConfig;
 import io.github.resilience4j.retry.RetryRegistry;
 
 /**
- * The decorator's contract — hermetic unit tests, no Spring context: a mock delegate and real
- * Resilience4j registries built with tight, deterministic configs.
- *
- * <p>This is the test pair to {@code ResiliencePolicyTest}: here we prove the <em>policy
- * behaviour</em> (breaker, retry, bulkhead, delegation), there we prove the <em>error
- * mapping</em> (breakers and bulkheads render as coded 503/429, never a 500).
+ * Decorator behaviour with real Resilience4j registries and a mock delegate.
  */
 class ResilientPaymentGatewayTest {
 
@@ -291,7 +286,7 @@ class ResilientPaymentGatewayTest {
     private static RetryConfig retry(int maxAttempts) {
         return RetryConfig.custom()
                 .maxAttempts(maxAttempts)
-                .waitDuration(Duration.ZERO)      // hermetic: no real backoff sleeps in tests
+                .waitDuration(Duration.ZERO)      // no real backoff sleeps in tests
                 .retryExceptions(GatewayException.class)
                 .build();
     }

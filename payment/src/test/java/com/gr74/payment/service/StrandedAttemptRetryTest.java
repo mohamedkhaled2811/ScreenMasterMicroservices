@@ -31,19 +31,7 @@ import com.gr74.payment.repository.PaymentAttemptRepository;
 import com.gr74.payment.repository.PaymentRepository;
 
 /**
- * The outage-retry path through the real stack: {@code POST /payments} while the gateway is down,
- * then {@code POST} again.
- *
- * <p>Before the stranded-retry fix, the second call never reached the gateway: the first call's
- * evidence row (PENDING, no session) tripped the one-live-attempt index on the retry's insert, and
- * the user got {@code 400 PAYMENT_VALIDATION_ERROR "already being created"} — hiding the outage
- * (and starving the circuit breaker) behind a validation error, with no sweeper or reconciliation
- * query ever matching the session-less row. These tests pin the fixed behaviour: every retry
- * re-calls the gateway on the <em>same</em> row with the <em>same</em> idempotency key, so a down
- * gateway surfaces as {@code 503} every time and a recovered one completes the same attempt.
- *
- * <p>Runs the full context on H2 with the sandbox pinned to {@code unavailable-rate=1.0}, so every
- * gateway call throws {@link GatewayException} — the only exception the breaker records.
+ * Outage-retry path through the real stack with the sandbox gateway down.
  */
 @SpringBootTest
 @TestPropertySource(properties = {

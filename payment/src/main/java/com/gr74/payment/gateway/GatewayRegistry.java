@@ -18,23 +18,7 @@ import com.gr74.payment.model.PaymentGatewayType;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * The single dispatch point from a {@link PaymentGatewayType} to its adapter.
- *
- * <p>Spring injects <em>every</em> {@link PaymentGateway} bean as a {@code List} (see
- * {@code docs/concepts/spring-core-and-beans.md}), so this map builds itself: an adapter whose
- * credentials are absent is {@code @ConditionalOnProperty}'d out of the context entirely and simply
- * never appears here. That is why a misconfigured gateway is <em>never offered</em> rather than
- * failing at checkout time.
- *
- * <p>This class is the reason there is no {@code if (gateway == STRIPE) ... else if (gateway ==
- * PAYMOB)} chain anywhere in the service. Everything downstream holds the returned
- * {@link PaymentGateway} and never asks which one it is.
- *
- * <p><b>The injected list is the decorated one.</b> {@code ResilienceConfig} wraps every raw
- * adapter in a {@link ResilientPaymentGateway} and this constructor takes THAT list (qualified as
- * {@code resilientPaymentGateways}), never the raw {@code @Component}s — so the map keys (from
- * {@code type()}, which delegates undecorated) are identical, but every gateway downstream runs
- * behind its breaker, bulkhead and retry. Callers are untouched: the seam is exactly here.
+ * Dispatch from gateway type to its adapter. Built from the injected (resilience-decorated) adapter list.
  */
 @Slf4j
 @Component
@@ -48,10 +32,9 @@ public class GatewayRegistry {
     }
 
     /**
-     * The adapter for {@code type}.
+     * Adapter for type.
      *
-     * @throws GatewayNotAvailableException (400) when nothing is registered for it — a client asked
-     *                                      for a gateway this deployment has no credentials for
+     * @throws GatewayNotAvailableException when nothing is registered for it
      */
     public PaymentGateway require(PaymentGatewayType type) {
         PaymentGateway gateway = byType.get(type);
@@ -61,16 +44,12 @@ public class GatewayRegistry {
         return gateway;
     }
 
-    /** Every registered gateway, sorted for a stable API response and log line. */
+    /** Registered gateways, sorted. */
     public Set<PaymentGatewayType> available() {
         return new TreeSet<>(byType.keySet());
     }
 
-    /**
-     * The gateways that can settle {@code currency} — what the client's gateway picker is built
-     * from. Filtering here rather than at checkout is what stops a user choosing Paymob for a USD
-     * booking and only discovering the problem at the gateway.
-     */
+    /** Gateways that can settle the currency. */
     public Set<PaymentGatewayType> availableFor(String currency) {
         Set<PaymentGatewayType> matching = new TreeSet<>(Comparator.naturalOrder());
         byType.forEach((type, gateway) -> {
@@ -81,7 +60,7 @@ public class GatewayRegistry {
         return matching;
     }
 
-    /** Whether {@code type} is registered <em>and</em> settles {@code currency}. */
+    /** Whether type is registered and settles the currency. */
     public boolean supports(PaymentGatewayType type, String currency) {
         PaymentGateway gateway = byType.get(type);
         return gateway != null && gateway.supportedCurrencies().contains(currency);

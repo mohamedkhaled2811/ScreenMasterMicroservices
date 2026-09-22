@@ -7,12 +7,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * Config for the controllable {@code SANDBOX} gateway ({@code payment.gateway.sandbox.*}).
- *
- * <p>{@code failureRate} and {@code unavailableRate} are the successors to the old {@code FAIL_RATE}
- * knob: they let a run dial in declines and outages without touching code, which is what the failure
- * script (BUILD_PLAN 3.7) and the circuit-breaker demo (Phase 5) need. The difference from the old
- * fake is that the failure now arrives the way a real one does — through a signed webhook — rather
- * than as the return value of a charge call.
  */
 @ConfigurationProperties(prefix = "payment.gateway.sandbox")
 public record SandboxGatewayProps(
@@ -26,7 +20,6 @@ public record SandboxGatewayProps(
 
     public SandboxGatewayProps {
         if (supportedCurrencies == null || supportedCurrencies.isEmpty()) {
-            // Our own gateway has no real-world restriction, so it can always take a booking.
             supportedCurrencies = Set.of("EGP", "USD");
         }
         requireRate(failureRate, "payment.gateway.sandbox.failure-rate");

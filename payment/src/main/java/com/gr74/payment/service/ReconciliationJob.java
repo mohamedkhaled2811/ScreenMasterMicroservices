@@ -24,26 +24,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Reconciliation — what makes the webhook path <em>recoverable</em> rather than critical
- * (BUILD_PLAN 3.6).
- *
- * <p>Sweeps attempts stuck {@code PENDING} past {@code payment.reconciliation.stale-after}
- * (default 10 minutes — the SAME property step 3.4's {@code AttemptExpirySweeper} reads, so blind
- * expiry never wins the race against this gateway check), asks the gateway what it believes, and
- * funnels the answer <b>through the exact webhook handler</b> — a synthetic {@code GatewayEvent}
- * whose id is {@code "recon:{attemptId}:{status}"}, stored through the same evidence insert and
- * applied by the same {@code applyOutcome}. The {@code UNIQUE (gateway, event_id)} insert makes a
- * late real webhook, a second recon pass, and the original webhook all collapse onto ONE applied
- * outcome. If a second state-transition path ever appears beside this one, that is the bug.
- *
- * <p>The threshold exists to clear a real gateway's webhook retry backoff: anything younger may
- * still have a delivery in flight, and probing it would race the webhook rather than recover from
- * it.
- *
- * <p>When the gateway itself cannot answer ({@code fetchStatus} throws), the per-item catch logs
- * and skips — the attempt stays PENDING and the next sweep retries it. There is deliberately
- * <b>no give-up counter</b>: an attempt the gateway cannot answer for is eventually closed by the
- * expires-past branch below, so nothing is probed forever.
+ * Probes stale PENDING attempts against the gateway and applies the answer via the webhook path.
  */
 @Slf4j
 @Component
@@ -58,11 +39,7 @@ public class ReconciliationJob {
     private final ReconciliationProps reconciliation;
     private final Clock clock;
 
-    /**
-     * Fire on the configured cadence. Any error escaping a tick is caught here so a single bad
-     * run never kills the scheduler thread (the {@code TmdbScheduledTasks} idiom) — stale
-     * attempts simply wait for the next tick.
-     */
+    /** Runs on a fixed delay; failures are logged so the next tick can retry. */
     @Scheduled(fixedDelayString = "${payment.reconciliation.sweep-interval-millis:300000}")
     public void tick() {
         try {
@@ -77,17 +54,11 @@ public class ReconciliationJob {
         }
     }
 
-    /**
-     * Probe stale PENDING attempts against their gateways. Direct-invocation testable with a
-     * frozen instant; returns how many attempts reached a decided outcome through the webhook
-     * handler. One bad attempt never kills the run: the per-item catch skips it for the next
-     * sweep.
-     */
+    /** Probes stale PENDING attempts; one bad attempt never stops the run. */
     public int reconcile(Instant now) {
         Instant cutoff = now.minus(reconciliation.staleAfter());
         List<PaymentAttempt> stale = attempts.findStale(PaymentAttemptStatus.PENDING, cutoff);
-        // Bounded: the first tick after a long outage walks the backlog over several passes
-        // instead of one enormous loop (same reasoning as the outbox relay's batch size).
+        // Bounded batch so a post-outage backlog drains over several passes.
         List<PaymentAttempt> batch = stale.subList(0, Math.min(stale.size(), reconciliation.batchSize()));
         int recovered = 0;
         for (PaymentAttempt attempt : batch) {
@@ -96,8 +67,7 @@ public class ReconciliationJob {
                     recovered++;
                 }
             } catch (RuntimeException e) {
-                // fetchStatus threw (or the registry has no such gateway): leave PENDING, retry
-                // next sweep. Nothing is probed forever — see the class javadoc.
+                // Leave PENDING; the next sweep retries.
                 log.warn("Reconciliation skipped attempt id={} ({}); next sweep retries",
                         attempt.getId(), e.getMessage());
             }
@@ -105,17 +75,7 @@ public class ReconciliationJob {
         return recovered;
     }
 
-    /**
-     * Ask the gateway about one attempt and apply its answer through the webhook handler.
-     *
-     * <ul>
-     *   <li>Gateway says {@code SUCCEEDED}/{@code FAILED} → applied as that outcome (payment
-     *       promoted, outbox written — exactly as if the webhook had arrived).</li>
-     *   <li>Gateway says {@code PENDING} (it never heard of this session — the user never paid)
-     *       → applied as {@code EXPIRED}, but ONLY past the session deadline. A stale-but-live
-     *       session may still be paid, so it stays PENDING for a later sweep.</li>
-     * </ul>
-     */
+    /** Asks the gateway about one attempt and applies its answer through the webhook handler. */
     private boolean reconcileOne(PaymentAttempt attempt, Instant now) {
         PaymentGateway gateway = registry.require(attempt.getGateway());
         GatewayPaymentStatus answer = gateway.fetchStatus(GatewayStatusQuery.of(
@@ -128,8 +88,7 @@ public class ReconciliationJob {
                         attempt.getId());
                 return false;
             }
-            // The gateway disowned it (never paid) and the session lapsed: close the attempt.
-            // The payment stays PENDING for Pay Again — same meaning as the expiry sweeper's flip.
+            // Gateway disowned it and the session lapsed; the payment stays PENDING for Pay Again.
             status = PaymentAttemptStatus.EXPIRED;
         }
 

@@ -12,24 +12,13 @@ import com.gr74.payment.model.PaymentGatewayType;
 import com.gr74.payment.model.WebhookEvent;
 
 /**
- * Spring Data repository for {@link WebhookEvent}.
- *
- * <p>Note there is no "exists then insert" helper: the dedupe is the {@code UNIQUE (gateway,
- * event_id)} constraint failing on insert, not a prior read. A read-then-write would leave a window
- * in which two concurrent deliveries of the same event both pass the check.
+ * Spring Data repository for {@link WebhookEvent}. Dedupe is the UNIQUE (gateway, event_id) insert, not a prior read.
  */
 public interface WebhookEventRepository extends JpaRepository<WebhookEvent, Long> {
 
     Optional<WebhookEvent> findByGatewayAndEventId(PaymentGatewayType gateway, String eventId);
 
-    /**
-     * Retention: drop the stored bodies of old deliveries.
-     *
-     * <p>Deliberately nulls the payload and headers rather than deleting the row, so the
-     * {@code (gateway, event_id)} dedupe key survives — an ancient redelivery still cannot
-     * double-process after its body has been pruned. Storing personal data (billing name, email,
-     * last-4) forever is not a defensible default.
-     */
+    /** Retention: null payloads of old deliveries, keeping rows so dedupe still holds. */
     @Modifying
     @Query("""
             update WebhookEvent w

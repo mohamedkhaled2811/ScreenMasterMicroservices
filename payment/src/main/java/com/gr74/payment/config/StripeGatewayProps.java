@@ -6,14 +6,7 @@ import java.util.Set;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * Config for the Stripe adapter ({@code payment.gateway.stripe.*}).
- *
- * <p>The whole class is only bound when {@code secret-key} is present — {@code StripeGateway} carries
- * the {@code @ConditionalOnProperty} — so an unconfigured deployment never registers the gateway.
- *
- * <p><b>The live-key guard is the important part.</b> A {@code sk_live_} key is rejected unless the
- * {@code production} profile is active, so this learning project is structurally incapable of moving
- * real money even if someone pastes the wrong key into {@code .env}.
+ * Config for the Stripe adapter ({@code payment.gateway.stripe.*}). Bound only when a key is set.
  */
 @ConfigurationProperties(prefix = "payment.gateway.stripe")
 public record StripeGatewayProps(

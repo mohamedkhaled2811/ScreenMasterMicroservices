@@ -28,17 +28,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Admin-initiated (partial) refunds.
- *
- * <p><b>Auth:</b> the {@code ADMIN} realm role, enforced with
- * {@code @PreAuthorize} right on the method — the check lives next to the thing it protects, so it
- * survives a route refactor. A valid user token without the role gets {@code 403
- * PAYMENT_ACCESS_DENIED}, and no token gets {@code 401 PAYMENT_UNAUTHORIZED} — both coded
- * ProblemDetail bodies, never empty responses.
- *
- * <p>A {@code 201} means the gateway <em>accepted</em> the refund, not that money moved: the
- * refund stays {@code PENDING} until its webhook confirms it (see {@link RefundResponse}).
- * Errors are thrown, never returned.
+ * Admin-initiated (partial) refunds; requires the ADMIN role.
  */
 @Slf4j
 @Validated

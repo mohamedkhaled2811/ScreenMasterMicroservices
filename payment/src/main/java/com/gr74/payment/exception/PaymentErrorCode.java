@@ -3,93 +3,53 @@ package com.gr74.payment.exception;
 import org.springframework.http.HttpStatus;
 
 /**
- * The machine-readable error contract for this service.
- *
- * <p>Every error response carries one of these constants as the {@code code} property of an RFC 9457
- * {@code ProblemDetail} (see {@link GlobalExceptionHandler}). The {@code code} — not the HTTP status,
- * not the human-readable {@code detail} — is what a <em>client</em> or a sibling service branches on:
- * the wording of a message may change, but the enum name is a stable promise. Adding a constant is a
- * backwards-compatible change; renaming one is a breaking contract change.
- *
- * <p>Each constant pins the HTTP status it maps to so the status and the code can never drift apart
- * (the same outcome always returns the same pair).
+ * Stable machine-readable error codes, each pinned to its HTTP status.
  */
 public enum PaymentErrorCode {
 
-    /** The request body or headers failed validation (e.g. missing field, non-positive amount). */
+    /** The request failed validation. */
     PAYMENT_VALIDATION_ERROR(HttpStatus.BAD_REQUEST, "Validation failed"),
 
     /** No payment exists for the requested identifier. */
     PAYMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "Payment not found"),
 
-    /** Booking has no such booking — we will not open a checkout for something that isn't there. */
+    /** Booking has no such booking. */
     PAYMENT_BOOKING_NOT_FOUND(HttpStatus.NOT_FOUND, "Booking not found"),
 
-    /** The booking belongs to a different user than the one making the request. */
+    /** The booking belongs to a different user. */
     PAYMENT_FORBIDDEN(HttpStatus.FORBIDDEN, "Not your booking"),
 
-    /** The booking is in a state that cannot be paid for (already CONFIRMED, CANCELLED, ...). */
+    /** The booking is in a state that cannot be paid for. */
     PAYMENT_BOOKING_NOT_PAYABLE(HttpStatus.CONFLICT, "Booking is not payable"),
 
-    /**
-     * The booking's seat hold has lapsed. Distinct from a lapsed <em>session</em>, which is
-     * recoverable: here the seats may already belong to someone else, so the user must book again.
-     */
+    /** The booking's seat hold has lapsed; the user must book again. */
     PAYMENT_BOOKING_EXPIRED(HttpStatus.CONFLICT, "Booking has expired"),
 
-    /** This booking is already paid for. Retrying would be a double charge. */
+    /** This booking is already paid for. */
     PAYMENT_ALREADY_PAID(HttpStatus.CONFLICT, "Payment already completed"),
 
-    /** The requested gateway is not registered in this deployment (no credentials configured). */
+    /** The requested gateway is not registered in this deployment. */
     PAYMENT_GATEWAY_NOT_AVAILABLE(HttpStatus.BAD_REQUEST, "Payment gateway not available"),
 
-    /** The requested gateway cannot settle this booking's currency (e.g. Paymob asked for USD). */
+    /** The requested gateway cannot settle this booking's currency. */
     PAYMENT_CURRENCY_NOT_SUPPORTED(HttpStatus.BAD_REQUEST, "Currency not supported by this gateway"),
 
-    /**
-     * The gateway could not be reached or did not answer in time. Distinct from a decline, which is
-     * a successful call with a negative outcome. The attempt is left PENDING for reconciliation.
-     *
-     * <p>This is also the answer when the circuit breaker is OPEN (fast-fail instead of a wait): the
-     * gateway is down, and the caller sees the same coded 503 it already handles for a real outage —
-     * just returned in microseconds instead of after a timeout. See
-     * {@code docs/concepts/resilience-patterns.md}.
-     */
+    /** The gateway is unreachable or timed out; covers an open circuit breaker too. */
     PAYMENT_GATEWAY_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Payment gateway unavailable"),
 
-    /**
-     * The gateway's <em>bulkhead</em> is full — this deployment is already running the maximum
-     * number of concurrent calls to that gateway and rejected this one immediately rather than
-     * queue it. Deliberately a different code (429) from an outage (503): "we are saturated, try
-     * again shortly" is not the same as "the gateway is down", and a client that branches on
-     * {@code code} can tell the difference (and back off instead of retrying an outage). A 429
-     * never means a payment was charged or even attempted. See
-     * {@code docs/concepts/resilience-patterns.md}.
-     */
+    /** The gateway bulkhead is full; safe to retry shortly, nothing was charged. */
     PAYMENT_GATEWAY_BUSY(HttpStatus.TOO_MANY_REQUESTS, "Payment gateway busy"),
 
-    /** Booking could not be reached, so we cannot verify the amount. We fail closed, never open. */
+    /** Booking could not be reached, so the amount cannot be verified. */
     PAYMENT_BOOKING_SERVICE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Booking service unavailable"),
 
-    /** A webhook's signature did not verify — forged, or our secret is misconfigured. */
+    /** A webhook signature did not verify. */
     PAYMENT_WEBHOOK_SIGNATURE_INVALID(HttpStatus.BAD_REQUEST, "Webhook signature invalid"),
 
-    /**
-     * No (or an invalid) Bearer token. Rendered by the security filter chain — which runs before
-     * any controller, so {@code GlobalExceptionHandler} can never see these — via
-     * {@code SecurityProblemSupport}, in the same ProblemDetail shape with the same flat
-     * {@code code}. Kept distinct from {@link #PAYMENT_ACCESS_DENIED} on purpose: "log in" and
-     * "ask an admin" are different answers.
-     */
+    /** No (or an invalid) Bearer token. */
     PAYMENT_UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "Authentication required"),
 
-    /**
-     * A valid token without the role the endpoint needs (a {@code USER} calling the
-     * {@code ADMIN}-only refund endpoint). Same filter-chain rendering as
-     * {@link #PAYMENT_UNAUTHORIZED}. Deliberately <em>not</em> {@link #PAYMENT_FORBIDDEN} — that
-     * code already means "this payment belongs to another user", and conflating a role denial with
-     * an ownership denial would teach clients the wrong retry.
-     */
+    /** A valid token without the role the endpoint needs. */
     PAYMENT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "Access denied"),
 
     /** A refund would exceed what remains refundable on the payment. */
@@ -98,7 +58,7 @@ public enum PaymentErrorCode {
     /** A refund was requested against a payment that was never captured. */
     PAYMENT_NOT_REFUNDABLE(HttpStatus.CONFLICT, "Payment is not refundable"),
 
-    /** A fallback for anything we did not anticipate — never leak internals to the caller. */
+    /** Fallback for unanticipated errors; never leaks internals. */
     PAYMENT_INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Internal error");
 
     private final HttpStatus status;
@@ -113,7 +73,7 @@ public enum PaymentErrorCode {
         return status;
     }
 
-    /** Short, human-readable summary used as the {@code ProblemDetail} title. */
+    /** Short summary used as the ProblemDetail title. */
     public String title() {
         return title;
     }

@@ -5,13 +5,7 @@ import com.gr74.payment.exception.PaymentException;
 import com.gr74.payment.model.PaymentGatewayType;
 
 /**
- * A webhook's signature did not verify.
- *
- * <p>This is the one case where we answer a gateway with a non-2xx (400): either the delivery is
- * forged, or our webhook secret is misconfigured — and both need a human, not a retry.
- *
- * <p>The delivery is still <b>stored</b>, with {@code signatureValid = false}. A run of such rows
- * from one source is an attack signature, and discarding them would discard the evidence.
+ * Webhook signature did not verify. Delivery is still stored with signatureValid=false; answered 400.
  */
 public class WebhookSignatureException extends PaymentException {
 

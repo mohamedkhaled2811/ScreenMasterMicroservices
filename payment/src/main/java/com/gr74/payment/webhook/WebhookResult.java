@@ -1,12 +1,7 @@
 package com.gr74.payment.webhook;
 
 /**
- * What the webhook handler decided — the controller maps this to HTTP, and only one outcome is not
- * a 200.
- *
- * <p>The response policy is deliberate: a gateway retries any non-2xx for hours, so 200 is the
- * answer to almost everything. Only a bad-or-missing signature (the gateway must fix its secret,
- * not retry the bytes) and an unknown gateway path segment answer 400.
+ * What the webhook handler decided; only BAD_SIGNATURE is not a 200.
  */
 public record WebhookResult(Outcome outcome, String detail) {
 

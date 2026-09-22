@@ -27,22 +27,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Creating a checkout session — the write path behind {@code POST /payments}, and the same path
- * "Pay Again" takes.
- *
- * <p><b>The endpoint is idempotent at the business level.</b> Called repeatedly for one booking it
- * returns a usable checkout URL, and only opens a <em>new</em> gateway session when there isn't a
- * live one. That is why "Pay Again" is not a special case with its own code: it is this method,
- * called a second time, finding a lapsed attempt instead of a live one.
- *
- * <h2>Why this is not one transaction</h2>
- * The gateway call sits <b>outside</b> the transaction that creates the attempt, and that ordering is
- * the whole lesson (see {@code docs/concepts/payment-gateway-integration.md}). A database transaction
- * cannot span an external gateway: if we called the gateway inside one and the commit then failed,
- * the user could be charged for a session we have no record of, and no rollback could undo it. So we
- * <b>commit the attempt row first</b>, then call the gateway. If that call times out, the row already
- * exists as evidence and reconciliation can resolve it — the failure mode is a stranded PENDING
- * attempt, which is recoverable, rather than an untracked charge, which is not.
+ * Creates or reuses a checkout session for a booking; idempotent per booking.
  */
 @Slf4j
 @Service
@@ -56,41 +41,31 @@ public class PaymentService {
     private final PaymentSessionFactory sessionFactory;
 
     /**
-     * Create or reuse a checkout session for a booking.
-     *
-     * <p>Runs the six guards, gets-or-creates the obligation, then either hands back a live attempt
-     * or opens a new one.
+     * Creates or reuses a checkout session for a booking.
      *
      * @return the session, and whether it was newly created (201) or reused (200)
      */
     public SessionOutcome createSession(CreatePaymentRequest request, String userId) {
         Instant now = Instant.now();
 
-        // --- Guards 1-4: everything we cannot answer without Booking -----------------------------
-        // Booking owns the booking, so this is where the amount comes from too. Fails closed: a
-        // Booking outage throws 503 rather than letting us invent a price.
+        // Booking owns the booking and amount; a Booking outage fails closed with 503.
         BookingPayability booking = bookingClient.fetchPayability(request.bookingId());
 
         if (!userId.equals(booking.userId())) {
-            // Checked even though a booking id is not secret: without it, anyone could enumerate ids
-            // and open checkouts against other people's bookings.
             throw new ForbiddenBookingException(request.bookingId());
         }
         if (!booking.isPending()) {
             throw BookingNotPayableException.notPayable(request.bookingId(), booking.status());
         }
         if (!booking.isHoldLive(now)) {
-            // The SEAT HOLD has lapsed — unrecoverable, unlike a lapsed gateway session. The seats
-            // may already belong to someone else, so no new attempt may be created.
+            // Lapsed seat hold is unrecoverable; no new attempt may be created.
             throw BookingNotPayableException.expired(request.bookingId());
         }
 
-        // --- Get or create the obligation --------------------------------------------------------
-        // The obligation row is committed on its own (REQUIRES_NEW in PaymentWriter) — it must not
-        // join a caller's transaction, or the attempt's FK to it would block on an uncommitted row.
+        // Committed on its own in PaymentWriter (REQUIRES_NEW).
         Payment payment = paymentWriter.getOrCreatePayment(booking);
 
-        // --- Guard 5: already settled ------------------------------------------------------------
+        // Already settled.
         if (payment.getStatus() == PaymentStatus.PAID) {
             throw BookingNotPayableException.alreadyPaid(request.bookingId());
         }
@@ -99,9 +74,7 @@ public class PaymentService {
                     "payment " + payment.getStatus());
         }
 
-        // --- Reuse a live attempt if there is one ------------------------------------------------
-        // This is what makes a double-clicked "Pay" button harmless, and what "Pay Again" hits when
-        // the user simply reopens a still-valid checkout.
+        // Reuse a live attempt if present.
         Optional<PaymentAttempt> pending =
                 attempts.findByPaymentIdAndStatus(payment.getId(), PaymentAttemptStatus.PENDING);
         if (pending.isPresent() && pending.get().isLiveAt(now)) {
@@ -117,19 +90,12 @@ public class PaymentService {
             return new SessionOutcome(PaymentSessionResponse.of(payment, completed), true);
         }
 
-        // --- Guard 6 + create a new attempt ------------------------------------------------------
-        // Guard 6 (gateway registered AND settles this currency) lives in the factory, next to the
-        // gateway call it protects.
+        // Open a new attempt.
         PaymentAttempt created = sessionFactory.openNewSession(payment, request.gateway(), booking.currency());
         return new SessionOutcome(PaymentSessionResponse.of(payment, created), true);
     }
 
-    /**
-     * The one attempt that could still be paid: PENDING, with a checkout URL, and not past its
-     * session deadline. Anything else needs a fresh session — or, if it never got one, a retry on
-     * the existing row (see above).
-     */
-    /** Read a payment with its attempt history. */
+    /** Reads a payment with its attempt history. */
     @Transactional(readOnly = true)
     public PaymentResponse findById(Long paymentId, String userId) {
         Payment payment = payments.findById(paymentId)
@@ -144,7 +110,7 @@ public class PaymentService {
         return PaymentResponse.of(payment, history);
     }
 
-    /** Read a payment by the booking it belongs to — how a client polls after checkout. */
+    /** Reads a payment by booking id. */
     @Transactional(readOnly = true)
     public PaymentResponse findByBookingId(Long bookingId, String userId) {
         Payment payment = payments.findByBookingId(bookingId)
@@ -152,10 +118,7 @@ public class PaymentService {
         return findById(payment.getId(), userId);
     }
 
-    /**
-     * The result of {@link #createSession}: the session plus whether a new attempt was opened, so the
-     * controller can answer 201 (created) or 200 (reused) rather than guessing.
-     */
+    /** Session plus whether a new attempt was opened (201) or one reused (200). */
     public record SessionOutcome(PaymentSessionResponse session, boolean created) {
     }
 }

@@ -5,11 +5,7 @@ import java.util.Set;
 import com.gr74.payment.model.PaymentGatewayType;
 
 /**
- * A client asked for a gateway this deployment has not registered — its credentials are absent, so
- * the adapter was conditioned out of the context entirely.
- *
- * <p>A 400, not a 503: nothing is broken, the request simply names something that does not exist
- * here. The message lists what <em>is</em> available so the caller can correct itself.
+ * The requested gateway is not registered here (400); the message lists what is available.
  */
 public class GatewayNotAvailableException extends PaymentException {
 

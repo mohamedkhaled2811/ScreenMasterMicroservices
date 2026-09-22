@@ -37,22 +37,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * A gateway we happen to own.
- *
- * <p><b>This is not a test mock.</b> It implements the same {@link PaymentGateway} port as Stripe and
- * Paymob, is registered the same way, signs its own webhooks with a real HMAC, and honours a session
- * TTL. The difference is only that its failure rate and latency are <em>configurable</em>, which is
- * what makes the failure script (BUILD_PLAN 3.7) and the circuit-breaker demo (Phase 5) possible
- * without hammering a real sandbox or waiting on someone else's outage.
- *
- * <p>It is the successor to the old {@code FakePaymentProvider}'s {@code FAIL_RATE} knob — but where
- * that fake returned an approve/decline <em>synchronously from the charge call</em> (teaching a shape
- * no real gateway has), this one behaves like a real gateway: it opens a session, returns a checkout
- * URL, and reports the outcome later through a signed webhook. The controllable failure survived; the
- * misleading shape did not.
- *
- * <p>Always registered — it has no external credentials to be missing — so there is always at least
- * one usable gateway in any deployment.
+ * Controllable in-house gateway implementing the same port. Signs its own webhooks;
+ * configurable failure rate, latency, and session TTL. Always registered.
  */
 @Slf4j
 @Component
@@ -63,17 +49,9 @@ public class SandboxGateway implements PaymentGateway {
 
     private final SandboxGatewayProps props;
     private final ObjectMapper objectMapper;
-    /**
-     * The sandbox's own ledger — the fake third party's memory, parked in payment-db for the lab.
-     * Payment domain code never reads this; only this gateway ({@link #fetchStatus}) and its
-     * checkout controller (recording the drawn outcome) touch it.
-     */
+    /** Sandbox ledger; only this gateway and its checkout controller touch it. */
     private final SandboxChargeRepository charges;
-    /**
-     * How this gateway "calls back": signed HTTP through the front door, never an in-process
-     * call — so the refund path below exercises the same evidence store, dedupe, and correlation
-     * as Stripe's {@code charge.refunded}.
-     */
+    /** Delivers webhooks as signed HTTP through the front door, never in-process. */
     private final SandboxWebhookClient webhookClient;
 
     @Override
@@ -81,10 +59,7 @@ public class SandboxGateway implements PaymentGateway {
         return PaymentGatewayType.SANDBOX;
     }
 
-    /**
-     * Settles anything. It is our own gateway, so it has no real-world currency restrictions — which
-     * also makes it the fallback that can always take a booking whatever its currency.
-     */
+    /** Settles anything; fallback gateway with no currency restrictions. */
     @Override
     public Set<String> supportedCurrencies() {
         return props.supportedCurrencies();
@@ -94,7 +69,7 @@ public class SandboxGateway implements PaymentGateway {
     public GatewaySession createSession(GatewaySessionRequest request) {
         simulateLatency();
 
-        // Simulate an unreachable gateway, so the circuit breaker (Phase 5) has something to bite on.
+        // Simulate an unreachable gateway for the circuit breaker.
         if (draw() < props.unavailableRate()) {
             throw new GatewayException(type(), "simulated outage (unavailable-rate="
                     + props.unavailableRate() + ")");
@@ -102,7 +77,7 @@ public class SandboxGateway implements PaymentGateway {
 
         String sessionId = "sbx_sess_" + UUID.randomUUID();
         Instant expiresAt = Instant.now().plus(props.sessionTtl());
-        // The checkout "page" is served by our own controller so the flow is clickable end to end.
+        // Checkout page served by our own controller.
         String checkoutUrl = props.checkoutBaseUrl() + "/" + sessionId;
 
         log.info("SANDBOX session created sessionId={} attemptId={} amount={} {} expiresAt={}",
@@ -111,20 +86,11 @@ public class SandboxGateway implements PaymentGateway {
         return new GatewaySession(sessionId, checkoutUrl, expiresAt);
     }
 
-    /**
-     * Reconciliation's view: the outcome <b>recorded</b> when the user paid — never a fresh draw.
-     *
-     * <p>An earlier version drew against the failure rate on every call, so asking twice about the
-     * same payment could give two different answers, and reconciliation could confirm a booking that
-     * was never paid for. The failure-rate knob now applies exactly once, at pay time (see
-     * {@link #shouldSucceed()} and the checkout controller that records its answer); this method
-     * only reports what was recorded, or {@code PENDING} when the user never paid.
-     */
+    /** Reports the outcome recorded at pay time, never a fresh draw; PENDING when never paid. */
     @Override
     public GatewayPaymentStatus fetchStatus(GatewayStatusQuery query) {
         simulateLatency();
-        // Both ids identify the same ledger row; the caller may hold either. Session id first —
-        // it is the id every attempt carries — then the payment id a webhook may have reported.
+        // Caller may hold either id; session id first.
         String sessionId = firstNonBlank(query.gatewaySessionId(), query.gatewayPaymentId());
         return charges.findBySessionId(sessionId)
                 .or(() -> charges.findByGatewayPaymentId(sessionId))
@@ -134,19 +100,7 @@ public class SandboxGateway implements PaymentGateway {
                         PaymentAttemptStatus.PENDING, query.gatewayPaymentId(), null));
     }
 
-    /**
-     * Ask the sandbox to return money. Provisional by design: returns {@code PENDING} with the
-     * gateway's refund id, then delivers a signed {@code refund.succeeded} webhook through the
-     * front door — and only that webhook promotes the refund to {@code SUCCEEDED} (see
-     * {@code PaymentWriter.markRefundReceived}). A synchronous "succeeded" answer here would be
-     * the old fake-provider shape the checkout path deliberately unlearned.
-     *
-     * <p>No separate sandbox refund ledger is kept: unlike payments, refunds have no
-     * poll-for-status port method, so nothing would ever read such a table. The record of the
-     * refund is the {@code refunds} row tx 2 writes; the webhook (or its redelivery) is the
-     * confirmation. A failed delivery is exactly the network partition the payment path already
-     * models — loud log, no throw, the refund simply stays PENDING.
-     */
+    /** Accept a refund as PENDING, then confirm via signed refund webhook; only the webhook promotes it. */
     @Override
     public RefundResult refund(GatewayRefundRequest request) {
         simulateLatency();
@@ -160,7 +114,7 @@ public class SandboxGateway implements PaymentGateway {
         return new RefundResult(RefundStatus.PENDING, refundId, null);
     }
 
-    /** The signed body the confirming refund webhook carries — also what tests feed back manually. */
+    /** Signed body for the confirming refund webhook. */
     String refundPayload(String gatewayPaymentId, String refundId) {
         try {
             Map<String, Object> payload = new java.util.LinkedHashMap<>();
@@ -174,11 +128,7 @@ public class SandboxGateway implements PaymentGateway {
         }
     }
 
-    /**
-     * Verifies a real HMAC-SHA256 over the raw body — the same mechanism and the same constant-time
-     * comparison the real adapters use, so the webhook-security path is exercised by the hermetic
-     * tests and the local demo, not only against a live gateway.
-     */
+    /** Verify HMAC-SHA256 over the raw body (constant-time) and normalize. */
     @Override
     public GatewayEvent parseAndVerifyWebhook(String rawPayload, Map<String, String> headers) {
         String provided = headers.get("x-sandbox-signature");
@@ -187,7 +137,7 @@ public class SandboxGateway implements PaymentGateway {
         }
 
         String expected = sign(rawPayload);
-        // Constant-time: String.equals leaks the signature byte by byte through timing.
+        // Constant-time comparison.
         if (!MessageDigest.isEqual(
                 expected.getBytes(StandardCharsets.UTF_8),
                 provided.getBytes(StandardCharsets.UTF_8))) {
@@ -200,8 +150,7 @@ public class SandboxGateway implements PaymentGateway {
             String eventId = root.path("id").asText(null);
             String sessionId = root.path("sessionId").asText(null);
             String paymentId = root.path("paymentId").asText(null);
-            // The refund vocabulary shares the pipe, the evidence store, and the dedupe — only the
-            // terminal handler differs (the refund ledger, correlated by refund id).
+            // Refund vocabulary shares the pipe; only the terminal handler differs.
             if ("refund.succeeded".equals(rawType)) {
                 return new GatewayEvent(eventId, rawType, sessionId, paymentId,
                         null, null, GatewayEventKind.REFUND,
@@ -224,7 +173,7 @@ public class SandboxGateway implements PaymentGateway {
         }
     }
 
-    /** Sign a body exactly as this gateway's outbound webhooks are signed. */
+    /** Sign a body as outbound webhooks are signed. */
     public String sign(String rawPayload) {
         try {
             Mac mac = Mac.getInstance(HMAC_ALGORITHM);
@@ -235,7 +184,7 @@ public class SandboxGateway implements PaymentGateway {
         }
     }
 
-    /** Map this gateway's vocabulary into ours; unknown types are not actionable. */
+    /** Map gateway vocabulary to ours; unknown types are not actionable. */
     private PaymentAttemptStatus normalize(String rawType) {
         if (rawType == null) {
             return null;
@@ -249,7 +198,7 @@ public class SandboxGateway implements PaymentGateway {
         };
     }
 
-    /** Whether a checkout at this gateway should succeed, per the configured failure rate. */
+    /** Whether a checkout should succeed, per the configured failure rate. */
     public boolean shouldSucceed() {
         return draw() >= props.failureRate();
     }
@@ -273,7 +222,7 @@ public class SandboxGateway implements PaymentGateway {
             Thread.sleep(props.latencyMillis());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            // An interrupted thread is not a payment decline — fail loudly rather than report one.
+            // Interrupted thread is not a decline; fail loudly.
             throw new GatewayException(type(), "interrupted while simulating gateway latency", e);
         }
     }

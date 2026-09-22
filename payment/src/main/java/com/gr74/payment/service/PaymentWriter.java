@@ -26,22 +26,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Every committed write on the checkout path, each in its own transaction.
- *
- * <p>This is a separate bean for one specific reason: the checkout path needs writes that are
- * <b>committed before the gateway is called</b>, and a {@code @Transactional} method invoked on
- * {@code this} is not transactional at all — Spring's proxy is bypassed on self-invocation (the same
- * trap {@code CatalogUpserter} exists to avoid in the catalog service). When these methods lived on
- * {@link PaymentService} and {@link PaymentSessionFactory}, each was called from the same bean that
- * declared it, so every {@code REQUIRES_NEW} was inert: the writes happened to commit in the right
- * order only because no caller had an ambient transaction. Putting them on a third bean that both
- * callers <em>inject</em> makes every proxy hop — and therefore every boundary — real.
- *
- * <p>All three methods are {@code REQUIRES_NEW} for the same reason: a database transaction cannot
- * span an external gateway, so the obligation row and the attempt row must each be committed
- * independently, <b>before</b> {@link PaymentSessionFactory} calls the gateway. The attempt's FK to
- * {@code payments(id)} is what forces the obligation write to be here too: if the payment insert
- * joined a caller's still-open transaction, a {@code REQUIRES_NEW} attempt insert would violate it.
+ * Committed writes on the checkout path, each in its own transaction.
  */
 @Slf4j
 @Component
@@ -54,12 +39,8 @@ public class PaymentWriter {
     private final Clock clock;
 
     /**
-     * The obligation for a booking, created on first sight — committed on its own.
-     *
-     * <p>Read-then-insert with the {@code UNIQUE booking_id} constraint as the real guard: two
-     * concurrent first-time requests both miss the read, both insert, and the loser catches the
-     * violation and re-reads the winner's row. The constraint — not the read — is what guarantees one
-     * obligation per booking. (Same shape as the old idempotency-key guard, applied to a better key.)
+     * Gets or creates the payment obligation for a booking in its own transaction.
+     * Concurrent inserts collapse onto the winner via the UNIQUE booking_id constraint.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public Payment getOrCreatePayment(BookingPayability booking) {
@@ -85,35 +66,15 @@ public class PaymentWriter {
     }
 
     /**
-     * Insert the attempt in its own committed transaction.
-     *
-     * <p>{@code REQUIRES_NEW} so the row survives independently of whatever the caller is doing — the
-     * evidence must outlive a later failure, which is the same reasoning the webhook store uses.
-     *
-     * <p>The caller's {@code Payment} is <b>detached</b>: it came out of a different, already-committed
-     * transaction ({@link #getOrCreatePayment}), so its lazy {@code attempts} collection is bound to a
-     * session that no longer exists. Mutating it here threw {@code LazyInitializationException} on the
-     * "Pay Again" path — a freshly <em>inserted</em> payment carries a plain {@code ArrayList} (works by
-     * luck), a <em>loaded</em> one carries an uninitialized proxy (fails). So this transaction loads its
-     * own managed copy and wires the attempt there — the same rule {@link #recordSession} follows: a
-     * write trusts only rows it loaded itself.
-     *
-     * <p>A {@link DataIntegrityViolationException} here means the partial unique index
-     * ({@code uq_active_attempt_per_payment}) rejected a second live attempt: two "Pay" clicks raced
-     * and this one lost. That is a correct outcome, not an error to leak as a 500 — the loser is told
-     * to retry, and will then find the winner's live attempt and reuse it. (A retry of a
-     * <em>stranded</em> attempt never reaches this insert — it reuses the existing row — so this
-     * branch now fires only on a genuine insert-vs-insert race.)
+     * Inserts a PENDING attempt in its own transaction; loads its own managed payment copy.
+     * A unique-violation here means a concurrent insert won and the caller should retry.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public PaymentAttempt insertPendingAttempt(Payment payment, PaymentGatewayType gatewayType) {
         Payment managed = payments.findById(payment.getId()).orElseThrow(
                 () -> new PaymentException(PaymentErrorCode.PAYMENT_INTERNAL_ERROR,
                         "Payment " + payment.getId() + " vanished before its attempt could be inserted"));
-        // A provisional deadline, not a session deadline: until the gateway answers this row is an
-        // unanswered call, and the expiry sweeper only sees attempts with a non-null expiresAt. The
-        // gateway's real deadline replaces it in recordSession; if the call never succeeds, this is
-        // what frees the payment for Pay Again instead of wedging it forever.
+        // Provisional deadline until the gateway answers; replaced by the real one in recordSession.
         PaymentAttempt attempt = new PaymentAttempt(gatewayType, newIdempotencyKey(managed),
                 clock.instant().plus(attemptProps.strandedTtl()));
         managed.addAttempt(attempt);
@@ -132,19 +93,10 @@ public class PaymentWriter {
     }
 
     /**
-     * Re-point a stranded attempt at a gateway and hand back everything the retry needs — in one
-     * committed transaction, before the gateway is called.
-     *
-     * <p>Follows the same rule as {@link #insertPendingAttempt}: the caller's attempt is detached
-     * (it was read outside any transaction), so this loads its own managed copy, adopts the
-     * requested gateway on it, and returns a detached carrier with the fields the gateway call
-     * needs. The idempotency key is the row's <em>original</em> one: re-calling the gateway for the
-     * same attempt must be non-duplicating, which is exactly what the key is for.
+     * Prepares a stranded-attempt retry in one transaction, reusing the row's original idempotency key.
      *
      * @return the retry facts, detached and safe to use outside any transaction
-     * @throws PaymentException {@code PAYMENT_VALIDATION_ERROR} if the attempt is no longer
-     *         stranded (a concurrent retry completed it first) — the caller retries the whole
-     *         request and will then find the winner's live attempt
+     * @throws PaymentException {@code PAYMENT_VALIDATION_ERROR} if the attempt is no longer stranded
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public StrandedRetry prepareStrandedRetry(Long attemptId, PaymentGatewayType gatewayType) {
@@ -162,7 +114,8 @@ public class PaymentWriter {
                 managed.getIdempotencyKey());
     }
 
-    /** Save what the gateway returned, in its own committed transaction. */    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    /** Saves what the gateway returned, in its own committed transaction. */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public PaymentAttempt recordSession(Long attemptId, GatewaySession session) {
         PaymentAttempt attempt = attempts.findById(attemptId).orElseThrow(
                 () -> new PaymentException(PaymentErrorCode.PAYMENT_INTERNAL_ERROR,
@@ -174,22 +127,12 @@ public class PaymentWriter {
         return saved;
     }
 
-    /**
-     * The key forwarded to the gateway. Includes the payment id and a random component: it must be
-     * unique per <em>attempt</em> (a deliberate retry after a lapsed session is a genuinely new
-     * charge attempt and must not be deduped against the old one), while still being the token that
-     * makes a <em>transport-level</em> retry of one attempt safe.
-     */
+    /** Builds a per-attempt idempotency key for the gateway call. */
     private String newIdempotencyKey(Payment payment) {
         return "pay-" + payment.getId() + "-" + UUID.randomUUID();
     }
 
-    /**
-     * Everything a stranded-attempt retry needs, detached from any persistence context.
-     *
-     * @param attemptId      the reused row — the retry completes it, never inserts beside it
-     * @param idempotencyKey the row's original key, so the gateway dedupes the re-call
-     */
+    /** Facts a stranded-attempt retry needs, detached from any persistence context. */
     public record StrandedRetry(
             Long attemptId,
             Long paymentId,

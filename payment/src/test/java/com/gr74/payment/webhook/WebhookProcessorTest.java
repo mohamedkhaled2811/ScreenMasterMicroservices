@@ -34,15 +34,7 @@ import com.gr74.payment.service.WebhookWriter;
 import com.zaxxer.hikari.HikariDataSource;
 
 /**
- * The webhook handler's contract: verify, store, dedupe, apply — and the crash-safety between the
- * two transactions.
- *
- * <p>Runs the full context on H2 with the sandbox gateway (no external gateway can be reached — see
- * {@code src/test/resources/application.yml}). The relay's native {@code SKIP LOCKED} query never
- * runs here (H2 lacks it); what this suite proves is everything around it — the evidence store, the
- * dedupe, the guards, and that the outbox row shares the business write's fate. Note the relay tick
- * itself is silenced in tests ({@code payment.outbox.relay-interval-millis} is hours in test config)
- * so it never fires mid-suite.
+ * Webhook verify-store-dedupe-apply contract and crash-safety between the two transactions.
  */
 @SpringBootTest
 class WebhookProcessorTest {

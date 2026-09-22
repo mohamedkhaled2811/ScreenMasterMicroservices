@@ -1,40 +1,29 @@
 package com.gr74.payment.model;
 
 /**
- * Lifecycle of a payment <em>obligation</em> — "does booking #1001 still owe money?".
- *
- * <p>Deliberately distinct from {@link PaymentAttemptStatus}: a payment can have three failed
- * attempts and still be {@code PENDING}, because the obligation outlives any single try. It is also
- * distinct from Booking's {@code BookingStatus} — Booking never interprets a gateway's vocabulary,
- * it only reacts to the business-level fact that a payment succeeded.
- *
- * <p>Only two things promote a payment: a terminal {@link PaymentAttemptStatus#SUCCEEDED} attempt
- * ({@code -> PAID}), and refunds accumulating against it ({@code -> PARTIALLY_REFUNDED / REFUNDED}).
- *
- * <p>Persisted as a {@code String} (never an ordinal — see the project convention and
- * {@code docs/concepts/jpa-and-hibernate.md}).
+ * Lifecycle of a payment obligation. Distinct from attempt status; stored as STRING.
  */
 public enum PaymentStatus {
 
-    /** Owed, not yet settled. The starting state, and where a payment sits between attempts. */
+    /** Owed, not yet settled. */
     PENDING,
 
-    /** Settled in full. Written only by a verified webhook or reconciliation — never by the client. */
+    /** Settled in full; written only by verified webhook or reconciliation. */
     PAID,
 
-    /** Terminally unpayable (e.g. the booking expired before any attempt succeeded). */
+    /** Unpayable (e.g. booking expired before any attempt succeeded). */
     FAILED,
 
-    /** Abandoned deliberately, e.g. the user cancelled the booking. */
+    /** Abandoned deliberately. */
     CANCELLED,
 
-    /** Fully refunded: the sum of SUCCEEDED refunds equals the amount. */
+    /** Fully refunded. */
     REFUNDED,
 
-    /** Partially refunded: some money returned, a positive remainder still refundable. */
+    /** Partially refunded. */
     PARTIALLY_REFUNDED;
 
-    /** True when no further attempt may be created — the obligation is closed. */
+    /** True when the obligation is closed and no further attempt may be created. */
     public boolean isTerminal() {
         return this != PENDING;
     }

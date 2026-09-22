@@ -15,12 +15,7 @@ import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 
 /**
- * The resilience <em>error contract</em>: a rejected call — breaker open or bulkhead full — must
- * render as a coded RFC 9457 ProblemDetail, and can never leak as an opaque 500.
- *
- * <p>Companion to {@code ResilientPaymentGatewayTest}, which proves the policy behaviour itself;
- * this class proves the {@link GlobalExceptionHandler} mappings that turn those policies'
- * exceptions into responses a caller can branch on.
+ * Resilience error contract: rejections render as coded ProblemDetails, never opaque 500s.
  */
 class ResiliencePolicyTest {
 

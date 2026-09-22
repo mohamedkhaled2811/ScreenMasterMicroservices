@@ -18,24 +18,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Expires lapsed gateway sessions — the second of the two Phase-3 clocks (BUILD_PLAN 3.4).
- *
- * <p>This sweeper answers "whose gateway session lapsed unused?", a different question from
- * Booking's hold sweeper ("whose 15-minute seat hold ran out?") — hence two independent jobs, not
- * one. An expired attempt is <em>not</em> a payment failure: the payment stays PENDING so the user
- * can Pay Again on the same obligation, which is why this job emits nothing. Re-runs are no-ops
- * through the existing terminal-state guard in
- * {@link PaymentAttempt#transitionTo(PaymentAttemptStatus, String, String)}.
- *
- * <p><b>Reconciliation decides first; blind expiry is only for what the gateway has
- * disowned.</b> Step 3.6's reconciliation sweep probes PENDING attempts stale for longer than
- * {@code payment.reconciliation.stale-after} against the gateway and applies the answer — but this
- * job runs every 60 seconds and would otherwise expire those same attempts long before the
- * 5-minute reconciliation tick ever asks, closing attempts that were in fact paid. So this sweeper
- * <b>skips</b> any lapsed attempt still inside the reconciliation window
- * ({@code expiresAt} newer than {@code now − staleAfter}) and leaves it for reconciliation to
- * adjudicate. Only attempts older than the window — ones the gateway's retry backoff has had every
- * chance to report on — are expired blind.
+ * Expires lapsed gateway sessions past the reconciliation window; the payment stays PENDING for Pay Again.
  */
 @Slf4j
 @Component
@@ -48,11 +31,7 @@ public class AttemptExpirySweeper {
     private final Clock clock;
     private final ReconciliationProps reconciliation;
 
-    /**
-     * Fire on the configured cadence. Any error escaping a tick is caught here so a single bad
-     * run never kills the scheduler thread (the {@code TmdbScheduledTasks} idiom) — lapsed
-     * sessions simply wait for the next tick.
-     */
+    /** Runs on a fixed delay; failures are logged so the next tick can retry. */
     @Scheduled(fixedDelayString = "${payment.expiry.sweep-interval-millis:60000}")
     public void tick() {
         try {
@@ -67,11 +46,7 @@ public class AttemptExpirySweeper {
         }
     }
 
-    /**
-     * Expire PENDING attempts past their session deadline that are also older than the
-     * reconciliation window. Direct-invocation testable with a frozen clock; returns how many
-     * sessions were actually closed.
-     */
+    /** Expires PENDING attempts past their deadline and older than the reconciliation window. */
     @Transactional
     public int expireLapsedAttempts(Instant now) {
         Instant reconciliationCutoff = now.minus(reconciliation.staleAfter());

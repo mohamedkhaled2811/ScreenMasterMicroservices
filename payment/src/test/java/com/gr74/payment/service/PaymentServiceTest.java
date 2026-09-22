@@ -36,11 +36,7 @@ import com.gr74.payment.repository.PaymentAttemptRepository;
 import com.gr74.payment.repository.PaymentRepository;
 
 /**
- * The six guards and the reuse-or-create decision behind {@code POST /payments}.
- *
- * <p>These are the rules that stop a user being charged twice, charged for someone else's booking, or
- * charged for seats they no longer hold — so each guard gets its own test rather than being covered
- * incidentally by a happy path.
+ * Guards and reuse-or-create behaviour behind {@code POST /payments}.
  */
 @ExtendWith(MockitoExtension.class)
 class PaymentServiceTest {

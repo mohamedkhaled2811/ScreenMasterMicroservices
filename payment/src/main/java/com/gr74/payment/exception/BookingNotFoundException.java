@@ -1,8 +1,7 @@
 package com.gr74.payment.exception;
 
 /**
- * Booking has no such booking. A definitive answer (Booking returned 404), not an outage — retrying
- * will not help, so this is a 404 to our caller rather than a 503.
+ * Booking has no such booking (404); retrying will not help.
  */
 public class BookingNotFoundException extends PaymentException {
 

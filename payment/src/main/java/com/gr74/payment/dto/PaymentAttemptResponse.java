@@ -7,11 +7,7 @@ import com.gr74.payment.model.PaymentAttemptStatus;
 import com.gr74.payment.model.PaymentGatewayType;
 
 /**
- * One attempt, as seen from outside.
- *
- * <p>The gateway's own session and payment ids are deliberately <b>omitted</b>: they are operational
- * detail, and echoing a live session id to a client invites someone to poke at it. The checkout URL
- * is included only while the attempt is still usable.
+ * One attempt as seen from outside; the checkout URL is present only while still usable.
  */
 public record PaymentAttemptResponse(
         Long id,

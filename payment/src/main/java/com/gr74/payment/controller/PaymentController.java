@@ -33,18 +33,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * The payment API.
- *
- * <p>Three read-or-create endpoints; the webhook endpoints that actually decide outcomes live
- * separately because they are authenticated by signature rather than by user.
- *
- * <p>{@code @CurrentUser} is the same seam Booking uses: the acting user's id, resolved from the
- * verified JWT {@code sub} — never a client-set header, never the body.
- * A forged {@code X-User-Id} is ignored entirely (and stripped at the gateway), so "your bookings"
- * can only ever mean the token holder's.
- *
- * <p>Errors are thrown, never returned: {@link com.gr74.payment.exception.GlobalExceptionHandler}
- * renders every one as an RFC 9457 {@code ProblemDetail} with a stable {@code code}.
+ * Payment API: create checkout sessions and read payment state.
  */
 @Slf4j
 @Validated
@@ -58,11 +47,7 @@ public class PaymentController {
     private final GatewayRegistry gatewayRegistry;
 
     /**
-     * Create — or reuse — a checkout session for a booking.
-     *
-     * <p>This one endpoint is also the "Pay Again" endpoint. Call it again after a session lapses and
-     * it opens a new attempt on the <em>same</em> payment; call it while a session is still live and
-     * it hands back the existing URL rather than opening a second one.
+     * Create or reuse a checkout session for a booking; also serves Pay Again on the same payment.
      */
     @PostMapping
     @Operation(
@@ -122,10 +107,7 @@ public class PaymentController {
     }
 
     /**
-     * Which gateways this deployment can use — what a client builds its picker from.
-     *
-     * <p>Pass the booking's currency to filter out gateways that cannot settle it, so a user is never
-     * offered Paymob for a USD booking and told "no" only after being redirected.
+     * Gateways usable in this deployment, optionally filtered by the booking's currency.
      */
     @GetMapping("/gateways")
     @Operation(
@@ -165,12 +147,7 @@ public class PaymentController {
     }
 
     /**
-     * Read the payment for a booking — how a client checks state after returning from checkout.
-     *
-     * <p>Note this is a <em>read</em>, not a confirmation: the returned status reflects what the
-     * webhook has already told us. A client polling here after being redirected may briefly see
-     * {@code PENDING}, which is correct — the gateway's webhook is what makes it {@code PAID}, and it
-     * arrives on its own schedule.
+     * Read the payment for a booking (poll target after the checkout redirect; PENDING is normal briefly).
      */
     @GetMapping("/by-booking/{bookingId}")
     @Operation(summary = "Read the payment for a booking",

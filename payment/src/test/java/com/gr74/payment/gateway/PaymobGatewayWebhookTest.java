@@ -28,12 +28,7 @@ import com.gr74.payment.gateway.paymob.PaymobGateway;
 import com.gr74.payment.model.PaymentAttemptStatus;
 
 /**
- * Paymob webhook verification — the regression that let unsigned-looking deliveries fail.
- *
- * <p>Paymob is the odd one out twice over: it HMACs a <b>concatenated field list</b> rather than the
- * raw body, and it delivers that HMAC as a <b>query parameter</b> rather than a header. The
- * controller folds query parameters into the same map as headers, so the adapter reads one place —
- * these tests pin the adapter half of that contract.
+ * Paymob webhook verification: concatenated-field HMAC delivered as a query parameter.
  */
 class PaymobGatewayWebhookTest {
 

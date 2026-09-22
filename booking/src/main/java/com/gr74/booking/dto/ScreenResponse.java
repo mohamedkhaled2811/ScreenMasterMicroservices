@@ -4,9 +4,7 @@ import com.gr74.booking.model.Screen;
 import com.gr74.booking.model.ScreenType;
 
 /**
- * Response shape for a screen. Exposes the owning {@code theaterId} (the FK) rather than a nested
- * theater object — the client already knows the theater from the URL it called, and a DTO shouldn't
- * drag the {@link Screen}'s lazy {@code theater} association across the wire.
+ * Response for a screen, carrying the owning theater id.
  */
 public record ScreenResponse(Long id, String name, ScreenType screenType, Long theaterId) {
 

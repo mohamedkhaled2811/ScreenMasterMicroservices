@@ -8,11 +8,7 @@ import com.gr74.payment.model.Payment;
 import com.gr74.payment.model.PaymentStatus;
 
 /**
- * A payment and its attempt history — what {@code GET /payments/{id}} returns.
- *
- * <p>Exposing the attempts is deliberate: "you tried Paymob at 20:01 and the session expired, then
- * Stripe at 20:07 and it succeeded" is exactly the story a support person needs, and it makes the
- * Payment/PaymentAttempt split visible rather than an internal detail.
+ * A payment with its attempt history, oldest first.
  */
 public record PaymentResponse(
         Long id,

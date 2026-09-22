@@ -23,13 +23,7 @@ import io.github.resilience4j.springboot3.circuitbreaker.monitoring.endpoint.Cir
 import io.github.resilience4j.springboot3.retry.monitoring.endpoint.RetryEndpoint;
 
 /**
- * The wiring proof (BUILD_PLAN 5.1, task 4): a real Spring context boots with the Resilience4j
- * starter, every gateway coming out of the registry is a {@link ResilientPaymentGateway} (never a
- * raw adapter), and the starter's actuator endpoints actually work on this Boot-4 stack — the
- * {@code AUTO-CONFIG VERDICT} the task 1 risk asked for, kept as a regression test.
- *
- * <p>The test profile deliberately configures no {@code resilience4j.*} keys, so the named
- * instances below are created with defaults — the point here is wiring, not policy numbers.
+ * Wiring proof: every registered gateway is decorated and the actuator endpoints work.
  */
 @SpringBootTest
 class ResilienceConfigTest {

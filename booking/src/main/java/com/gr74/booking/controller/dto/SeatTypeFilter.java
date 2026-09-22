@@ -1,9 +1,7 @@
 package com.gr74.booking.controller.dto;
 
 /**
- * Query-parameter surface of {@code GET /seat-types}. Seat types are a small, slowly-growing reference
- * list, but the repo convention is "listings paginate; they never dump" — no exemptions — so this
- * endpoint is paged like the rest, with a single optional {@code name} filter for symmetry.
+ * Query parameters for {@code GET /seat-types}. Every field is optional; absent fields add no predicate.
  */
 public record SeatTypeFilter(
 

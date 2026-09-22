@@ -1,18 +1,5 @@
-# Changeset 009 — currency becomes explicit (BUILD_PLAN Phase 3.1).
-#
-# Until now an amount was a bare number with no currency anywhere in the system, which was survivable
-# only while every price was implicitly the same one. Real payment gateways make that impossible:
-# Paymob settles EGP, Stripe test mode settles USD, and the amount sent to a gateway must be
-# accompanied by the currency it is denominated in.
-#
-# WHERE the currency lives: on the THEATER. A theater sits in one country and bills in one currency,
-# so every screen, showtime and seat under it inherits — one column, no per-row duplication, and no
-# way for two seats in the same room to disagree. A booking then SNAPSHOTS it, exactly like it already
-# snapshots the per-seat price and the movie id: the charge must never move because someone edited a
-# theater afterwards.
-#
-# Existing rows are backfilled to EGP (the scenario's currency) and only then made NOT NULL, so this
-# is safe to apply to a database with data in it.
+# Changeset 009 — explicit currency: one column on theaters (inherited), snapshotted on bookings.
+# Existing rows backfill to EGP before the NOT NULL constraint.
 databaseChangeLog:
 
   - changeSet:
@@ -27,7 +14,7 @@ databaseChangeLog:
                   name: currency
                   type: VARCHAR(3)
                   remarks: ISO 4217. The currency every price under this theater is denominated in.
-        # Backfill BEFORE the NOT NULL, or the constraint fails on existing rows.
+        # Backfill before NOT NULL, or the constraint fails on existing rows.
         - update:
             tableName: theaters
             columns:

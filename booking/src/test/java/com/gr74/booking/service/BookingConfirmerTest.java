@@ -44,25 +44,7 @@ import io.micrometer.tracing.TraceContext;
 import io.micrometer.tracing.Tracer;
 
 /**
- * The saga step, tested by <b>direct invocation</b> of {@link BookingConfirmer} on H2 — no broker
- * (the {@code MovieProjectorTest} idiom). This deliberately does <em>not</em> exercise the
- * queue/binding/routing-key/converter wiring; that seam is covered once, manually, in the live
- * demo.
- *
- * <p>What it proves — the branches that are actually ours:
- * <ol>
- *   <li>a live PENDING hold confirms on exactly one row and writes a {@code BOOKING_CONFIRMED}
- *       outbox row in the same transaction;</li>
- *   <li>a redelivered event re-reads CONFIRMED and writes nothing twice (idempotent);</li>
- *   <li>an EXPIRED or CANCELLED booking yields a {@code BOOKING_CONFIRMATION_REJECTED} outbox row
- *       carrying the event's {@code paymentId} — the compensation trigger 3.5 consumes;</li>
- *   <li>a PENDING booking whose hold already lapsed is expired inline and rejected deterministically
- *       (never left paid-but-undecided for the sweeper to maybe find);</li>
- *   <li>the transactional boundary (BUILD_PLAN 4.1): the outbox row commits <em>and rolls back</em>
- *       with the booking row — a dual write that can never drift apart;</li>
- *   <li>{@code PaymentFailed} mirrors {@code paymentStatus → FAILED} where still PENDING only —
- *       status and seats untouched, and a late failure after PAID is dropped.</li>
- * </ol>
+ * Booking confirm/reject behaviour by direct invocation on H2, without a broker.
  */
 @DataJpaTest
 @Import({BookingConfirmer.class, JpaAuditingConfig.class})
@@ -78,8 +60,7 @@ class BookingConfirmerTest {
             return Clock.fixed(NOW, ZoneOffset.UTC);
         }
 
-        /** @DataJpaTest does not load Jackson; the confirmer serializes its outbox payloads with it.
-         * The JavaTimeModule is required for the {@code Instant} fields, matching Boot's real mapper. */
+        /** Jackson for outbox payload serialization, with JavaTimeModule for Instant fields. */
         @Bean
         ObjectMapper objectMapper() {
             return new ObjectMapper().registerModule(new JavaTimeModule());
@@ -101,17 +82,11 @@ class BookingConfirmerTest {
     @Autowired
     private TransactionTemplate transactionTemplate;
 
-    /** The confirmer captures the trace context onto the outbox row — mocked here so tests control it. */
+    /** Tracer mock so tests control the captured trace context. */
     @MockitoBean
     private Tracer tracer;
 
-    /**
-     * The movie read model feeds the ticket snapshot (title + poster) onto BookingConfirmed. Mocked
-     * because it fronts a Catalog HTTP client, and because what this class tests is the CONFIRM's
-     * transactional behaviour — not how a title is resolved. It returns empty by default, which also
-     * exercises the degradation that matters: an unresolvable movie must still confirm the booking
-     * and still announce it. Money has already moved; a missing poster cannot veto that.
-     */
+    /** Movie read-model mock: this class tests confirm behaviour, not title resolution. */
     @MockitoBean
     private MovieReadModel movies;
 
@@ -229,8 +204,7 @@ class BookingConfirmerTest {
     @Test
     void outboxRowStoresNullTraceWhenNoSpanIsActive() {
         Booking booking = persist("BK-NOTRACE01", BookingStatus.PENDING, NOW.plusSeconds(900));
-        // The default mock returns null from currentSpan() — the null-safe capture path (a test,
-        // a scheduled path, a consumer with no restored trace).
+        // The default mock returns null from currentSpan() — the null-safe capture path.
 
         ConfirmOutcome outcome = confirmer.confirmFromPayment(succeeded(booking.getId(), 521L));
 
@@ -241,15 +215,7 @@ class BookingConfirmerTest {
     }
 
     /**
-     * The dual-write guarantee, exercised from a <em>real</em> transaction boundary.
-     *
-     * <p>{@code @Transactional(NOT_SUPPORTED)} suspends the transaction {@code @DataJpaTest} wraps
-     * the test in, so {@code TransactionTemplate} below sees production conditions rather than the
-     * harness's ambient transaction. Inside the template both writes are visible together; a
-     * {@code setRollbackOnly} takes <b>both</b> back — the booking cannot stay confirmed with its
-     * announcement lost, nor can an announcement outlive a booking that never confirmed. Before the
-     * outbox, this path published AFTER_COMMIT, so a rollback here would have dropped the event the
-     * moment the transaction failed — the exact exposure Phase 4 closes.
+     * The outbox row commits and rolls back together with the booking row, from a real transaction boundary.
      */
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -269,13 +235,12 @@ class BookingConfirmerTest {
                 return null;
             });
 
-            // ... and a rollback takes BOTH back — one atomic unit, never a dangling half.
+            // ... and a rollback takes both back — one atomic unit.
             assertThat(bookings.findById(booking.getId()).orElseThrow().getStatus())
                     .isEqualTo(BookingStatus.PENDING);
             assertThat(outbox.count()).isZero();
         } finally {
-            // This test's writes really commit/roll back (NOT_SUPPORTED), so clean up the booking
-            // persisted outside the template rather than leaving it for the harness rollback.
+            // Writes here really commit, so clean up explicitly.
             bookings.deleteById(booking.getId());
         }
     }

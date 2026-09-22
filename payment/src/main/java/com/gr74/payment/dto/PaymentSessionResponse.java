@@ -10,14 +10,7 @@ import com.gr74.payment.model.PaymentGatewayType;
 import com.gr74.payment.model.PaymentStatus;
 
 /**
- * What {@code POST /payments} returns: where to send the user, and when that link goes stale.
- *
- * <p>{@code expiresAt} is the <b>gateway session</b> deadline, not the booking's. A client showing a
- * countdown should show the booking's hold, not this — a lapsed session just means "ask for a new
- * link", while a lapsed booking means "start over".
- *
- * <p>A DTO, not the entity: {@link Payment} carries a user id and internal state the wire has no
- * business seeing.
+ * {@code POST /payments} response: checkout URL and its expiry (the gateway session deadline).
  */
 public record PaymentSessionResponse(
         Long paymentId,

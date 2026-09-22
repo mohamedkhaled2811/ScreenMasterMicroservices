@@ -1,29 +1,11 @@
-# Changeset 002 — the real payment domain (BUILD_PLAN Phase 3.0).
+# Changeset 002 — payment domain: payments, payment_attempts, refunds, webhook_events.
+# Replaces the 001 table, which is dropped with an honest empty-shape rollback.
 #
-# Replaces the Phase-1.2 fake-provider schema. The old `payments` table was keyed by idempotency
-# key with an APPROVED/DECLINED status and no booking reference: there is no shape worth evolving
-# and no row worth keeping, so it is DROPPED and recreated. That is only safe because payment-db is
-# the Payment service's alone (database-per-service earning its keep — the same argument as
-# booking's 008-rename-movie-titles).
-#
-# Four tables, one per concept:
-#   payments          — the OBLIGATION: "booking #1001 owes 300.00 EGP". One per booking.
-#   payment_attempts  — one TRY at settling it through one gateway session. Many per payment.
-#   refunds           — partial refunds are real, so a refund is a row, not a status flip.
-#   webhook_events    — every inbound gateway delivery, stored raw before it is processed.
-#
-# Money is NUMERIC(14,2) + an ISO-4217 currency column, never a float and never a bare amount.
-# Currency is VARCHAR(3), NOT CHAR(3): Postgres CHAR is blank-padded (bpchar), so "EGP" would compare
-# unequal to a trimmed "EGP" in some paths, and Hibernate's ddl-auto=validate rejects the mismatch
-# against a String field outright.
-# Every enum is stored as a VARCHAR (@Enumerated(STRING)) — the monolith's ordinal enums were a
-# flagged fragility (schema §2.4).
+# Money is NUMERIC(14,2) with a VARCHAR(3) currency column; every enum is stored as VARCHAR.
 databaseChangeLog:
 
   # ---------------------------------------------------------------------------------------------
-  # Drop the fake-provider table. dropTable is irreversible, so we spell out the rollback: an empty
-  # recreate of the old shape, which is honest (there is no data to restore) and lets a rollback of
-  # this changeset leave the database in the state 001 produced.
+  # Drop the superseded 001 table; rollback recreates its empty shape.
   # ---------------------------------------------------------------------------------------------
   - changeSet:
       id: 002-1-drop-fake-payments
@@ -32,9 +14,7 @@ databaseChangeLog:
       changes:
         - dropTable:
             tableName: payments
-      # Block style, not YAML flow mappings: Liquibase's parser chokes on an unquoted type like
-      # NUMERIC(14,2) inside { }, because the comma reads as a mapping separator. Rollback blocks are
-      # parsed at changelog-load time, so a flow-style mistake here breaks STARTUP, not just rollback.
+      # Block style, not flow mappings: the parser reads the comma in NUMERIC(14,2) as a separator.
       rollback:
         - createTable:
             tableName: payments
@@ -75,12 +55,7 @@ databaseChangeLog:
                     nullable: false
 
   # ---------------------------------------------------------------------------------------------
-  # payments — the logical obligation for one booking.
-  #
-  # booking_id is a CROSS-SERVICE REFERENCE (Booking owns bookings): a plain indexed column with no
-  # FK, exactly like booking.movie_id points at Catalog. Its UNIQUE constraint is what makes
-  # "create-or-retrieve the Payment" race-free: two concurrent POST /payments for one booking
-  # cannot create two obligations.
+  # payments — one obligation row per booking; booking_id is a plain indexed column (no FK).
   # ---------------------------------------------------------------------------------------------
   - changeSet:
       id: 002-2-create-payments
@@ -138,8 +113,7 @@ databaseChangeLog:
                   type: TIMESTAMP WITH TIME ZONE
                   constraints:
                     nullable: false
-        # "My payments" reads filter by user; the booking_id lookup is already covered by its
-        # UNIQUE constraint's index.
+        # The booking_id lookup is covered by its UNIQUE constraint's index.
         - createIndex:
             indexName: idx_payments_user_id
             tableName: payments
@@ -147,12 +121,7 @@ databaseChangeLog:
               - column: { name: user_id }
 
   # ---------------------------------------------------------------------------------------------
-  # payment_attempts — one try at settling a payment through one gateway session.
-  #
-  # This is the table that makes "Pay Again" safe: the user who abandons checkout gets a NEW ATTEMPT
-  # on the SAME payment, never a second payment. expires_at here is the GATEWAY SESSION deadline,
-  # which is a different clock from the booking hold (see 002-6 for the guard that keeps only one
-  # attempt live at a time).
+  # payment_attempts — one row per checkout try; Pay Again adds attempts, never payments.
   # ---------------------------------------------------------------------------------------------
   - changeSet:
       id: 002-3-create-payment-attempts
@@ -222,8 +191,7 @@ databaseChangeLog:
                   type: TIMESTAMP WITH TIME ZONE
                   constraints:
                     nullable: false
-        # The webhook handler's hot path: find the attempt this delivery belongs to. Unique per
-        # gateway because two gateways could theoretically mint the same session string.
+        # Webhook hot path: find the attempt by (gateway, gateway_session_id).
         - createIndex:
             indexName: uq_payment_attempts_gateway_session
             tableName: payment_attempts
@@ -245,11 +213,7 @@ databaseChangeLog:
               - column: { name: expires_at }
 
   # ---------------------------------------------------------------------------------------------
-  # refunds — a row per refund, because partial refunds are real.
-  #
-  # A 1000 EGP payment refunded 300 then 200 leaves 500 refundable; PAID -> REFUNDED cannot express
-  # that. The invariant SUM(refunds.amount) <= payments.amount is enforced in the service under a
-  # row lock (a CHECK constraint cannot span rows).
+  # refunds — one row per refund; partial refunds accumulate against the captured amount.
   # ---------------------------------------------------------------------------------------------
   - changeSet:
       id: 002-4-create-refunds
@@ -314,13 +278,7 @@ databaseChangeLog:
               - column: { name: payment_id }
 
   # ---------------------------------------------------------------------------------------------
-  # webhook_events — every inbound gateway delivery, stored RAW before any business logic runs.
-  #
-  # The UNIQUE (gateway, event_id) constraint IS the idempotency mechanism: the second delivery of
-  # the same event fails the insert, and the handler returns 200 having done nothing. Storing the
-  # payload is not just for dedupe — it settles disputes with the actual bytes, lets a fixed handler
-  # be replayed over stored rows, allows backfilling fields we ignore today, and keeps
-  # signature_valid = false rows as the audit trail of a forgery attempt.
+  # webhook_events — raw inbound deliveries, stored before processing; UNIQUE(gateway, event_id) dedupes.
   # ---------------------------------------------------------------------------------------------
   - changeSet:
       id: 002-5-create-webhook-events
@@ -388,13 +346,7 @@ databaseChangeLog:
               - column: { name: received_at }
 
   # ---------------------------------------------------------------------------------------------
-  # The partial unique index that makes "Pay Again" safe under concurrency.
-  #
-  # At most ONE attempt per payment may sit in PENDING. Two concurrent "Pay" clicks therefore cannot
-  # both open a gateway session — the loser's insert fails and it re-reads the winner's attempt.
-  # This is raw SQL because Liquibase's createIndex has no portable WHERE clause. dbms:postgresql
-  # keeps it off H2 (which has no partial-index support); the hermetic tests assert the service-level
-  # behaviour instead, and Postgres carries the real guarantee.
+  # Partial unique index: at most one PENDING attempt per payment (Postgres only).
   # ---------------------------------------------------------------------------------------------
   - changeSet:
       id: 002-6-one-live-attempt-per-payment

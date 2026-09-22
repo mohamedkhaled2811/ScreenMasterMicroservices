@@ -48,12 +48,7 @@ import com.gr74.payment.repository.SandboxChargeRepository;
 import com.gr74.payment.webhook.WebhookProcessor;
 
 /**
- * Reconciliation: the sweep that makes the webhook path recoverable rather than critical.
- *
- * <p>What it proves: a stale attempt whose gateway says PAID is applied <b>through the same
- * handler the webhook uses</b> (a {@code recon:{id}:{status}} evidence row appears, and the real
- * webhook arriving late changes nothing); a never-paid attempt past its session deadline becomes
- * EXPIRED while a live one stays PENDING; and a gateway that cannot answer never kills the tick.
+ * Reconciliation sweep: stale attempts recover through the webhook handler.
  */
 @SpringBootTest
 class ReconciliationJobTest {

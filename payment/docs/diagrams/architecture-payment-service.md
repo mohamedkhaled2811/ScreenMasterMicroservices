@@ -1,9 +1,9 @@
 # Payment · Service Architecture
 
 **Type:** high-level (architecture) · **Scope:** the `payment` service, at a glance
-**Files:** `architecture-payment-service.html` (source) · `.svg` · `.png`
+**Files:** `architecture-payment-service.html` (source) · `.svg`
 
-![Payment service architecture](architecture-payment-service.png)
+![Payment service architecture](architecture-payment-service.svg)
 
 ## What to learn here
 

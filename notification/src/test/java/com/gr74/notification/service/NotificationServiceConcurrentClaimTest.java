@@ -25,16 +25,7 @@ import com.gr74.notification.identity.KeycloakUserClient;
 import com.gr74.notification.messaging.BookingConfirmedEvent;
 import com.gr74.notification.repository.ProcessedEventRepository;
 
-/**
- * The <em>concurrent</em> losing-claim path: a {@code DataIntegrityViolationException} thrown by the
- * repository because <b>another consumer instance already claimed this event</b> — the exact race
- * {@code --scale notification=2} is meant to make visible. The repository is mocked to throw, so the
- * test drives the catch branch directly; the {@code @DataJpaTest} transaction is real, which is what
- * lets the service's rollback-only marking work.
- *
- * <p>Asserts the two things that matter: the service does not rethrow (the message is acked, not
- * redelivered forever) and it does not send a second email.
- */
+/** Losing-claim path: a concurrent duplicate claim is acked without sending. */
 @DataJpaTest
 @Import(NotificationService.class)
 @ExtendWith(OutputCaptureExtension.class)

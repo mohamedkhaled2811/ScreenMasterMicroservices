@@ -29,22 +29,7 @@ import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * The breaker observed through {@code /actuator/circuitbreakers} on the REAL
- * application context, not a hand-built registry.
- *
- * <p>This is the difference from {@link com.gr74.payment.gateway.ResilientPaymentGatewayTest}: that
- * suite proves the policy semantics with registries it constructs itself, so it can never catch a
- * broken {@code resilience4j.*} YAML binding or an unexposed actuator endpoint. This one boots the
- * whole service, drives the SANDBOX gateway through {@link GatewayRegistry} (so the call path is
- * exactly production's), and reads the state back over HTTP.
- *
- * <p>The sandbox is pinned to {@code unavailable-rate=1.0} so every call throws
- * {@code GatewayException} — the only exception the breaker records.
- *
- * <p>The resilience endpoints sit behind {@code ADMIN} (they expose gateway internals),
- * so this test reads them as an admin — through MockMvc, which still runs the REAL filter chain
- * and the REAL endpoint (only the transport differs from a curl call). An anonymous read would
- * 401, which the companion assertion pins.
+ * Breaker state observed through the actuator endpoints on the full application context.
  */
 @Slf4j
 @AutoConfigureMockMvc

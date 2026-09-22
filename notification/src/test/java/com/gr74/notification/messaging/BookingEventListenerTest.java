@@ -31,18 +31,7 @@ import io.micrometer.tracing.Span;
 import io.micrometer.tracing.TraceContext;
 import io.micrometer.tracing.Tracer;
 
-/**
- * The thin AMQP shell's routing: which routing key is dispatched to which service method, with the
- * payload converted to the right record — and that an unexpected key is ignored, not thrown at.
- *
- * <p>Plus the trace restore: a {@code traceparent} header is re-joined as a
- * real child span and the {@code traceId} lands in the SLF4J MDC for the duration of the dispatch —
- * and is always cleared afterwards, so a pooled listener thread never mislabels a later message.
- *
- * <p>The listener never touches a broker here; it is constructed directly with mocked collaborators
- * (the {@code PaymentEventListenerTest} shape in miniature). What is NOT covered is the
- * queue/binding/converter wiring itself — that seam is exercised once, live, in the demo.
- */
+/** Routes routing keys to service methods and restores trace context. */
 class BookingEventListenerTest {
 
     private static final String TRACE_ID = "7f3ab9e2c1d44a02b8e1f0c3d5a67890";

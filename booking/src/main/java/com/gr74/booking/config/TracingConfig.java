@@ -7,14 +7,7 @@ import io.micrometer.observation.ObservationRegistry;
 import io.micrometer.observation.aop.ObservedAspect;
 
 /**
- * Wires the aspect behind {@code @Observed}.
- *
- * <p>{@code @Observed} is implemented by {@link ObservedAspect}, a real AspectJ aspect — without the
- * {@code ObservedAspect} bean on the context the annotation is silently inert: the method runs, no
- * span is created, nothing logs a hint. Boot's {@code ObservationAutoConfiguration} defines one too
- * (conditional on the class + on a missing bean), so this is belt-and-braces — but explicit, so the
- * contract "any {@code @Observed} here produces an observation" is declared in the module that uses
- * it, not inherited by auto-configuration luck. Requires {@code spring-boot-starter-aspectj}.
+ * Exposes the aspect behind {@code @Observed}; without it the annotation is inert.
  */
 @Configuration
 public class TracingConfig {

@@ -20,24 +20,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Business logic for showtimes — the Scheduling context, absorbed into Booking.
- *
- * <p>Creating a showtime crosses <em>two</em> validation boundaries, and the difference between them
- * is the whole lesson of this part:
- * <ul>
- *   <li><b>{@code screenId} — intra-Booking.</b> The screen lives in booking-db, so we validate it with
- *       a local lookup ({@link TheaterService#requireScreen(long)}). Strongly consistent, no network.</li>
- *   <li><b>{@code movieId} — cross-service.</b> The movie lives in Catalog's database; there is no FK to
- *       lean on. Per plan option 5C (chosen path) we validate it with a <em>synchronous</em> call to
- *       Catalog ({@link CatalogClient#verifyMovieExists(long)}). This is where the cut becomes visible:
- *       showtime creation now depends on Catalog being reachable (a {@code BOOKING_CATALOG_UNAVAILABLE}
- *       503 if it isn't) — the temporal coupling the recommended 5C option deliberately avoided, taken
- *       on here by choice.</li>
- * </ul>
- *
- * <p>Slot uniqueness ({@code screen + movie + date + time}) is guarded by a pre-check plus the DB
- * {@code uq_showtimes_slot} constraint (the real guard for the concurrent race). We validate the movie
- * <em>before</em> touching the DB so a bad id fails fast without a wasted insert attempt.
+ * Business logic for showtimes. The screen is validated locally; the movie is validated
+ * with a synchronous call to Catalog. Slot uniqueness has a pre-check plus the DB constraint.
  */
 @Slf4j
 @Service
@@ -60,7 +44,7 @@ public class ShowtimeService {
         return showtimeRepository.findByMovieIdOrderByShowDateAscShowTimeAsc(movieId);
     }
 
-    /** Upcoming showtimes for a movie: those on or after {@code fromDate} (the caller passes "today"). */
+    /** Upcoming showtimes for a movie on or after {@code fromDate}. */
     @Transactional(readOnly = true)
     public List<Showtime> findUpcomingByMovie(long movieId, LocalDate fromDate) {
         return showtimeRepository
@@ -74,15 +58,13 @@ public class ShowtimeService {
 
     @Transactional
     public Showtime create(CreateShowtimeRequest request) {
-        // 1) Intra-Booking: the screen must exist (a real FK, validated locally).
+        // 1) The screen must exist (local lookup).
         Screen screen = theaterService.requireScreen(request.screenId());
 
-        // 2) Cross-service (5C): the movie must exist in Catalog — a synchronous call, since the DB
-        //    can't enforce a FK across the service boundary. Throws MovieNotInCatalog (404) or
-        //    CatalogUnavailable (503). Done before the DB write so a bad id costs nothing downstream.
+        // 2) The movie must exist in Catalog (throws 404 or 503); before the DB write.
         catalogClient.verifyMovieExists(request.movieId());
 
-        // 3) Slot uniqueness pre-check (the DB constraint is the real guard for the race).
+        // 3) Slot uniqueness pre-check (the DB constraint guards the race).
         if (showtimeRepository.existsByScreenIdAndMovieIdAndShowDateAndShowTime(
                 request.screenId(), request.movieId(), request.showDate(), request.showTime())) {
             throw new DuplicateResourceException(

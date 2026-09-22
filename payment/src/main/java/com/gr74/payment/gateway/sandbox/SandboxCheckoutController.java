@@ -30,16 +30,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * The sandbox gateway's "user pays" page — the stand-in for Stripe's hosted checkout form.
- *
- * <p>Nothing served {@code checkout-base-url} until now: the sandbox could open sessions but had no
- * page for them. This controller is plain HTML with no template engine — it is lab surface, not
- * product — serving a Pay / Decline page per session and recording the outcome in the sandbox's own
- * ledger ({@code sandbox_charges}) before delivering the signed webhook through the front door,
- * exactly as a real gateway would.
- *
- * <p>Payment domain code never reads what is recorded here; it learns the outcome from the webhook
- * (or, when the webhook is withheld, from reconciliation asking {@code fetchStatus}).
+ * Sandbox gateway pay page (plain HTML): records the outcome in the sandbox ledger,
+ * then delivers the signed webhook. Payment code learns outcomes only via webhook or fetchStatus.
  */
 @Slf4j
 @RestController
@@ -48,7 +40,7 @@ import lombok.extern.slf4j.Slf4j;
 @Tag(name = "Sandbox checkout", description = "The fake gateway's hosted pay page (lab surface, no auth).")
 public class SandboxCheckoutController {
 
-    /** The header the sandbox adapter verifies — the same one real delivery carries. */
+    /** Header the sandbox adapter verifies. */
     static final String SIGNATURE_HEADER = "x-sandbox-signature";
 
     private final PaymentAttemptRepository attempts;
@@ -57,11 +49,7 @@ public class SandboxCheckoutController {
     private final SandboxWebhookClient webhookClient;
     private final ObjectMapper objectMapper;
 
-    /**
-     * The hosted page: Pay and Decline buttons posting back to {@code .../pay}, plus a third button
-     * that pays while withholding the webhook — the network-partition stand-in step 3.6's
-     * reconciliation demo drives.
-     */
+    /** Hosted page with Pay / Decline / pay-without-webhook buttons. */
     @GetMapping(path = "/{sessionId}", produces = MediaType.TEXT_HTML_VALUE)
     @Operation(summary = "Render the sandbox pay page",
             description = "Plain-HTML stand-in for a hosted gateway checkout form. No auth — lab surface.")
@@ -91,12 +79,8 @@ public class SandboxCheckoutController {
     /**
      * Record the checkout outcome and deliver the signed webhook.
      *
-     * @param outcome        {@code succeed} or {@code decline}; when omitted the outcome is drawn
-     *                       once via {@code shouldSucceed()}, which is what makes the chaos script's
-     *                       failure rate real (the buttons pass it explicitly, curl omits it)
-     * @param deliverWebhook {@code false} records the outcome but withholds the webhook — the
-     *                       network-partition stand-in. Step 3.6's reconciliation demo depends on
-     *                       this flag behaving exactly so.
+     * @param outcome        {@code succeed} or {@code decline}; omitted draws once via shouldSucceed()
+     * @param deliverWebhook {@code false} records the outcome but withholds the webhook
      */
     @PostMapping(path = "/{sessionId}/pay", produces = MediaType.TEXT_HTML_VALUE)
     @Operation(summary = "Pay or decline a sandbox checkout",
@@ -143,8 +127,7 @@ public class SandboxCheckoutController {
 
     private boolean resolveOutcome(String outcome) {
         if (outcome == null || outcome.isBlank()) {
-            // Drawn ONCE here and recorded below — fetchStatus and the webhook both report the
-            // recorded answer afterwards, never a fresh draw.
+            // Drawn once and recorded; webhook and fetchStatus report the recorded answer.
             return gateway.shouldSucceed();
         }
         return switch (outcome.trim().toLowerCase()) {
@@ -155,10 +138,7 @@ public class SandboxCheckoutController {
         };
     }
 
-    /**
-     * Record the drawn outcome idempotently: a double-clicked Pay reuses the first record rather
-     * than drawing twice. The UNIQUE session constraint — not a read — is the real guard.
-     */
+    /** Record the drawn outcome idempotently; UNIQUE session constraint guards races. */
     private SandboxCharge recordOnce(String sessionId, boolean succeeded) {
         return charges.findBySessionId(sessionId).orElseGet(() -> {
             SandboxCharge charge = new SandboxCharge(sessionId, "sbx_pay_" + UUID.randomUUID(),

@@ -24,12 +24,7 @@ import com.gr74.booking.model.BookingStatus;
 import com.gr74.booking.model.PaymentStatus;
 
 /**
- * Persistence slice for {@link BookingRepository} on H2. Proves the two queries the read + create paths
- * depend on: {@link BookingRepository#findByUserId} pages a user's own bookings (and excludes others'),
- * and {@link BookingRepository#findSeatIdsHeldForShowtime} — the local double-booking guard — reports a
- * seat as held only while an <em>active</em> booking (PENDING/CONFIRMED) holds it, ignoring cancelled
- * ones. Also that a booking round-trips with its seat line items and the {@code booking_reference} unique
- * constraint exists.
+ * Persistence slice for {@link BookingRepository} on H2: user paging and the held-seats guard.
  */
 @DataJpaTest
 @Import(JpaAuditingConfig.class)
@@ -106,7 +101,7 @@ class BookingRepositoryTest {
         return booking;
     }
 
-    // ===== Step 3.3/3.4 conditional updates: one statement, guards in the WHERE =====
+    // Conditional updates: one statement, guards in the WHERE.
 
     @Test
     void confirmMatchesOnlyPendingWithLiveHold() {

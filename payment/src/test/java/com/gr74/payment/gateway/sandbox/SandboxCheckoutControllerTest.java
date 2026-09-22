@@ -27,11 +27,7 @@ import com.gr74.payment.model.PaymentGatewayType;
 import com.gr74.payment.repository.PaymentRepository;
 
 /**
- * The sandbox pay surface: a clickable page, an outcome recorded once, and the partition flag.
- *
- * <p>Delivery over HTTP is exercised for real here — with nothing listening on the public URL in
- * tests the delivery fails and is logged, which is itself the honest assertion: a failed delivery
- * still leaves the recorded outcome behind for reconciliation.
+ * Sandbox pay surface: checkout page, recorded outcome, and partition flag.
  */
 @SpringBootTest
 @AutoConfigureMockMvc

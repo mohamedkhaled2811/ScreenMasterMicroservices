@@ -6,11 +6,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Provides a system {@link Clock} as a bean so time-dependent logic (here, the attempt-expiry
- * sweeper's "is this session past its deadline, and past the reconciliation window?") reads the
- * current instant through an injected clock rather than a static {@code Instant.now()}. That makes
- * "now" substitutable in a test (a fixed clock) — the sweeper is entirely about the passage of
- * time. Mirrors Booking's {@code ClockConfig}.
+ * Exposes a system {@link Clock} bean so time-dependent logic stays testable with a fixed clock.
  */
 @Configuration
 public class ClockConfig {

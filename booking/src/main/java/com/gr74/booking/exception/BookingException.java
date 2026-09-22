@@ -1,13 +1,7 @@
 package com.gr74.booking.exception;
 
 /**
- * Base class for every error the booking service raises on purpose.
- *
- * <p>Carrying a {@link BookingErrorCode} on the exception is what lets {@link GlobalExceptionHandler}
- * translate a thrown exception into the right HTTP status <em>and</em> the stable {@code code} the
- * caller branches on — without a chain of {@code instanceof} checks. Throw a subclass (or this class
- * directly) from the service layer; never let a raw {@link RuntimeException} escape with no code, or
- * the caller gets an opaque 500 it can't reason about. Mirrors {@code payment}'s {@code PaymentException}.
+ * Base class for deliberate booking errors; carries the code the handler renders.
  */
 public class BookingException extends RuntimeException {
 

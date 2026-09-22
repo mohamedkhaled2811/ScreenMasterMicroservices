@@ -12,17 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
 
-/**
- * Pins the one Keycloak mapping that silently breaks everything when wrong: Spring Security's
- * default converter reads {@code scope}, NOT Keycloak's
- * {@code realm_access.roles} — so without {@link KeycloakRealmRoleConverter} every
- * {@code hasRole('ADMIN')} evaluates false with no error anywhere. The edge enforces no roles
- * <em>today</em> (coarse split only), but the converter is wired from day one — this test proves
- * the wiring input is correct so the first role-gated route works instead of silently denying.
- *
- * <p>Pure unit test (no context, no Keycloak): the JWTs are forged by hand, which is exactly the
- * point — the converter must depend only on the claim shape, never on a live IdP.
- */
+/** Unit test for {@link KeycloakRealmRoleConverter} with hand-forged JWTs. */
 class KeycloakRealmRoleConverterTest {
 
     private final KeycloakRealmRoleConverter converter = new KeycloakRealmRoleConverter();

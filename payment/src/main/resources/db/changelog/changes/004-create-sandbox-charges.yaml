@@ -1,12 +1,5 @@
-# Changeset 004 — the sandbox gateway's own ledger (BUILD_PLAN Phase 3.2).
-#
-# sandbox_charges is the fake third party's memory: the outcome drawn ONCE at pay time, which
-# fetchStatus answers from then on (or PENDING when the user never paid). Without it a restart
-# would forget who paid — and reconciliation would have nothing honest to ask.
-#
-# This table is deliberately NOT part of Payment's domain: it is the sandbox gateway's store that
-# merely happens to live in payment-db for this lab. Payment domain code never reads it — only the
-# sandbox gateway (fetchStatus) and its checkout controller (recording the drawn outcome) touch it.
+# Changeset 004 — sandbox gateway ledger: the outcome drawn once at pay time.
+# Payment domain code never reads it; only the sandbox gateway touches it.
 databaseChangeLog:
   - changeSet:
       id: 004-1-create-sandbox-charges

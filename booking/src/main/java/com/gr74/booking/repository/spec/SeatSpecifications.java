@@ -6,20 +6,14 @@ import com.gr74.booking.controller.dto.SeatFilter;
 import com.gr74.booking.model.Seat;
 
 /**
- * Composable {@link Specification} fragments for querying {@link Seat} within a screen. As with
- * {@link ScreenSpecifications}, the screen scoping is a mandatory fragment (a seat listing is always
- * bounded to one screen) and the {@link SeatFilter} fields are the optional predicates. Same
- * no-op-when-absent idiom. See {@code docs/concepts/pagination-and-filtering.md}.
+ * Composable {@link Specification} fragments for {@link Seat} queries. Absent fields are no-ops.
  */
 public final class SeatSpecifications {
 
     private SeatSpecifications() {
     }
 
-    /**
-     * Combine the mandatory screen scope with the optional filter fields. {@code onScreen} is always
-     * applied; the rest are no-ops when absent.
-     */
+    /** Combine the mandatory screen scope with the optional filter fields. */
     public static Specification<Seat> from(long screenId, SeatFilter f) {
         return Specification.allOf(
                 onScreen(screenId),
@@ -27,7 +21,7 @@ public final class SeatSpecifications {
                 hasSeatType(f.seatTypeId()));
     }
 
-    /** Traverse the {@code screen} association by id — no {@link com.gr74.booking.model.Screen} load. */
+    /** Match by screen id without loading the screen. */
     public static Specification<Seat> onScreen(long screenId) {
         return (root, query, cb) -> cb.equal(root.get("screen").get("id"), screenId);
     }
@@ -44,7 +38,7 @@ public final class SeatSpecifications {
         return (root, query, cb) -> cb.equal(cb.lower(root.get("seatRow")), seatRow.trim().toLowerCase());
     }
 
-    /** Exact match on the {@code seatType} id; no-op if absent. */
+    /** Exact match on the seat-type id; no-op if absent. */
     public static Specification<Seat> hasSeatType(Long seatTypeId) {
         if (seatTypeId == null) {
             return noOp();

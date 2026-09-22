@@ -29,13 +29,7 @@ import com.gr74.payment.model.PaymentAttempt;
 import com.gr74.payment.model.PaymentGatewayType;
 
 /**
- * The stranded-retry orchestration in {@link PaymentSessionFactory#completeStrandedSession}.
- *
- * <p>The contract: a retry re-calls the gateway with the stranded row's <em>original</em>
- * idempotency key (that key is what makes the re-call non-duplicating), adopts the requested
- * gateway first (so a retry may switch gateways mid-outage), and leaves the row {@code PENDING}
- * when the gateway throws again — never inserting beside it, never marking it terminal on
- * evidence this thin.
+ * Stranded-retry orchestration in {@link PaymentSessionFactory#completeStrandedSession}.
  */
 @ExtendWith(MockitoExtension.class)
 class PaymentSessionFactoryTest {

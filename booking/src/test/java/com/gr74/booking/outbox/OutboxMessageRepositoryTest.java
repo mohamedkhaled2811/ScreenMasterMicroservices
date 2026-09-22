@@ -12,14 +12,7 @@ import com.gr74.booking.config.RabbitConfig;
 import jakarta.persistence.EntityManager;
 
 /**
- * The outbox entity against a real database (H2, schema owned by Hibernate — see
- * {@code src/test/resources/application.yml}).
- *
- * <p>What it proves: the mapping round-trips pending → published, the enum rides as a string, and
- * the derived pending-count query works. The native {@code claimPending} drain query is Postgres-only
- * ({@code FOR UPDATE SKIP LOCKED}) and is therefore never run here — it is covered on a real Postgres
- * by {@code ddl-auto=validate} plus the live demo, and its behaviour is unit-tested through a mocked
- * claim in {@link OutboxRelayTest}.
+ * Outbox entity round-trip on H2: pending to published, enum as string, pending count.
  */
 @DataJpaTest
 class OutboxMessageRepositoryTest {

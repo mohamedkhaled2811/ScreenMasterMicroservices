@@ -6,10 +6,7 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 
 /**
- * Body of {@code POST /screens/{screenId}/seats} — place one seat. The owning screen comes from the
- * path; {@code seatTypeId} references an existing {@link com.gr74.booking.model.SeatType}. The
- * {@code (screen, seatRow, seatNumber)} triple must be unique, or the create is a
- * {@code BOOKING_DUPLICATE} (409).
+ * Body of {@code POST /screens/{screenId}/seats}. The owning screen comes from the path.
  */
 public record CreateSeatRequest(
 

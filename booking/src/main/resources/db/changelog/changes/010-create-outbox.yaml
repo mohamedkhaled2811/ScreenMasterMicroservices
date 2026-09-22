@@ -1,22 +1,5 @@
-# Changeset 010 — the transactional outbox (BUILD_PLAN Phase 4.1/4.2).
-#
-# One Booking-owned table that turns "state changed" into "state announced" without a dual write:
-# the business row and the outbox row commit in ONE transaction, and a scheduled relay publishes
-# pending rows afterwards. This closes the gap BookingEventPublisher named: a broker outage at
-# AFTER_COMMIT could silently drop a BookingConfirmationRejected and strand a customer's refund.
-# See docs/concepts/transactional-outbox.md.
-#
-# Design notes (mirrors payment's 003-create-outbox.yaml — the two services run the same pattern,
-# deliberately duplicated rather than shared, per the no-shared-jar boundary rule):
-# - payload is TEXT, not jsonb: the relay parses and re-serializes it, so the database never needs
-#   to understand it — and TEXT keeps the H2 hermetic suite (which owns its schema via Hibernate)
-#   portable, while ddl-auto=validate still agrees exactly on Postgres.
-# - aggregate_id is a LOGICAL reference to bookings(id) with no FK: the outbox row must be insertable
-#   in the same flush as the booking update without ordering games, and an outbox row must never
-#   block the business row's lifecycle.
-# - The partial index on unpublished rows is what the relay's drain query scans; published rows fall
-#   out of it, so the table stays fast as history accumulates. (Retention/deletion of published rows
-#   is a later operational concern, not this step.)
+# Changeset 010 — transactional outbox table; a scheduled relay publishes pending rows.
+# payload is TEXT; aggregate_id is a logical ref with no FK; partial index covers the pending drain.
 databaseChangeLog:
   - changeSet:
       id: 010-1-create-outbox
@@ -60,8 +43,7 @@ databaseChangeLog:
                   name: published_at
                   type: TIMESTAMP WITH TIME ZONE
                   remarks: NULL = pending. Set by the relay AFTER the broker accepts the event.
-        # The relay drains WHERE published_at IS NULL ORDER BY id — a partial index keeps that scan
-        # off the growing history of published rows.
+        # Partial index for the relay's WHERE published_at IS NULL ORDER BY id drain.
         - createIndex:
             indexName: idx_outbox_pending
             tableName: outbox

@@ -22,11 +22,6 @@ import com.gr74.payment.repository.SandboxChargeRepository;
 
 /**
  * Webhook signature verification and status normalization.
- *
- * <p>Exercised through {@link SandboxGateway} because it signs with a real HMAC over the raw body —
- * the same mechanism Stripe uses — so these assertions cover the security-critical path without
- * reaching a live gateway. The Stripe and Paymob adapters differ only in <em>what</em> gets signed
- * (raw body vs a concatenated field list), not in the guarantee being tested here.
  */
 class SandboxGatewayWebhookTest {
 

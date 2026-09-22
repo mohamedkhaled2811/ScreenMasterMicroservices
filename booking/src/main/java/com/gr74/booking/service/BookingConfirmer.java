@@ -41,23 +41,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Applies Payment's outcomes to Booking's holds — the saga step (BUILD_PLAN 3.3), behind the thin
- * {@link com.gr74.booking.messaging.PaymentEventListener} shell.
- *
- * <p>Kept a plain {@code @Transactional} service (not the {@code @RabbitListener} itself) so it
- * can be unit-tested by direct invocation, and so the AMQP adapter stays a thin shell — the
- * {@code MovieProjector} idiom. A throw here means no ack and a redelivery, safe precisely
- * because every path below is idempotent: the confirm is one conditional UPDATE (re-running it
- * updates zero rows and re-reads CONFIRMED), and the failure mirror only lands on PENDING.
- *
- * <p><b>Nothing is ever decided from {@code paymentStatus}.</b> It is a read-model mirror for
- * display ("last attempt failed, you may retry"); the seat guard looks at {@code status} only.
- *
- * <p><b>The dual write is gone (BUILD_PLAN 4.1).</b> The confirm no longer raises an in-JVM event
- * for an AFTER_COMMIT publisher; it writes an {@code outbox} row <em>in the same transaction</em>
- * as the status change, so the two commit or roll back together. The outbox relay publishes those
- * rows afterwards — a broker outage now defers, it never drops, and a lost
- * {@code BookingConfirmationRejected} (a stranded refund) cannot happen.
+ * Applies payment outcomes to bookings. All paths are idempotent; the outbox row
+ * is written in the same transaction as the status change.
  */
 @Slf4j
 @Service
@@ -69,34 +54,26 @@ public class BookingConfirmer {
     private final ObjectMapper objectMapper;
     private final Clock clock;
     private final Tracer tracer;
-    // The three collaborators the TICKET SNAPSHOT needs. They are read inside the confirm
-    // transaction so the event carries what was true at that moment — see buildConfirmed().
+    // Read inside the confirm transaction so the event snapshots values as of confirm time.
     private final ShowtimeRepository showtimes;
     private final SeatRepository seats;
     private final MovieReadModel movies;
 
-    /** What one {@code PaymentSucceeded} decided — returned so tests can assert the branch. */
+    /** Result of handling one {@code PaymentSucceeded} event. */
     public enum ConfirmOutcome {
-        /** The conditional update matched: PENDING with a live hold → CONFIRMED. */
+        /** Conditional update matched: PENDING with a live hold became CONFIRMED. */
         CONFIRMED,
-        /** Zero rows, re-read CONFIRMED: a redelivered event. Idempotent no-op. */
+        /** Zero rows, re-read CONFIRMED: redelivered event, no-op. */
         ALREADY_CONFIRMED,
-        /** Zero rows, re-read terminal-or-lapsed: a rejection was published for auto-refund. */
+        /** Zero rows, re-read terminal-or-lapsed: rejection published for auto-refund. */
         REJECTED,
-        /** Zero rows, no such booking: logged, nothing published (should not happen — Payment
-         * creates obligations off a booking read, and bookings are never deleted). */
+        /** Zero rows, no such booking: logged and ignored. */
         UNKNOWN_BOOKING
     }
 
     /**
-     * Confirm a booking off a {@code PaymentSucceeded} event.
-     *
-     * <p>One conditional UPDATE decides the race with the expiry sweeper at the database: id
-     * match + still PENDING + hold still live. One row → CONFIRMED + a {@link BookingConfirmed}
-     * outbox row (same transaction — the outbox relay publishes it to the broker). Zero rows →
-     * re-read and branch: CONFIRMED is a redelivery (no-op); EXPIRED/CANCELLED writes a
-     * {@link BookingConfirmationRejected} carrying the event's {@code paymentId} so Payment can
-     * refund without a lookup — the compensation trigger step 3.5 consumes.
+     * Confirm a booking from a {@code PaymentSucceeded} event.
+     * One conditional UPDATE decides the race with the expiry sweeper at the database.
      */
     @Transactional
     public ConfirmOutcome confirmFromPayment(PaymentSucceededEvent event) {
@@ -108,8 +85,7 @@ public class BookingConfirmer {
             Booking booking = bookings.findById(event.bookingId())
                     .orElseThrow(() -> new IllegalStateException(
                             "Booking " + event.bookingId() + " confirmed then vanished mid-transaction"));
-            // eventId is a 0L placeholder; the relay stamps the outbox row id onto the wire so a
-            // republished event keeps the same id and the consumer's dedupe fires.
+            // eventId placeholder; the relay stamps the outbox row id onto the wire event.
             writeOutbox(buildConfirmed(booking, now),
                     OutboxEventType.BOOKING_CONFIRMED, booking.getId(),
                     RabbitConfig.BOOKING_CONFIRMED_ROUTING_KEY);
@@ -127,11 +103,8 @@ public class BookingConfirmer {
     }
 
     /**
-     * Mirror a {@code PaymentFailed} onto the read-model field — display only.
-     *
-     * <p>Conditional on still-PENDING so a late failure can never overwrite a PAID, and seats stay
-     * held: the user retries until the hold lapses. Returns whether the mirror landed (tests assert
-     * the out-of-order drop through this).
+     * Mirror a {@code PaymentFailed} onto the read-model field. Conditional on still-PENDING
+     * so a late failure never overwrites PAID; seats stay held for retry.
      */
     @Transactional
     public boolean mirrorFailure(PaymentFailedEvent event) {
@@ -148,25 +121,11 @@ public class BookingConfirmer {
     }
 
     /**
-     * Assemble the {@link BookingConfirmed} event, snapshotting everything a ticket must print.
-     *
-     * <p><b>Why all of this is gathered HERE, inside the confirm transaction.</b> This is the one
-     * moment where the booking, its seats, its showtime, that showtime's screen and theater, and the
-     * cached movie are all reachable in one place with one consistent view. Notification cannot reach
-     * any of it — it has no access to Booking's database and must not acquire one — so either these
-     * facts travel on the event, or Notification calls back for them at send time and renders whatever
-     * is true THEN rather than what was true now. For a ticket, the latter is wrong: see the class
-     * javadoc on {@link BookingConfirmed}.
-     *
-     * <p><b>Nothing here may fail the confirm.</b> The booking is already updated and the money has
-     * already moved; a missing showtime row or an unresolvable movie title must degrade to a ticket
-     * with a blank field, never to a rolled-back sale. Every lookup below is therefore null-tolerant,
-     * and the email template is built to render without any of them.
+     * Assemble the {@link BookingConfirmed} event, snapshotting ticket fields.
+     * Every lookup is null-tolerant so a missing row degrades to a blank field, never a rollback.
      */
     private BookingConfirmed buildConfirmed(Booking booking, Instant now) {
-        // One query, both associations fetched — the join the ticket needs, and the one Notification
-        // would otherwise have had to make over HTTP. open-in-view is false, so this explicit fetch is
-        // what makes screen/theater readable at all.
+        // One query with both associations fetched; open-in-view is false so explicit fetch is required.
         Showtime showtime = showtimes.findWithScreenAndTheaterById(booking.getShowtimeId()).orElse(null);
         MovieProjectionData movie = movies.movieById(booking.getMovieId()).orElse(null);
 
@@ -186,15 +145,7 @@ public class BookingConfirmer {
                 now);
     }
 
-    /**
-     * The showtime's start as a UTC instant.
-     *
-     * <p>{@code Showtime} stores a local date and a local time — correct for the theater, which thinks
-     * in wall-clock terms. An instant is what crosses the wire: the consumer formats it for display,
-     * and unlike a bare {@code LocalDateTime} it cannot be silently reinterpreted in a different zone.
-     * The zone comes from the injected {@link Clock}, so a test with a fixed-zone clock gets a
-     * deterministic value instead of depending on the host's timezone.
-     */
+    /** The showtime's start as a UTC instant, using the injected clock's zone. */
     private Instant startsAt(Showtime showtime) {
         if (showtime == null) {
             return null;
@@ -203,15 +154,8 @@ public class BookingConfirmer {
     }
 
     /**
-     * Turn the booking's line items into printable ticket seats.
-     *
-     * <p>{@code booking_seats} holds a {@code seatId}, which means nothing to a customer — the ticket
-     * needs "E5". The labels come from one batched {@code IN} query rather than a lookup per seat: a
-     * party of six would otherwise be six round trips to the database on the confirm path.
-     *
-     * <p>Price and type name are read straight off the booking's own line items, NOT recomputed from
-     * the seat's current type — they were frozen at booking time precisely so a later price change
-     * cannot rewrite what someone already paid.
+     * Turn line items into printable ticket seats. Labels come from one batched query;
+     * price and type name are read off the frozen line items, not recomputed.
      */
     private List<TicketSeat> ticketSeats(Booking booking) {
         List<Long> seatIds = booking.getSeats().stream().map(BookingSeat::getSeatId).toList();
@@ -228,7 +172,7 @@ public class BookingConfirmer {
                 .toList();
     }
 
-    /** {@code E} + {@code 5} → {@code "E5"}; null when the seat row vanished (never expected). */
+    /** {@code E} + {@code 5} → {@code "E5"}; null when the seat row is missing. */
     private String label(Seat seat) {
         return seat == null ? null : seat.getSeatRow() + seat.getSeatNumber();
     }
@@ -250,16 +194,8 @@ public class BookingConfirmer {
     }
 
     /**
-     * The update matched zero rows yet the booking still reads PENDING — so the hold must have
-     * lapsed between... more precisely, the {@code expiresAt} guard failed at update time while
-     * the status was PENDING (a concurrent confirm could not have won: it needs a live hold too,
-     * and a concurrent sweeper flip would read back EXPIRED, not PENDING).
-     *
-     * <p>Rather than trusting the sweeper to arrive within the minute, expire the hold inline with
-     * the same guarded update and write the rejection now: a paid-but-undecided event that merely
-     * went back on the queue would strand the customer's refund if the sweeper were down. Either
-     * order ends the same — EXPIRED plus an auto-refund — because the sweeper's update is guarded
-     * identically and emits nothing itself.
+     * The update matched zero rows yet the booking still reads PENDING, so the hold lapsed.
+     * Expire inline with the same guarded update and write the rejection now.
      */
     private ConfirmOutcome rejectLapsedHold(Booking booking, PaymentSucceededEvent event, Instant now) {
         bookings.expireIfStillPending(booking.getId(), BookingStatus.PENDING, BookingStatus.EXPIRED);
@@ -281,18 +217,8 @@ public class BookingConfirmer {
     }
 
     /**
-     * The outbox write — the "announcement" half of the confirm/reject. Runs inside the caller's
-     * transaction, so the booking row and this row commit or roll back together (BUILD_PLAN 4.1).
-     * The event is serialized once here with a placeholder {@code eventId}; the relay injects the
-     * outbox row id onto the wire so redeliveries carry a stable dedupe key.
-     *
-     * <p>The trace context is captured HERE, on this thread, inside the transaction — the one moment
-     * the original trace is still live. The relay publishes seconds later on
-     * a scheduler thread where no trace exists, so if the context were not persisted it would be
-     * lost forever; persisting it is the same principle the outbox itself runs on. This thread is
-     * the PaymentEventListener's consumer thread, whose trace the listener restores from the
-     * {@code traceparent} header the payment relay stamped — so the whole confirm→email chain stays
-     * in the payment webhook's trace.
+     * Write the outbox row inside the caller's transaction. Trace context is captured here
+     * since the relay publishes later on a scheduler thread with no live trace.
      */
     private void writeOutbox(Object event, OutboxEventType type, Long aggregateId, String routingKey) {
         try {
@@ -302,8 +228,8 @@ public class BookingConfirmer {
                     current == null ? null : current.context().traceId(),
                     current == null ? null : current.context().spanId()));
         } catch (JsonProcessingException e) {
-            // Serializing a record we control should never fail; if it does, fail the whole
-            // transaction loudly rather than commit a booking with no announcement.
+            // Serializing a record we control should never fail; fail loudly instead of
+            // committing a booking with no announcement.
             throw new BookingException(BookingErrorCode.BOOKING_INTERNAL_ERROR,
                     "Failed to serialize " + type + " event for booking " + aggregateId, e);
         }

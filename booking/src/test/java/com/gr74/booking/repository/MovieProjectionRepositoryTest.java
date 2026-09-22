@@ -12,11 +12,7 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import com.gr74.booking.model.MovieProjection;
 
 /**
- * Persistence slice for the {@link MovieProjection} read model on H2. Proves the two facts way B's write side
- * depends on: an assigned-PK {@code save} is an idempotent UPSERT (re-saving the same id updates the row,
- * never duplicates it), and {@link MovieProjectionRepository#findByIdIn} batch-loads a page's titles (the local
- * join). No {@code @Import(JpaAuditingConfig)} — {@code updatedAt} here is the upstream timestamp we store
- * verbatim, not an audited local write time.
+ * Persistence slice for the {@link MovieProjection} read model on H2.
  */
 @DataJpaTest
 class MovieProjectionRepositoryTest {

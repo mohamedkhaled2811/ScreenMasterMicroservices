@@ -19,23 +19,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * The AMQP adapter for Booking's booking-outcome stream — a deliberately thin shell over
- * {@link NotificationService}. All the interesting behaviour (the claim-first dedupe) lives in the
- * service so it is unit-testable without a broker; this class only bridges the queue to it.
- *
- * <p>An exception thrown here (e.g. the DB is momentarily down) propagates, the message is
- * <em>not</em> acked, and RabbitMQ redelivers it — safe precisely because the service is idempotent
- * (a redelivery re-inserts the same eventId and the dedupe no-ops). No transaction, no try/catch:
- * the {@code PaymentEventListener} idiom.
- *
- * <p><b>Why a {@code Map} payload plus routing-key dispatch instead of two typed params.</b> One
- * queue carries two event types, and Booking's outbox relay publishes them as
- * {@code Map<String, Object>} (it parses the stored JSON and injects the outbox row id as
- * {@code eventId}), so the {@code __TypeId__} header names {@code java.util.LinkedHashMap} — and the
- * JSON converter resolves TYPE_ID ahead of the listener method's parameter type. Typed record
- * parameters could therefore never bind; the honest shape is to receive the Map, dispatch on the
- * received routing key (the binding key that delivered it), and convert to the records Notification
- * owns.
+ * Bridges the booking-outcome queue to {@link NotificationService}.
+ * Receives a Map payload and dispatches on the routing key, since the publisher sends maps.
  */
 @Slf4j
 @Component
@@ -46,9 +31,7 @@ public class BookingEventListener {
     private final ObjectMapper objectMapper;
     private final Tracer tracer;
 
-    // The endpoint-level flag (not the factory's) is what the registry honors: false in the
-    // hermetic suite — there is no broker to connect to, and the tests drive this method
-    // directly — true everywhere else.
+    // Disabled via property when no broker is available.
     @RabbitListener(queues = RabbitConfig.NOTIFICATION_BOOKING_EVENTS_QUEUE,
             autoStartup = "${notification.amqp.listener.auto-startup:true}")
     public void onBookingEvent(Map<String, Object> payload,
@@ -57,10 +40,7 @@ public class BookingEventListener {
         runInTrace(traceparent, () -> dispatch(payload, routingKey));
     }
 
-    /**
-     * The original business dispatch — kept a private method so {@link #runInTrace} can wrap it
-     * without tangling the trace-restore lifecycle into the routing switch.
-     */
+    /** Routes the payload to the matching handler by routing key. */
     private void dispatch(Map<String, Object> payload, String routingKey) {
         switch (routingKey) {
             case RabbitConfig.BOOKING_CONFIRMED_ROUTING_KEY -> {
@@ -82,21 +62,7 @@ public class BookingEventListener {
         }
     }
 
-    /**
-     * Re-join the trace Booking's outbox relay persisted.
-     *
-     * <p>This listener runs on a RabbitMQ consumer thread where <em>no</em> live Micrometer context
-     * exists: the outbox hop meant the trace was never propagated automatically (the relay publishes
-     * on a scheduler thread, long after the request context died), so the relay stamped it onto the
-     * message instead. Here we read it back, build a real child span of the persisted parent, and
-     * make it current for the duration of the dispatch — so the "email sent" log line carries the
-     * same trace id as the booking that caused it.
-     *
-     * <p>The MDC {@code traceId} is set explicitly because the log pattern renders {@code %X{traceId}}
-     * — if the bridge does not auto-populate it for a hand-started span, this guarantees the line is
-     * still correlated. The try/finally is not optional: a leaked MDC entry on a pooled listener
-     * thread would mislabel every later message that thread handles.
-     */
+    /** Runs the dispatch inside the trace from the {@code traceparent} header. */
     private void runInTrace(String traceparent, Runnable work) {
         Span span = spanFrom(traceparent);
         if (span == null) {
@@ -107,9 +73,7 @@ public class BookingEventListener {
             MDC.put("traceId", span.context().traceId());
             work.run();
         } catch (RuntimeException e) {
-            // Record the failure ON the span before it ends, then rethrow unchanged so the message
-            // is still nacked and redelivered. Without this the span closes looking successful, and
-            // Zipkin would show a green waterfall for the exact failure being debugged.
+            // Mark the span failed, then rethrow so the message redelivers.
             span.error(e);
             throw e;
         } finally {
@@ -118,11 +82,7 @@ public class BookingEventListener {
         }
     }
 
-    /**
-     * Parse a W3C {@code traceparent} ({@code 00-{traceId}-{spanId}-{flags}}) and create a started
-     * child span of the persisted parent. Null when the header is absent or malformed — the
-     * backwards-compatible path that simply processes without a restored trace.
-     */
+    /** Builds a child span from the {@code traceparent} header, or null when absent or malformed. */
     private Span spanFrom(String traceparent) {
         if (traceparent == null || traceparent.isBlank()) {
             return null;

@@ -34,13 +34,7 @@ import io.micrometer.tracing.TraceContext;
 import io.micrometer.tracing.Tracer;
 
 /**
- * The thin AMQP shell over {@link BookingConfirmer}: routing-key dispatch, plus the trace
- * restore. A {@code traceparent} header — stamped by Payment's outbox relay — is
- * re-joined as a real child span and the {@code traceId} lands in the SLF4J MDC for the duration of
- * the dispatch, then is always cleared so a pooled listener thread never mislabels a later message.
- *
- * <p>Constructed directly with mocked collaborators; the queue/binding/converter wiring is covered
- * once, live, in the demo.
+ * Routing-key dispatch and trace restore for the payment event listener.
  */
 class PaymentEventListenerTest {
 
@@ -177,8 +171,7 @@ class PaymentEventListenerTest {
         RuntimeException boom = new IllegalStateException("database down");
         doThrow(boom).when(confirmer).confirmFromPayment(event);
 
-        // The exception must escape unchanged: that is what nacks the message so RabbitMQ redelivers
-        // it. Swallowing it to keep the span tidy would silently drop a booking confirmation.
+        // Must escape unchanged so RabbitMQ redelivers the message.
         assertThatThrownBy(() -> listener.onPaymentEvent(Map.of(),
                 RabbitConfig.PAYMENT_SUCCEEDED_ROUTING_KEY,
                 "00-" + TRACE_ID + "-" + PARENT_SPAN_ID + "-01"))

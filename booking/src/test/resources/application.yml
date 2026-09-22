@@ -1,4 +1,4 @@
-# Test-only config — keeps the contextLoads smoke test hermetic (no Postgres, no Eureka).
+# Test-only config: H2 in-memory database, Liquibase off, Eureka off.
 spring:
   datasource:
     url: jdbc:h2:mem:booking;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
@@ -9,10 +9,7 @@ spring:
       ddl-auto: create-drop
   liquibase:
     enabled: false
-  # Phase 7: the test file SHADOWS the main application.yml (a full-context test does not see
-  # main-only nested keys — see the Boot-4 trap note in the Phase 7 report), so the resource-server
-  # issuer URI is repeated here. The value only feeds the lazy JwtDecoder bean definition (no
-  # network at boot) and the converter — hermetic tests never call Keycloak.
+  # Repeats the main issuer URI (test resources shadow main-only keys); no network at boot.
   security:
     oauth2:
       resourceserver:

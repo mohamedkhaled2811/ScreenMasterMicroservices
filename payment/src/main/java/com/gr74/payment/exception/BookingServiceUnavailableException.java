@@ -1,12 +1,7 @@
 package com.gr74.payment.exception;
 
 /**
- * Booking could not be reached, so the amount could not be verified.
- *
- * <p>We <b>fail closed</b>: opening a checkout session for an amount we could not confirm is worse
- * than an outage, because it charges a real user a number we invented. Contrast Booking's own
- * {@code titlesByIds}, which degrades to null titles — a read is more useful partial than absent,
- * but a charge is not.
+ * Booking could not be reached, so the amount could not be verified. Fails closed (503).
  */
 public class BookingServiceUnavailableException extends PaymentException {
 

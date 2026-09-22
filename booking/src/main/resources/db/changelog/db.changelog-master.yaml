@@ -1,26 +1,18 @@
-# Liquibase master changelog for the booking service (booking-db).
+# Liquibase master changelog for booking-db. Changesets apply in listed order; shipped files are immutable.
 #
-# Booking absorbs the monolith's Theater + Scheduling contexts (schema doc §8.1), so its schema is the
-# inventory tree, showtimes, and its own bookings — all in one private database. Changesets are applied
-# in listed order; each `include`d file is immutable once shipped (new changes go in a NEW file).
-#
-#   001-create-inventory   theaters -> screens -> seats + seat_types (intra-Booking FKs)
-#   002-create-showtimes   showtimes; movie_id is the cross-service CUT (no FK), screen_id is a real FK
-#   003-create-bookings    bookings + booking_seats — schema first (mapped as entities in Phase 2 part 2)
-#   004-alter-bookings-...  widen bookings.user_id BIGINT -> VARCHAR(36) (Keycloak `sub` is a UUID string)
-#   005-create-movie-titles Booking's local read model of Catalog movie titles (CQRS way B, BUILD_PLAN 2.3)
-#   006-add-bookings-...    bookings.movie_id — the Catalog ref snapshotted from the showtime (no FK)
-#   007-add-bookings-...    bookings.showtime_id FK constraint (intra-Booking, both sides local)
-#   008-rename-movie-...   movie_titles -> movie_projections; the projection is the concept, title is
-#                           one column on it. Booking-private table, so a plain forward-only rename.
-#   010-create-outbox      outbox — transactional outbox: saga events written atomically with the
-#                           booking write; the Phase-4 relay publishes them (BUILD_PLAN 4.1/4.2)
-#   011-add-outbox-trace-  outbox.trace_id + span_id — the originating trace, persisted so the
-#     context              async relay can carry it across the commit boundary
-#   012-add-movie-projec-  movie_projections.poster_path — the movie artwork the ticket email renders,
-#     tion-poster          cached alongside the title on the same read model
-#
-# See docs/concepts/liquibase.md.
+#   001-create-inventory   theaters -> screens -> seats + seat_types
+#   002-create-showtimes   showtimes; movie_id is a plain column (no FK), screen_id is a real FK
+#   003-create-bookings    bookings + booking_seats
+#   004-alter-bookings-...  bookings.user_id BIGINT -> VARCHAR(36)
+#   005-create-movie-titles local movie title cache (id -> title)
+#   006-add-bookings-...    bookings.movie_id snapshot (no FK)
+#   007-add-bookings-...    bookings.showtime_id FK
+#   008-rename-movie-...   movie_titles -> movie_projections
+#   010-create-outbox      transactional outbox table
+#   011-add-outbox-trace-  outbox trace_id + span_id columns
+#     context
+#   012-add-movie-projec-  movie_projections.poster_path
+#     tion-poster
 databaseChangeLog:
   - include:
       file: db/changelog/changes/001-create-inventory.yaml

@@ -5,17 +5,8 @@ import com.gr74.payment.exception.PaymentException;
 import com.gr74.payment.model.PaymentGatewayType;
 
 /**
- * An <em>infrastructural</em> failure talking to a gateway: unreachable, timed out, 5xx, or a
- * malformed response.
- *
- * <p>Deliberately distinct from a business decline. A declined card is a <b>successful</b> call that
- * returns a {@code FAILED} status through the normal path; only "we could not get a trustworthy
- * answer" throws this. Confusing the two would mean retrying a decline (pointless) or treating an
- * outage as a decline (wrong, and it would strand the attempt).
- *
- * <p>Maps to {@code PAYMENT_GATEWAY_UNAVAILABLE} (503). The attempt row is deliberately left
- * {@code PENDING} for reconciliation to resolve — never rolled back, because the gateway may in fact
- * have created the session.
+ * Infrastructural gateway failure (unreachable, timeout, 5xx, malformed response).
+ * A decline is a successful call returning FAILED, never this. Maps to 503; attempt stays PENDING.
  */
 public class GatewayException extends PaymentException {
 

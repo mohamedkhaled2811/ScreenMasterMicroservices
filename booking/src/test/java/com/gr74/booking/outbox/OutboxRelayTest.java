@@ -31,14 +31,7 @@ import com.gr74.booking.config.RabbitConfig;
 import com.gr74.booking.service.OutboxWriter;
 
 /**
- * The relay's guarantees, against a mocked claim (H2 cannot run the native
- * {@code SELECT ... FOR UPDATE SKIP LOCKED}, so the query itself is never exercised here — the
- * boundary test in {@code BookingConfirmerTest} proves the row commits and rolls back with the
- * business write instead).
- *
- * <p>A plain unit test on purpose: the logic under test is ordering, error handling, the
- * stable-eventId injection, and the traceparent stamping, not wiring. Mirrors {@code payment}'s
- * {@code OutboxRelayTest}.
+ * Outbox relay guarantees against a mocked claim: ordering, error handling, eventId, trace headers.
  */
 class OutboxRelayTest {
 

@@ -313,4 +313,3 @@ Secrets are never committed. Leaving a gateway's credentials blank removes it fr
 | Sagas and compensation | [`../docs/concepts/saga-pattern.md`](../docs/concepts/saga-pattern.md) |
 | Why every consumer is idempotent | [`../docs/concepts/idempotent-consumer.md`](../docs/concepts/idempotent-consumer.md) |
 | What a pattern or annotation means | [`../docs/concepts/`](../docs/concepts/) |
-| What's next for this service | [`../docs/BUILD_PLAN.md`](../docs/BUILD_PLAN.md) |

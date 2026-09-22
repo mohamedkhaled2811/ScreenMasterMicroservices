@@ -8,16 +8,7 @@ import com.gr74.payment.model.PaymentGatewayType;
 import lombok.RequiredArgsConstructor;
 
 /**
- * Decides <b>which</b> gateway processes a payment.
- *
- * <p>Today the rule is short: the client chooses, and we verify that choice can actually settle the
- * booking's currency. That currency check is a real routing rule, forced by supporting both EGP and
- * USD — Paymob will not take USD, Stripe test mode will not take EGP — and it is the reason this
- * class exists rather than callers reaching into {@link GatewayRegistry} directly.
- *
- * <p>The point is the <b>seam</b>, not the rules. Routing by country, fee, gateway health, or
- * success rate would all be changes to this one bean, with no caller edits. We deliberately do not
- * build those now: an unused routing engine is speculation, an isolated decision point is design.
+ * Picks the gateway for a payment: client chooses, selector verifies currency support.
  */
 @Component
 @RequiredArgsConstructor

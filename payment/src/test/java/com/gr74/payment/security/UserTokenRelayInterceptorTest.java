@@ -20,19 +20,7 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 /**
- * Payment's user-token relay onto the Booking {@code payability} read
- * — proven at the HTTP level, not just as string manipulation.
- *
- * <p>Each case builds a {@code RestClient} the way {@code BookingClientConfig} does (relay
- * interceptor attached), serves the current thread a forged {@link JwtAuthenticationToken} the way
- * the resource-server chain would, and asserts on the wire: the outbound call to Booking either
- * carries {@code Authorization: Bearer <the user's token>} or carries no such header. A
- * {@link MockRestServiceServer} stands in for Booking, so no Eureka, no Booking, no Keycloak.
- *
- * <p>Why this test matters: without the relay, Booking's "caller owns this booking" guard compares
- * against whatever Payment <em>claims</em> — the confused-deputy hole. With it, Booking sees the
- * verified user. If the interceptor ever stops attaching the header, the payability call 401s and
- * every checkout breaks loudly — this test is the tripwire.
+ * User-token relay onto the Booking payability read, proven at the HTTP level.
  */
 class UserTokenRelayInterceptorTest {
 

@@ -19,24 +19,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * The AMQP adapter for Payment's outcome stream — a deliberately thin shell over
- * {@link BookingConfirmer}. All the interesting behaviour (the conditional-update confirm, the
- * idempotent re-read, the failure mirror) lives in the confirmer so it is unit-testable without
- * a broker; this class only bridges the queue to it.
- *
- * <p>An exception thrown here (e.g. the DB is momentarily down) propagates, the message is
- * <em>not</em> acked, and RabbitMQ redelivers it — safe precisely because the confirmer is
- * idempotent. No transaction, no try/catch: the {@code MovieUpsertedListener} idiom.
- *
- * <p><b>Why a {@code Map} payload plus routing-key dispatch instead of two typed params.</b> One
- * queue carries two event types, and Payment's outbox relay publishes them as
- * {@code Map<String, Object>} (it parses the stored JSON and injects the outbox row id as
- * {@code eventId}), so the {@code __TypeId__} header names {@code java.util.LinkedHashMap} — and
- * the JSON converter resolves TYPE_ID ahead of the listener method's parameter type (verified by
- * probe: even a hinted conversion returns the Map). Typed record parameters could therefore never
- * bind; the honest shape is to receive the Map, dispatch on the received routing key (the binding
- * key that delivered it), and convert to the record Booking owns. As a side effect this also
- * sidesteps the cross-package {@code __TypeId__} trust trap typed consumption falls into.
+ * AMQP adapter forwarding Payment outcome events to the confirmer, dispatched by routing key.
+ * Receives a Map payload because the converter resolves the type header ahead of the method signature.
  */
 @Slf4j
 @Component
@@ -48,10 +32,7 @@ public class PaymentEventListener {
     private final Tracer tracer;
 
     /**
-     * The one header the outbox relay restores the original trace with.
-     * {@code required = false} is not optional: a message published without trace context — or by any
-     * producer that does not carry trace context — has no {@code traceparent}, and rejecting it
-     * would break the stream.
+     * Trace header persisted by the outbox relay; absent when published without trace context.
      */
     @RabbitListener(queues = RabbitConfig.PAYMENT_EVENTS_QUEUE)
     public void onPaymentEvent(Map<String, Object> payload,
@@ -60,10 +41,7 @@ public class PaymentEventListener {
         runInTrace(traceparent, () -> dispatch(payload, routingKey));
     }
 
-    /**
-     * The original business dispatch — kept a private method so {@link #runInTrace} can wrap it
-     * without tangling the trace-restore lifecycle into the routing switch.
-     */
+    /** Business dispatch, wrapped by {@link #runInTrace} to keep trace handling separate. */
     private void dispatch(Map<String, Object> payload, String routingKey) {
         switch (routingKey) {
             case RabbitConfig.PAYMENT_SUCCEEDED_ROUTING_KEY -> {
@@ -86,19 +64,7 @@ public class PaymentEventListener {
     }
 
     /**
-     * Re-join the trace the outbox relay persisted.
-     *
-     * <p>This listener runs on a RabbitMQ consumer thread where <em>no</em> live Micrometer context
-     * exists: the outbox hop meant the trace was never propagated automatically (the relay publishes
-     * on a scheduler thread, long after the request context died), so the relay stamped it onto the
-     * message instead. Here we read it back, build a real child span of the persisted parent, and
-     * make it current for the duration of the dispatch — which is what lets {@code BookingConfirmer}
-     * capture the trace again when IT writes its own outbox row, carrying the same id one hop further.
-     *
-     * <p>The MDC {@code traceId} is set explicitly because the log pattern renders {@code %X{traceId}}
-     * — if the bridge does not auto-populate it for a hand-started span, this guarantees the line is
-     * still correlated. The try/finally is not optional: a leaked MDC entry on a pooled listener
-     * thread would mislabel every later message that thread handles.
+     * Re-joins the persisted trace and runs the dispatch inside it.
      */
     private void runInTrace(String traceparent, Runnable work) {
         Span span = spanFrom(traceparent);
@@ -110,9 +76,7 @@ public class PaymentEventListener {
             MDC.put("traceId", span.context().traceId());
             work.run();
         } catch (RuntimeException e) {
-            // Record the failure ON the span before it ends, then rethrow unchanged so the message
-            // is still nacked and redelivered. Without this the span closes looking successful, and
-            // Zipkin would show a green waterfall for the exact failure being debugged.
+            // Record on the span, then rethrow so the message is nacked and redelivered.
             span.error(e);
             throw e;
         } finally {
@@ -122,9 +86,7 @@ public class PaymentEventListener {
     }
 
     /**
-     * Parse a W3C {@code traceparent} ({@code 00-{traceId}-{spanId}-{flags}}) and create a started
-     * child span of the persisted parent. Null when the header is absent or malformed — the
-     * backwards-compatible path that simply processes without a restored trace.
+     * Parses a W3C {@code traceparent} into a started child span; null when absent or malformed.
      */
     private Span spanFrom(String traceparent) {
         if (traceparent == null || traceparent.isBlank()) {

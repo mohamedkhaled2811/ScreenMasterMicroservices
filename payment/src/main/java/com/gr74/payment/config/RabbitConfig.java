@@ -14,45 +14,25 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Payment's AMQP wiring — the <b>publisher</b> side of the booking saga (BUILD_PLAN 3.2).
- *
- * <p>Mirrors {@code catalog}'s {@code RabbitConfig} idiom: Payment owns the exchange and the
- * routing keys and deliberately declares <em>no queue and no binding</em> — a queue is the
- * consumer's concern. Booking declares {@code booking-payment-events-queue} and binds it to these
- * keys; a published event with no bound queue is simply dropped by the exchange, which is what
- * makes the routing-key contract safe to lock in before any consumer exists.
- *
- * <p>The {@link Jackson2JsonMessageConverter} must match the consumer's converter so the
- * {@code PaymentSucceededEvent}/{@code PaymentFailedEvent} records round-trip as JSON.
+ * AMQP exchange, routing keys, queues, and JSON converter for payment events.
  */
 @Configuration
 public class RabbitConfig {
 
-    /** Shared topic exchange (see {@code docs/concepts/rabbitmq.md}); Payment only ever publishes to it. */
+    /** Shared topic exchange; Payment only publishes to it (except its own rejection queue). */
     public static final String EXCHANGE = "screenmaster-exchange";
 
-    /** Routing key for "a payment reached PAID" — Booking confirms off this. */
+    /** Routing key for paid payments; Booking confirms off this. */
     public static final String PAYMENT_SUCCEEDED_ROUTING_KEY = "payment-succeeded-key";
 
-    /** Routing key for "an attempt failed" — Booking mirrors it; the user may retry. */
+    /** Routing key for failed attempts; Booking mirrors it and the user may retry. */
     public static final String PAYMENT_FAILED_ROUTING_KEY = "payment-failed-key";
 
-    /**
-     * Routing key Booking publishes {@code BookingConfirmationRejected} with — must equal
-     * Booking's {@code RabbitConfig.BOOKING_CONFIRMATION_REJECTED_ROUTING_KEY} exactly. A shared
-     * contract, not shared code (no common module), so the coupling lives in one obvious constant
-     * on each side.
-     */
+    /** Routing key Booking publishes rejections with; must match Booking's constant exactly. */
     public static final String BOOKING_CONFIRMATION_REJECTED_ROUTING_KEY =
             "booking-confirmation-rejected-key";
 
-    /**
-     * Payment's own durable queue for the booking-rejection stream (BUILD_PLAN 3.5) — the money
-     * arrived too late and must come back.
-     *
-     * <p>Same deployed-infrastructure warning as Booking's queues: once this queue exists in the
-     * broker with messages in it, renaming the constant strands them. Pick once.
-     */
+    /** Payment's durable queue for booking rejections, which trigger auto-refunds. */
     public static final String BOOKING_EVENTS_QUEUE = "payment-booking-events-queue";
 
     @Bean
@@ -62,8 +42,6 @@ public class RabbitConfig {
 
     @Bean
     public Queue bookingEventsQueue() {
-        // Durable so rejections wait here while Payment is briefly down — a lost rejection
-        // strands a customer's refund, so the queue (not just the publisher) must survive.
         return new Queue(BOOKING_EVENTS_QUEUE, true);
     }
 
@@ -74,13 +52,13 @@ public class RabbitConfig {
                 .with(BOOKING_CONFIRMATION_REJECTED_ROUTING_KEY);
     }
 
-    /** JSON (de)serialization for AMQP payloads — must mirror the consumer's converter. */
+    /** JSON converter for AMQP payloads; must match the consumer's converter. */
     @Bean
     public MessageConverter jacksonMessageConverter() {
         return new Jackson2JsonMessageConverter();
     }
 
-    /** A {@link RabbitTemplate} that uses the JSON converter for {@code convertAndSend}. */
+    /** RabbitTemplate using the JSON converter. */
     @Bean
     public RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory, MessageConverter messageConverter) {
         RabbitTemplate template = new RabbitTemplate(connectionFactory);
@@ -88,11 +66,7 @@ public class RabbitConfig {
         return template;
     }
 
-    /**
-     * The listener container factory {@code @RabbitListener} uses, wired to the JSON converter.
-     * Kept from Boot's configurer so the sensible defaults (acks, concurrency) survive — only the
-     * converter is overridden, mirroring Booking's factory so payloads round-trip identically.
-     */
+    /** Listener container factory wired to the JSON converter. */
     @Bean
     public SimpleRabbitListenerContainerFactory rabbitListenerContainerFactory(
             SimpleRabbitListenerContainerFactoryConfigurer configurer,

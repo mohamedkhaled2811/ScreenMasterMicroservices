@@ -49,7 +49,7 @@ is the **source row's `@LastModifiedDate`** (Catalog's clock, per-row monotonic)
 stamp, which would carry a *newer* time on a redelivered *older* event and defeat the guard.
 
 **3. Lazy backfill seeds the cold start.** The publisher fires **only from the incremental-refresh path,
-never from backfill** (see [ADR 0001](../adr/0001-movieupserted-published-from-incremental-refresh-only.md)),
+never from backfill** (see [scheduled-resumable-sync.md](scheduled-resumable-sync.md) — backfill vs. freshness; the publish fires from `refreshMovies`),
 so on a fresh system the stream may be silent for a while and `movie_projections` starts empty. On a cache miss
 the read model fetches the one title from Catalog and caches it, then serves local forever after. Two
 consequences to state honestly:
@@ -92,5 +92,4 @@ next."
 [rabbitmq.md](rabbitmq.md) ·
 [idempotent-consumer.md](idempotent-consumer.md) ·
 [sync-vs-async-comms.md](sync-vs-async-comms.md) ·
-[transactional-outbox.md](transactional-outbox.md) ·
-[ADR 0001](../adr/0001-movieupserted-published-from-incremental-refresh-only.md)
+[transactional-outbox.md](transactional-outbox.md)

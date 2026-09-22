@@ -11,13 +11,7 @@ import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotNull;
 
 /**
- * Body of {@code POST /showtimes}. The {@code screenId} is validated intra-Booking (the screen must
- * exist); the {@code movieId} is validated <em>across the service boundary</em> by a synchronous call
- * to Catalog (plan option 5C, chosen path) — the database can't enforce it because Catalog owns movies
- * in another database.
- *
- * <p>{@code showTime} is bound as {@code HH:mm} ({@link JsonFormat}) so a caller sends "19:30", not a
- * full ISO time. {@code basePrice} must be positive.
+ * Body of {@code POST /showtimes}. The movie id is validated live against Catalog; {@code showTime} uses {@code HH:mm}.
  */
 public record CreateShowtimeRequest(
 

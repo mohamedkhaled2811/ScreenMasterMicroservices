@@ -3,15 +3,7 @@ package com.gr74.booking.exception;
 import org.springframework.http.HttpStatus;
 
 /**
- * The machine-readable error contract for the booking service.
- *
- * <p>Every error response carries one of these constants as the {@code code} property of an RFC 9457
- * {@code ProblemDetail} (see {@link GlobalExceptionHandler}). The {@code code} — not the HTTP status,
- * not the human-readable {@code detail} — is the stable promise a client or a sibling service branches
- * on. Adding a constant is backwards-compatible; renaming one is a breaking contract change. Mirrors
- * {@code payment}'s {@code PaymentErrorCode} (the reference implementation).
- *
- * <p>Each constant pins the HTTP status it maps to so the status and the code can never drift apart.
+ * Machine-readable error codes; each pins its HTTP status so the two never drift apart.
  */
 public enum BookingErrorCode {
 
@@ -34,48 +26,26 @@ public enum BookingErrorCode {
     BOOKING_SHOWTIME_NOT_FOUND(HttpStatus.NOT_FOUND, "Showtime not found"),
 
     /**
-     * No booking exists for the requested id. Payment branches on this: a definitive "no such booking"
-     * (404) is a permanent answer, unlike an outage (503) which might resolve on retry.
+     * No booking exists for the requested id; a definitive "no such booking", unlike an outage retry.
      */
     BOOKING_NOT_FOUND(HttpStatus.NOT_FOUND, "Booking not found"),
 
-    /**
-     * A showtime referenced a {@code movieId} that Catalog does not have. This is the cross-service
-     * cut, validated synchronously at showtime-create time — the DB can't enforce it,
-     * so the service does.
-     */
+    /** A showtime referenced a {@code movieId} that Catalog does not have. */
     BOOKING_MOVIE_NOT_FOUND(HttpStatus.NOT_FOUND, "Movie not found in catalog"),
 
-    /**
-     * We could not reach Catalog to validate the {@code movieId} (down, timed out). Distinct from
-     * {@link #BOOKING_MOVIE_NOT_FOUND} ("Catalog answered: no such movie") so the caller can tell
-     * "try again later" apart from "that movie doesn't exist". This is the temporal-coupling cost of
-     * validating on the write path, which ties showtime creation to Catalog's uptime.
-     */
+    /** Catalog could not be reached to validate the {@code movieId}; retryable, unlike a bad id. */
     BOOKING_CATALOG_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Catalog service unavailable"),
 
     /** A uniqueness constraint was violated (duplicate name, seat, or showtime slot). */
     BOOKING_DUPLICATE(HttpStatus.CONFLICT, "Duplicate resource"),
 
-    /**
-     * No (or an invalid) Bearer token. Rendered by the security filter chain — which runs before
-     * any controller, so {@code GlobalExceptionHandler} can never see these — via
-     * {@code SecurityProblemSupport}, in the same ProblemDetail shape with the same flat
-     * {@code code}. Kept distinct from {@link #BOOKING_FORBIDDEN} on purpose: "log in" and "ask an
-     * admin" are different answers.
-     */
+    /** No (or an invalid) Bearer token; rendered by the filter chain in the same ProblemDetail shape. */
     BOOKING_UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "Authentication required"),
 
-    /**
-     * A valid token without the role the endpoint needs (e.g. a {@code USER} calling an
-     * {@code ADMIN} inventory write). Same filter-chain rendering as {@link #BOOKING_UNAUTHORIZED}.
-     */
+    /** Valid token without the needed role; same filter-chain rendering as unauthorized. */
     BOOKING_FORBIDDEN(HttpStatus.FORBIDDEN, "Access denied"),
 
-    /**
-     * Deleting a showtime would orphan existing bookings. Rejected by the FK (ON DELETE NO ACTION)
-     * and pre-checked in the service so the caller gets a coded 409 instead of a raw DB error.
-     */
+    /** Deleting a showtime would orphan existing bookings; rejected with 409 instead of a raw DB error. */
     BOOKING_SHOWTIME_HAS_BOOKINGS(HttpStatus.CONFLICT, "Showtime has bookings"),
 
     /** A fallback for anything we did not anticipate — never leak internals to the caller. */

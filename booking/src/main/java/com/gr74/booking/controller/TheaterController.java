@@ -43,31 +43,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springdoc.core.annotations.ParameterObject;
 
 /**
- * REST surface for the inventory tree (theaters → screens → seats) and seat-types — the write side
- * Booking absorbs from the monolith's Theater context.
- *
- * <p>Paths are <em>bare</em> ({@code /theaters}, {@code /screens/{id}/seats}, {@code /seat-types}); the
- * {@code /api} namespace lives only at the gateway, which strips it via {@code StripPrefix=1} before
- * forwarding ({@code /api/theaters} → {@code /theaters}). This mirrors how {@code payment} exposes
- * {@code /payments} and {@code catalog} exposes {@code /movies} — no edge concern leaks into the service.
- *
- * <p>Every error (missing parent, duplicate, bad body) is thrown from the service and translated to an
- * RFC 9457 {@code ProblemDetail} with a stable {@code code} by {@code GlobalExceptionHandler}; these
- * methods describe only the happy path and never {@code return} an error. DTOs cross the wire, not
- * entities (project convention).
- *
- * <p><b>Authorization:</b> reads need any authenticated token; every write
- * (create/delete across theaters, screens, seats and seat-types) needs the {@code ADMIN} realm
- * role, enforced with {@code @PreAuthorize} right here — next to the thing it protects, so it
- * survives a route refactor. The coarse "authenticated by default" rule lives in
- * {@code SecurityConfig}; these annotations are the fine-grained half.
- *
- * <p>Every listing endpoint is <b>paged</b> (never an unbounded array) — per the repo convention in
- * {@code docs/concepts/pagination-and-filtering.md}. Each returns a {@code Page<…>} (serialized as the
- * stable {@code PagedModel} envelope via {@code WebPagingConfig}), takes an optional filter DTO bound
- * from query params (composed into a JPA {@code Specification}), and rides Spring Data's {@code Pageable}
- * for {@code page}/{@code size}/{@code sort}. Size is capped at {@code WebPagingConfig.MAX_PAGE_SIZE};
- * an unknown {@code sort} field is a coded {@code BOOKING_VALIDATION_ERROR}. Pages are 0-indexed.
+ * REST endpoints for the inventory tree (theaters, screens, seats, seat types).
  */
 @Slf4j
 @RestController
@@ -197,7 +173,7 @@ public class TheaterController {
         return SeatResponse.from(theaterService.createSeat(screenId, request));
     }
 
-    /** Bulk grid generator — returns the seats actually created (idempotent). */
+    /** Bulk seat-grid generation; returns only the seats created by this call. */
     @PostMapping("/screens/{screenId}/seats/grid")
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasRole('ADMIN')")

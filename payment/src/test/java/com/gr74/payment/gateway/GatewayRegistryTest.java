@@ -17,11 +17,7 @@ import com.gr74.payment.exception.PaymentErrorCode;
 import com.gr74.payment.model.PaymentGatewayType;
 
 /**
- * The registry and selector — the pair that replaces what would otherwise be an {@code if/else} chain.
- *
- * <p>Uses hand-written stub gateways rather than mocks: the thing under test is how a <em>set</em> of
- * adapters is assembled and filtered, so real objects with real {@code supportedCurrencies()} express
- * the intent better than stubbed method calls.
+ * Registry and selector assembly, filtering, and error codes.
  */
 class GatewayRegistryTest {
 

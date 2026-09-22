@@ -6,10 +6,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Provides a system {@link Clock} as a bean so time-dependent logic (here, "which showtimes are
- * upcoming") reads the current date through an injected clock rather than a static
- * {@code LocalDate.now()}. That makes "today" substitutable in a test (a fixed clock), and it will
- * matter more for the Phase-3 expiry sweeper, which is entirely about the passage of time.
+ * Exposes a system {@link Clock} bean so time reads are substitutable in tests.
  */
 @Configuration
 public class ClockConfig {

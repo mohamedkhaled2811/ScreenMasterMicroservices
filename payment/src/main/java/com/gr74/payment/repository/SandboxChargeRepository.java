@@ -7,11 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import com.gr74.payment.model.SandboxCharge;
 
 /**
- * Spring Data repository for {@link SandboxCharge}.
- *
- * <p>Used only by the sandbox gateway ({@code fetchStatus}) and its checkout controller (recording
- * the drawn outcome). Payment domain code never touches this — it is the third party's ledger,
- * parked in our database for the lab.
+ * Spring Data repository for {@link SandboxCharge}. Only the sandbox gateway uses it.
  */
 public interface SandboxChargeRepository extends JpaRepository<SandboxCharge, Long> {
 

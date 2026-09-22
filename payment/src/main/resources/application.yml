@@ -1,26 +1,16 @@
 server:
   port: 8083
 
-# Actuator endpoints the resilience demo (BUILD_PLAN 5.2) reads. payment previously had NO
-# management block; this is what makes the 5.2 talk track ("with numbers from /actuator") possible.
-# Tracing is MERGED into this same block — a second top-level `management:`
-# key would silently drop config.
+# Actuator exposure for health and resilience endpoints; tracing shares this block.
 management:
   endpoints:
     web:
       exposure:
         include: health,circuitbreakers,circuitbreakerevents,bulkheads,retries,metrics
-  # Sample 100% in the lab so every demo request appears in Zipkin. Production runs ~0.1 (10%) —
-  # recording every trace is expensive (CPU + span storage), and the sampling decision is made once at the
-  # first service and carried in the traceparent flag. The endpoint defaults to the local Zipkin;
-  # Compose points it at the `zipkin` container via ZIPKIN_ENDPOINT.
+  # 100% trace sampling for local runs; endpoint overridden by Compose via ZIPKIN_ENDPOINT.
   tracing:
     sampling:
       probability: ${TRACING_SAMPLE_RATE:1.0}
-    # Boot 4 renamed this key: it is `management.tracing.export.zipkin.endpoint`, NOT the Boot 3
-    # `management.zipkin.tracing.endpoint`. The old key binds to nothing and the sender silently
-    # keeps its built-in default of http://localhost:9411 — which inside a container is the
-    # container itself, so every export fails with ConnectException while the network is fine.
     export:
       zipkin:
         endpoint: ${ZIPKIN_ENDPOINT:http://localhost:9411/api/v2/spans}
@@ -29,22 +19,18 @@ spring:
   application:
     name: payment
 
-  # Resilience4j's Boot-3 starter ships a version verifier that DELIBERATELY refuses to run on
-  # Boot 4 (SpringBoot3Verifier throws IncompatibleSpringBootVersionException and kills the context).
-  # We exclude that ONE auto-config: the rest of the starter's auto-configuration — the registries,
-  # the resilience4j.* property binding, and the actuator endpoints below — is verified to work on
-  # this Boot-4 stack. See docs/concepts/resilience-patterns.md and the AUTO-CONFIG note there.
+  # The Resilience4j starter's version verifier is excluded; the remaining auto-configuration
+  # still provides the registries, property binding, and actuator endpoints.
   autoconfigure:
     exclude: io.github.resilience4j.springboot3.verifier.autoconfigure.SpringBoot3VerifierAutoConfiguration
 
-  # Owns payment-db. Credentials come from env vars (never hard-coded — project convention),
-  # with local-dev defaults after the ':'. Compose (1.4) overrides the URL/host via env.
+  # Own payment-db; credentials from env vars with local-dev defaults.
   datasource:
     url: ${PAYMENT_DB_URL:jdbc:postgresql://localhost:5432/payment}
     username: ${PAYMENT_DB_USER:postgres}
     password: ${PAYMENT_DB_PASSWORD:postgres}
 
-  # Liquibase owns the schema; Hibernate only VALIDATEs the entities against it on boot.
+  # Liquibase owns the schema; Hibernate only validates entities against it.
   liquibase:
     change-log: classpath:db/changelog/db.changelog-master.yaml
   jpa:
@@ -52,88 +38,57 @@ spring:
       ddl-auto: validate
     open-in-view: false   # no lazy loading in the view layer; keep the tx boundary in the service
 
-  # The broker behind screenmaster-exchange (BUILD_PLAN 3.2). Compose injects RABBITMQ_* env vars
-  # (service name = DNS name); local defaults point at a bare-metal broker on the host.
+  # RabbitMQ; host overridden by Compose.
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USER:guest}
     password: ${RABBITMQ_PASSWORD:guest}
 
-  # Phase 7 (BUILD_PLAN 7.2/7.3): this service is an OAuth2 resource server — it validates the
-  # user's Bearer JWT itself (zero trust, not just the gateway). ONE issuer URI everywhere: it feeds
-  # BOTH the accepted `iss` claim and the derived JWKS fetch URL (see SecurityConfig), so the two can
-  # never drift apart. In Compose this is `http://keycloak:8180/realms/cinema` (container DNS — the
-  # `keycloak` service name); Keycloak is told to mint exactly that `iss` via KC_HOSTNAME (see
-  # compose.yaml). A host-local run needs `keycloak` to resolve — add `127.0.0.1 keycloak` to
-  # /etc/hosts — because reaching Keycloak as `localhost` would mint a different `iss` and fail.
+  # OAuth2 resource server; one issuer URI feeds both the iss check and the JWKS URL.
   security:
     oauth2:
       resourceserver:
         jwt:
           issuer-uri: ${KEYCLOAK_ISSUER_URI:http://keycloak:8180/realms/cinema}
 
-# A Eureka CLIENT: it registers with the discovery server on startup. We do NOT set
-# register-with-eureka/fetch-registry to false — those are server-only (the discovery node sets
-# them because it has no peers). See docs/concepts/service-discovery.md.
+# Eureka client registration.
 eureka:
   client:
     service-url:
       defaultZone: ${EUREKA_SERVICE_URL:http://localhost:8761/eureka/}
 
 payment:
-  # The public base URL gateways send users and webhooks back to. Gateways CANNOT reach localhost,
-  # so in local dev this is a tunnel: `stripe listen --forward-to ...` for Stripe, `ngrok http 8080`
-  # for Paymob. See docs/concepts/payment-gateway-integration.md.
+  # Public base URL for gateway redirects and webhooks; gateways cannot reach localhost, so use a tunnel locally.
   public-url: ${PAYMENT_PUBLIC_URL:http://localhost:8080}
 
-  # Kill-switch for the two background recovery jobs (attempt-expiry sweeper + reconciliation
-  # sweep). True in every real deployment; the hermetic test suite sets it false so wall-clock
-  # ticks can never race frozen-clock assertions (a @Scheduled fixedDelay bean always fires its
-  # first tick per context — a long interval only spaces the later ones).
+  # Kill-switch for the background recovery jobs; off in tests so ticks never race assertions.
   sweeps:
     enabled: ${PAYMENT_SWEEPS_ENABLED:true}
 
-  # Transactional-outbox relay (BUILD_PLAN 3.2): how often the drain tick runs and how many rows one
-  # tick claims. Short enough that a confirmed payment feels instant; bounded so the first tick
-  # after an outage walks the backlog over several passes.
+  # Transactional-outbox relay cadence and per-tick batch size.
   outbox:
     relay-interval-millis: ${PAYMENT_OUTBOX_RELAY_INTERVAL_MILLIS:2000}
     relay-batch-size: ${PAYMENT_OUTBOX_RELAY_BATCH_SIZE:50}
 
-  # Attempt-expiry sweeper (BUILD_PLAN 3.4): how often the tick closes lapsed gateway sessions.
-  # Expiring a session only closes a dead checkout — the payment stays PENDING for Pay Again.
+  # Attempt-expiry sweeper cadence; expiring only closes a dead checkout, never the payment.
   expiry:
     sweep-interval-millis: ${PAYMENT_EXPIRY_SWEEP_INTERVAL_MILLIS:60000}
 
-  # The shared definition of "old enough that the gateway has had its chance" (BUILD_PLAN 3.4).
-  # The attempt-expiry sweeper above SKIPS PENDING attempts younger than this (reconciliation
-  # decides first); step 3.6's reconciliation sweep probes attempts stale for longer than this
-  # against the gateway. One property, two readers — 3.6 reuses this exact value.
+  # Stale threshold shared by both sweeps: younger PENDING attempts are left for reconciliation.
   reconciliation:
     stale-after: ${PAYMENT_RECONCILIATION_STALE_AFTER:PT10M}
-    # How often the reconciliation sweep asks the gateway about stale attempts, and how many
-    # attempts one sweep probes. Short enough to recover a missed webhook within minutes;
-    # bounded so the first tick after an outage walks the backlog over several passes.
+    # Reconciliation sweep cadence and per-sweep batch size.
     sweep-interval-millis: ${PAYMENT_RECONCILIATION_SWEEP_INTERVAL_MILLIS:300000}
     batch-size: ${PAYMENT_RECONCILIATION_BATCH_SIZE:100}
 
-  # How long a session-less attempt may wedge its payment (the stranded-retry backstop). When
-  # the gateway throws on createSession, the attempt row is left PENDING with no session, and a
-  # retry reuses that row — but a row nobody retries must not block its payment forever, so it
-  # carries this provisional deadline until the gateway's real one replaces it. Past it, the
-  # attempt-expiry sweeper closes the row and the payment is payable again. Longer than
-  # reconciliation.stale-after on purpose, so "reconciliation decides first" keeps its meaning
-  # for attempts that actually have a gateway session to ask about.
+  # Provisional deadline for session-less attempts; longer than stale-after by design.
   attempt:
     stranded-ttl: ${PAYMENT_ATTEMPT_STRANDED_TTL:PT15M}
 
   gateway:
     # ---------------------------------------------------------------------------------------------
-    # SANDBOX — our own controllable gateway. Always registered (no external credentials to be
-    # missing), so there is always at least one usable gateway. This is the successor to the old
-    # FAIL_RATE knob: failure-rate and unavailable-rate drive the Phase 3.7 failure script and the
-    # Phase 5 circuit-breaker demo. It is a real adapter, not a test mock — it signs its own webhooks.
+    # SANDBOX — always registered (no external credentials); failure knobs drive outage simulations.
     # ---------------------------------------------------------------------------------------------
     sandbox:
       supported-currencies: ${PAYMENT_SANDBOX_CURRENCIES:EGP,USD}
@@ -145,14 +100,10 @@ payment:
       webhook-secret: ${PAYMENT_SANDBOX_WEBHOOK_SECRET:sandbox-local-development-secret}
 
     # ---------------------------------------------------------------------------------------------
-    # STRIPE — test mode. The adapter is @ConditionalOnGatewayCredentials on secret-key, so with no key the
-    # bean is never created and Stripe simply isn't offered. A live sk_live_ key is REJECTED at
-    # startup unless allow-live-key=true, so this lab cannot move real money by accident.
+    # STRIPE — test mode; absent without a secret key, live keys rejected unless allowed.
     # ---------------------------------------------------------------------------------------------
     stripe:
-      # Empty default is fine here: the adapter is gated by @ConditionalOnGatewayCredentials, which
-      # treats a BLANK value as absent. (Plain @ConditionalOnProperty would not — it counts an empty
-      # string as "present" and would register a credential-less gateway.)
+      # Blank counts as absent for the credentials condition.
       secret-key: ${STRIPE_SECRET_KEY:}
       webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
       api-base-url: ${STRIPE_API_BASE_URL:https://api.stripe.com}
@@ -162,12 +113,10 @@ payment:
       allow-live-key: ${STRIPE_ALLOW_LIVE_KEY:false}
 
     # ---------------------------------------------------------------------------------------------
-    # PAYMOB — sandbox. Also @ConditionalOnGatewayCredentials (on api-key). integration-id and iframe-id come
-    # from the Paymob dashboard; Paymob has no single "Checkout" endpoint like Stripe, so both must
-    # be configured explicitly.
+    # PAYMOB — sandbox; absent without an API key.
     # ---------------------------------------------------------------------------------------------
     paymob:
-      # Same gating as Stripe above — blank counts as absent.
+      # Blank counts as absent for the credentials condition.
       api-key: ${PAYMOB_API_KEY:}
       hmac-secret: ${PAYMOB_HMAC_SECRET:}
       integration-id: ${PAYMOB_INTEGRATION_ID:}
@@ -177,31 +126,20 @@ payment:
       supported-currencies: ${PAYMOB_CURRENCIES:EGP}
       session-ttl: ${PAYMOB_SESSION_TTL:PT15M}
 
-# ---------------------------------------------------------------------------------------------
-# Resilience4j (BUILD_PLAN 5.1) — a circuit breaker, bulkhead and retry around every outbound
-# gateway call, applied by ResilientPaymentGateway (a DECORATOR implementing PaymentGateway, not
-# annotations). One named instance per gateway (stripe / paymob / sandbox), each inheriting the
-# shared default policy, so Paymob's breaker and bulkhead are independent of Stripe's. The
-# starter's auto-config creates the registries and binds these keys; every number is env-overridable
-# and is a STARTING POINT to be tuned against the 5.2 sandbox demo. See docs/concepts/resilience-patterns.md.
+# Resilience4j policies: per-gateway breaker, bulkhead and retry, applied by ResilientPaymentGateway.
 # ---------------------------------------------------------------------------------------------
 resilience4j:
   circuitbreaker:
     configs:
       default:
-        # A breaker is MEMORY: after this many calls the failure rate decides. Too tight trips on
-        # normal noise and refuses healthy traffic; too loose lets a down gateway burn timeouts.
+        # Sliding-window size for the failure-rate calculation.
         sliding-window-size: ${PAYMENT_CIRCUIT_BREAKER_SLIDING_WINDOW:10}
         failure-rate-threshold: ${PAYMENT_CIRCUIT_BREAKER_FAILURE_RATE_THRESHOLD:50}
-        # How long the breaker stays OPEN before half-open probes. Short enough that a recovered
-        # gateway is noticed within a minute; long enough that a still-down one is not hammered.
+        # Open-state wait before half-open probes.
         wait-duration-in-open-state: ${PAYMENT_CIRCUIT_BREAKER_WAIT_OPEN:30s}
-        # The probe traffic allowed while HALF_OPEN — small, so recovery is confirmed by a few real
-        # calls rather than a burst.
+        # Probe calls allowed while half-open.
         permitted-number-of-calls-in-half-open-state: ${PAYMENT_CIRCUIT_BREAKER_HALF_OPEN_CALLS:3}
-        # ONLY infrastructural failures count. GatewayException's javadoc draws the line: a business
-        # decline is a SUCCESSFUL call that returns FAILED through the normal path and must never
-        # trip the breaker — otherwise ordinary declines would refuse healthy traffic.
+        # Only infrastructural failures count; business declines return through the normal path.
         record-exceptions:
           - com.gr74.payment.gateway.GatewayException
     instances:
@@ -214,11 +152,8 @@ resilience4j:
   bulkhead:
     configs:
       default:
-        # Caps concurrent in-flight calls to ONE gateway, so a hanging Paymob cannot drain the shared
-        # Tomcat thread pool and take down a healthy Stripe — the isolation a timeout alone cannot give.
+        # Per-gateway concurrency cap; rejects immediately instead of queueing (max-wait-duration 0).
         max-concurrent-calls: ${PAYMENT_BULKHEAD_MAX_CONCURRENT_CALLS:8}
-        # MUST stay 0: reject immediately, never queue. Queueing is precisely the thread pile-up this
-        # pattern exists to prevent.
         max-wait-duration: 0
     instances:
       stripe:
@@ -230,19 +165,14 @@ resilience4j:
   retry:
     configs:
       default:
-        # 3 attempts total (one + two retries) with 200ms → 400ms exponential backoff plus jitter:
-        # absorbs a one-packet blip without a synchronized retry storm. The retry is ONLY safe
-        # because createSession carries an idempotency key (Stripe Idempotency-Key, Paymob
-        # merchant_order_id) and fetchStatus is a pure read — see ResilientPaymentGateway's javadoc.
+        # Retries for idempotent gateway calls, with exponential backoff and jitter.
         max-attempts: ${PAYMENT_RETRY_MAX_ATTEMPTS:3}
         wait-duration: ${PAYMENT_RETRY_WAIT_DURATION:200ms}
         enable-exponential-backoff: true
         exponential-backoff-multiplier: ${PAYMENT_RETRY_BACKOFF_MULTIPLIER:2}
         enable-randomized-wait: true
         randomized-wait-factor: ${PAYMENT_RETRY_JITTER_FACTOR:0.5}
-        # Note the key: retry-exceptions (not record-exceptions — that is the breaker's name). Only
-        # GatewayException is retried, so a breaker-open fast-fail (CallNotPermittedException) or a
-        # bulkhead rejection is NOT retried and returns to the caller immediately.
+        # retry-exceptions is the retry's key (not the breaker's); open breakers are not retried.
         retry-exceptions:
           - com.gr74.payment.gateway.GatewayException
     instances:
@@ -253,10 +183,8 @@ resilience4j:
       sandbox:
         base-config: default
 
-# OpenAPI / Swagger UI (see docs/concepts/openapi-springdoc.md). The spec is served at /v3/api-docs
-# and the UI at /swagger-ui.html; the gateway aggregates all services' specs into one UI at :8080.
-# emit OpenAPI 3.1 (matches the Boot-4 / Jakarta stack). The gateway base for "Try it out" is
-# externalised so Compose can point it at the real public host.
+# OpenAPI spec at /v3/api-docs, UI at /swagger-ui.html; gateway aggregates all specs.
+# OpenAPI 3.1; public URL externalised so Compose can override the public host.
 springdoc:
   api-docs:
     path: /v3/api-docs

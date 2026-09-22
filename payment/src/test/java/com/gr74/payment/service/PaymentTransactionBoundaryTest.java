@@ -28,24 +28,7 @@ import com.gr74.payment.model.PaymentGatewayType;
 import com.zaxxer.hikari.HikariDataSource;
 
 /**
- * The transaction boundaries on the checkout path are real, not decorative.
- *
- * <p>The checkout path must commit the obligation row and the attempt row <b>before</b> the gateway
- * is called, each in its own transaction — a database transaction cannot span an external gateway.
- * The original version of that code declared the writes {@code @Transactional(REQUIRES_NEW)} but
- * invoked them on {@code this}, so Spring's proxy was bypassed and every annotation was inert: the
- * writes happened to commit in the right order only because no caller had an ambient transaction.
- * This is the regression test for that bug — it wraps {@code createSession} in an outer transaction
- * (as a future orchestration method or a {@code @Transactional} test would) and asserts the rows are
- * already visible from a <em>separate connection</em> while that outer transaction is still open.
- *
- * <p>It failed against the self-invoking code: the rows joined the outer transaction and were
- * invisible to the separate connection until it committed — and had the caller rolled back, the
- * gateway session would have existed with no local record of it at all.
- *
- * <p>Runs the full context on H2 with the sandbox gateway (no external gateway can be reached — see
- * {@code src/test/resources/application.yml}). Note H2 cannot create the Postgres-only partial
- * unique index; that constraint is not what this test exercises.
+ * Checkout write boundaries: obligation and attempt commit before the gateway call.
  */
 @SpringBootTest
 class PaymentTransactionBoundaryTest {

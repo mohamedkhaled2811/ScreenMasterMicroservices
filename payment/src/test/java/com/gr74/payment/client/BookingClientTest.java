@@ -23,13 +23,7 @@ import com.gr74.payment.exception.BookingNotFoundException;
 import com.gr74.payment.exception.BookingServiceUnavailableException;
 
 /**
- * Payment's read of Booking, and — more importantly — how it fails.
- *
- * <p>The failure policy here is the opposite of Booking's own {@code titlesByIds}, which degrades to
- * null titles when Catalog is down. This client <b>fails closed</b>: a checkout opened for an amount we
- * could not verify would charge a real user a number we invented, so an outage must stop the flow.
- * Each failure mode gets a test because "it threw something" is not good enough — the caller branches
- * on the <em>code</em>.
+ * Booking payability read and its fail-closed failure mapping.
  */
 class BookingClientTest {
 

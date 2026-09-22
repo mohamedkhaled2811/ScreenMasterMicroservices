@@ -20,21 +20,7 @@ import org.springframework.security.oauth2.core.OAuth2AccessToken;
 import com.gr74.notification.exception.NotificationErrorCode;
 import com.gr74.notification.exception.NotificationException;
 
-/**
- * Notification's machine identity: the service obtains its OWN token from
- * Keycloak via the client-credentials grant — no user involved.
- *
- * <p>The {@link OAuth2AuthorizedClientManager} is mocked (it is framework machinery — fetching,
- * caching and refreshing are Spring's job to get right, not ours to re-prove). What THESE cases
- * pin is our half of the contract: we ask for the right registration
- * ({@code notification-keycloak}, the {@code notification-svc} confidential client), we return the
- * token value (not the wrapper), and a refused grant becomes a coded
- * {@code NOTIFICATION_IDENTITY_UNAVAILABLE} — never a raw {@code null} that would NPE the
- * email lookup, and never a swallowed failure that would stall the queue silently.
- *
- * <p>Hermetic: no context, no Keycloak. The full-context {@code NotificationApplicationTests}
- * separately proves the registration YAML binds (the manager bean wires).
- */
+/** Returns the service machine token and maps grant failures to a coded error. */
 class MachineTokenProviderTest {
 
     private final OAuth2AuthorizedClientManager manager = mock(OAuth2AuthorizedClientManager.class);

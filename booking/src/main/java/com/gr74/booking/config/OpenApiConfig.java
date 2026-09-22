@@ -12,17 +12,7 @@ import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.servers.Server;
 
 /**
- * OpenAPI document metadata for the booking service (see {@code docs/concepts/openapi-springdoc.md}).
- *
- * <p>springdoc infers the paths, the paged {@code PagedModel} listing responses, the raw-{@code List}
- * showtime reads, and the create-request DTO schemas + constraints from {@code TheaterController} and
- * {@code ShowtimeController}. This bean supplies the title/version/description and the {@code Server}
- * URL only.
- *
- * <p>The controllers expose bare paths ({@code /theaters}, {@code /showtimes}); clients reach them
- * through the gateway at {@code /api/theaters}, {@code /api/showtimes} ({@code StripPrefix=1} removes
- * {@code /api}). We advertise the gateway base + {@code /api} as the OpenAPI {@code Server} so "Try it
- * out" hits the real public URL — see the payment service's {@code OpenApiConfig} for the full rationale.
+ * OpenAPI metadata for the booking service; advertises the gateway URL so "Try it out" hits the public path.
  */
 @Configuration
 public class OpenApiConfig {

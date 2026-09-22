@@ -363,4 +363,3 @@ echo "$TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null | python3 -m json.tool
 | JWT / OAuth2 theory | [`docs/concepts/security-jwt-oauth2.md`](../docs/concepts/security-jwt-oauth2.md) |
 | Clients and scopes, in depth | [`docs/concepts/keycloak-clients-and-scopes.md`](../docs/concepts/keycloak-clients-and-scopes.md) |
 | How `@CurrentUser` resolves | [`docs/concepts/current-user-resolution.md`](../docs/concepts/current-user-resolution.md) |
-| The phase plan this came from | [`docs/plans/2026-09-20-phase7-keycloak-security.md`](../docs/plans/2026-09-20-phase7-keycloak-security.md) |

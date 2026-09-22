@@ -31,12 +31,7 @@ import com.gr74.payment.config.RabbitConfig;
 import com.gr74.payment.service.OutboxWriter;
 
 /**
- * The relay's two guarantees, against a mocked claim (H2 cannot run the native
- * {@code SELECT ... FOR UPDATE SKIP LOCKED}, so the query itself is never exercised here — the
- * boundary test proves the row commits and rolls back with the business write instead).
- *
- * <p>A plain unit test on purpose: the logic under test is ordering, error handling, and the
- * traceparent stamping, not wiring.
+ * Relay ordering, traceparent stamping, and failure handling against a mocked claim.
  */
 class OutboxRelayTest {
 

@@ -42,19 +42,7 @@ import io.micrometer.tracing.Tracer;
 import jakarta.persistence.EntityManager;
 
 /**
- * The hold-expiry sweeper against a frozen clock.
- *
- * <p>What it proves:
- * <ol>
- *   <li>PENDING past {@code expiresAt} flips to EXPIRED, and the seats become available again to
- *       {@code findSeatIdsHeldForShowtime} — while the {@code booking_seats} rows still exist
- *       (the audit-trail assertion: release is a status flip, never a delete);</li>
- *   <li>live holds and non-PENDING rows are untouched;</li>
- *   <li>the race, explicitly: a booking confirming at the same instant the sweeper runs ends
- *       CONFIRMED, not EXPIRED — the conditional update decides, and the loser observes zero
- *       rows;</li>
- *   <li>a tick whose repository throws still does not kill the scheduler (caught internally).</li>
- * </ol>
+ * Hold-expiry sweeper behaviour against a frozen clock.
  */
 @DataJpaTest
 @Import({BookingExpirySweeper.class, BookingExpirer.class, BookingConfirmer.class,
@@ -72,8 +60,7 @@ class BookingExpirySweeperTest {
             return Clock.fixed(NOW, ZoneOffset.UTC);
         }
 
-        /** @DataJpaTest does not load Jackson; the confirmer serializes its outbox payloads with it.
-         * The JavaTimeModule is required for the {@code Instant} fields, matching Boot's real mapper. */
+        /** Jackson for outbox payload serialization, with JavaTimeModule for Instant fields. */
         @Bean
         ObjectMapper objectMapper() {
             return new ObjectMapper().registerModule(new JavaTimeModule());
@@ -101,13 +88,11 @@ class BookingExpirySweeperTest {
     @Autowired
     private EntityManager em;
 
-    /** BookingConfirmer captures the trace context onto outbox rows; mocked here so the sweep
-     * tests do not need a tracing setup (the slice has none). */
+    /** Tracer mock: the sweep tests do not need a tracing setup. */
     @MockitoBean
     private Tracer tracer;
 
-    /** BookingConfirmer reads this for the ticket snapshot on BookingConfirmed. Mocked for the same
-     * reason as the tracer: this class tests the expiry race, not how a movie title is resolved. */
+    /** Movie read-model mock: this class tests the expiry race, not title resolution. */
     @MockitoBean
     private MovieReadModel movies;
 
@@ -175,17 +160,7 @@ class BookingExpirySweeperTest {
     }
 
     /**
-     * The regression guard for the self-invocation bug.
-     *
-     * <p>{@code @Transactional(NOT_SUPPORTED)} is the whole point: {@code @DataJpaTest} normally
-     * wraps each test in a transaction, which would hand {@code tick()} the very transaction
-     * production lacks — so a test without this annotation passes against the broken code and
-     * proves nothing. Suspending it reproduces the scheduler's real conditions, where the
-     * {@code @Modifying} update must find a transaction opened by {@link BookingExpirer}'s own
-     * proxy or throw.
-     *
-     * <p>Consequence: this write really commits, so the row is cleaned up explicitly rather than
-     * rolled back with the test.
+     * Suspends the test transaction so the tick runs under scheduler conditions (row commits for real).
      */
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)

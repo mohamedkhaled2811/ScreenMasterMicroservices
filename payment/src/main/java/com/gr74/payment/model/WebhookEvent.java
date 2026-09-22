@@ -17,28 +17,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * One inbound webhook delivery from a gateway, stored <b>raw and before any business logic runs</b>.
- *
- * <p>This table does two jobs at once, and the second is why it holds the payload:
- *
- * <ol>
- *   <li><b>Idempotency.</b> {@code UNIQUE (gateway, event_id)} keyed on the <em>gateway's own</em>
- *       event id means the second delivery of the same event fails the insert; the handler returns
- *       200 having done nothing. Because the dedupe <em>is</em> the insert, there is no window in
- *       which an event is processed but unstored.</li>
- *   <li><b>Evidence.</b> The raw bytes settle "the gateway says it told us" disputes, let a fixed
- *       handler be replayed over stored rows after a processing bug, allow backfilling fields we
- *       ignore today (fees, card brand, 3DS result), and — via {@code signatureValid = false} rows —
- *       preserve the audit trail of a forgery attempt.</li>
- * </ol>
- *
- * <p>The payload is stored <em>exactly</em> as received, never a re-serialized DTO: signatures are
- * computed over exact bytes, so a Jackson round-trip (which reorders keys and changes whitespace)
- * would make later re-verification impossible.
- *
- * <p><b>These rows are data, not logs.</b> Hosted checkout keeps card numbers and CVV out of the
- * body, but billing name, email and last-4 can be in there — so payload bodies are never logged,
- * reads are admin-only, and a retention job prunes old rows.
+ * One inbound webhook delivery, stored raw before business logic runs.
+ * UNIQUE (gateway, event_id) dedupes redelivery; payload is kept byte-exact for re-verification.
  */
 @Entity
 @Table(
@@ -58,31 +38,27 @@ public class WebhookEvent {
     @Column(nullable = false, length = 24, updatable = false)
     private PaymentGatewayType gateway;
 
-    /** The gateway's OWN event id — the dedupe key. Never one we mint. */
+    /** Gateway's own event id — the dedupe key. */
     @Column(name = "event_id", nullable = false, updatable = false, length = 255)
     private String eventId;
 
-    /** The gateway's raw type string, kept unnormalized on purpose for forensics. */
+    /** Gateway raw type string, kept unnormalized. */
     @Column(name = "event_type", updatable = false, length = 120)
     private String eventType;
 
-    /** The exact raw body as received. */
+    /** Raw body as received. */
     @Column(nullable = false, updatable = false, columnDefinition = "TEXT")
     private String payload;
 
-    /** Signature and delivery headers as received, with secrets scrubbed. */
+    /** Delivery headers with secrets scrubbed. */
     @Column(updatable = false, columnDefinition = "TEXT")
     private String headers;
 
-    /** {@code false} rows are kept deliberately — they are the forged-webhook audit trail. */
+    /** False rows are kept as the forgery audit trail. */
     @Column(name = "signature_valid", nullable = false, updatable = false)
     private boolean signatureValid;
 
-    /**
-     * The attempt this delivery turned out to belong to. Null when the session id matched nothing —
-     * which is still stored, and still answered 200 (an unknown session is not the gateway's
-     * problem to retry).
-     */
+    /** Matched attempt, or null when the session id matched nothing (still answered 200). */
     @Column(name = "payment_attempt_id")
     private Long paymentAttemptId;
 
@@ -96,13 +72,7 @@ public class WebhookEvent {
     @Column(name = "processed_at")
     private Instant processedAt;
 
-    /**
-     * The trace id this delivery was processed under. A webhook arrives with no
-     * {@code traceparent} and starts a NEW trace by design; storing its id on the evidence row is
-     * what links any stored payload back to exactly what it did — the "customer says I paid and
-     * nothing happened" debugging path. Null when no trace was live (a test, or a synthetic
-     * reconciliation delivery with tracing disabled).
-     */
+    /** Trace id under which this delivery was processed; links payload to its effects. */
     @Column(name = "trace_id", updatable = false, length = 32)
     private String traceId;
 
@@ -124,7 +94,7 @@ public class WebhookEvent {
         this.receivedAt = Instant.now();
     }
 
-    /** Record the outcome of processing this delivery, and what it was about. */
+    /** Record processing outcome and matched attempt. */
     public void recordOutcome(WebhookProcessingStatus status, Long paymentAttemptId) {
         this.processingStatus = status;
         this.paymentAttemptId = paymentAttemptId;

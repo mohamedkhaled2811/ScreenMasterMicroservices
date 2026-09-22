@@ -25,52 +25,21 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * The idempotent consumer (BUILD_PLAN 4.3): claims an event by inserting its id, and only then sends
- * the email — a real HTML ticket over SMTP, rendered from the facts Booking snapshotted onto the
- * event and addressed to the email resolved from Keycloak.
- *
- * <p><b>Why the claim-first ordering is the whole point.</b> RabbitMQ delivers at-least-once: a
- * consumer crash before the ack, a broker restart, or the {@code --scale notification=2} demo can all
- * deliver the same event twice. So the send must be a no-op on the second delivery. The guard is the
- * {@code processed_events} INSERT, not a check: we insert the row first and treat a
- * {@link DataIntegrityViolationException} AS the dedupe (a duplicate claim → ack-and-no-op, the
- * {@code WebhookWriter#storeVerifiedEvent} idiom). There is deliberately no {@code existsById(...)}
- * before the insert — that read-then-insert has a window where two concurrent consumer instances both
- * pass the check and both send, which is exactly the double-send this phase exists to prove
- * impossible.
- *
- * <p><b>The honest residual.</b> This is at-least-once with an idempotent consumer, i.e. exactly-once
- * <em>in effect</em> — the only exactly-once that exists across a broker. One gap remains, and it is
- * real now that the side effect leaves the process: a crash after SMTP accepted the message but
- * before the transaction commits rolls back the claim, and the redelivery sends a second email. It
- * cannot be closed without a distributed transaction. Against a provider that supports it you would
- * pass {@code eventId} as the provider's own idempotency key (the SES/SendGrid message id) and let
- * the provider collapse the duplicate; local SMTP has no such key, so this stays documented rather
- * than claimed as solved.
- *
- * <p><b>This service decides WHAT to say; it never delivers.</b> Delivery is the
- * {@link NotificationChannel}'s job — which is what makes the dedupe testable with a stub channel
- * instead of a mail server, and what lets an SMS channel be added without touching this class.
- *
- * <p>A plain {@code @Transactional} service — deliberately NOT the {@code @RabbitListener} itself —
- * so it is unit-testable by direct invocation without a broker (the {@code BookingConfirmer} /
- * {@code MovieProjector} idiom). The listener is a thin shell over it.
+ * Idempotent consumer for booking outcomes: claims the event id first, then sends the email.
+ * A duplicate claim is a no-op, so redeliveries never send twice.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class NotificationService {
 
-    /** The {@code event_type} written onto a {@code BookingConfirmed} dedupe row. */
+    /** Event type written onto a {@code BookingConfirmed} dedupe row. */
     public static final String BOOKING_CONFIRMED = "BOOKING_CONFIRMED";
 
-    /** The {@code event_type} written onto a {@code BookingConfirmationRejected} dedupe row. */
+    /** Event type written onto a {@code BookingConfirmationRejected} dedupe row. */
     public static final String BOOKING_CONFIRMATION_REJECTED = "BOOKING_CONFIRMATION_REJECTED";
 
-    /**
-     * How a screening time is printed on the ticket, e.g. {@code Fri 25 Sep 2026, 19:30}. A pinned
-     * pattern and locale, so the output cannot drift with the container's default locale.
-     */
+    /** Showtime display format, e.g. {@code Fri 25 Sep 2026, 19:30}. */
     private static final DateTimeFormatter SHOWTIME_FORMAT =
             DateTimeFormatter.ofPattern("EEE d MMM uuuu, HH:mm", Locale.ENGLISH);
 
@@ -78,20 +47,12 @@ public class NotificationService {
     private final NotificationChannel channel;
     private final KeycloakUserClient users;
     private final NotificationProps props;
-    /** The zone showtimes are displayed in — the JVM default, so a container's TZ env var sets it. */
+    /** Zone showtimes are displayed in. */
     private final ZoneId zone = ZoneId.systemDefault();
 
     /**
-     * Send the ticket for a confirmed booking.
-     *
-     * <p>Ordering is load-bearing: <b>claim, then send</b>. The claim's INSERT is what makes a
-     * redelivery a no-op, and it must happen before the side effect — checking "did I already send?"
-     * after sending would be a race two consumer instances both lose.
-     *
-     * <p>The Keycloak lookup happens AFTER the claim on purpose. If it throws (the IdP is down), the
-     * transaction rolls back, taking the claim with it, and the broker redelivers — so the retry
-     * re-claims cleanly and tries again. Looking the address up before the claim would mean an
-     * outage burned the claim without sending anything.
+     * Sends the ticket for a confirmed booking.
+     * Claims before sending so redelivery is a no-op.
      *
      * @return {@code true} if this delivery sent the email; {@code false} if it was a duplicate
      */
@@ -111,34 +72,19 @@ public class NotificationService {
         return true;
     }
 
-    /**
-     * The subject line. Names the movie when we have it, because a subject reading "Your ScreenMaster
-     * tickets" for four different bookings is useless in a crowded inbox — and falls back to the
-     * booking reference, which is always present, when the title could not be resolved.
-     */
+    /** Builds the email subject, falling back to the booking reference when the title is missing. */
     private String subjectFor(BookingConfirmedEvent event) {
         return event.movieTitle() == null
                 ? "Your tickets — booking " + event.bookingReference()
                 : "Your tickets for " + event.movieTitle();
     }
 
-    /**
-     * The template's variable map.
-     *
-     * <p>Every value the template touches is put here explicitly — including the ones that may be
-     * null. Thymeleaf renders a missing variable as empty rather than failing, which would turn a
-     * renamed field into a silently blank ticket; naming them all keeps the contract between this
-     * method and the template visible in one place.
-     *
-     * <p>Note what this method does: it turns wire data into <em>display</em> data (a formatted date,
-     * a composed poster URL). That belongs here rather than in the template, because a second channel
-     * would want the same formatted values from the same map.
-     */
+    /** Template variables for the confirmation email. */
     private Map<String, Object> confirmedVariables(BookingConfirmedEvent event) {
         Map<String, Object> vars = new LinkedHashMap<>();
         vars.put("bookingReference", event.bookingReference());
         vars.put("movieTitle", event.movieTitle());
-        // Path -> full CDN URL. Null when there is no artwork; the template drops the image band.
+        // Null when there is no artwork.
         vars.put("posterUrl", props.image().posterUrl(event.posterPath()));
         vars.put("showtime", formatShowtime(event.showtimeStartsAt()));
         vars.put("theaterName", event.theaterName());
@@ -149,29 +95,12 @@ public class NotificationService {
         return vars;
     }
 
-    /**
-     * Format the screening time for a human, e.g. {@code Fri 25 Sep 2026, 19:30}.
-     *
-     * <p>Rendered in the service's configured zone: the instant on the wire is unambiguous, but a
-     * customer wants the wall-clock time they should arrive at, not UTC. {@code Locale.ENGLISH} is
-     * pinned so the output does not silently change with the container's locale — a formatted date
-     * that varies by deployment environment is a bug that only shows up in production.
-     */
+    /** Formats the showtime for display, or null when absent. */
     private String formatShowtime(Instant startsAt) {
         return startsAt == null ? null : SHOWTIME_FORMAT.format(startsAt.atZone(zone));
     }
 
-    /**
-     * Tell the customer their payment arrived too late and the money is coming back.
-     *
-     * <p>Same claim-then-send ordering as the confirmation, and the same reason for it. This message
-     * matters more than the ticket, not less: it is the only thing standing between a customer and
-     * silently taken money, which is why {@code BookingConfirmationRejected} travels through the
-     * transactional outbox rather than a best-effort publish.
-     *
-     * <p>No poster and no seats here — the booking never happened. The email's job is to state the
-     * refund plainly, so it is deliberately a plain notice rather than a decorated ticket.
-     */
+    /** Sends the refund notice for a rejected confirmation; duplicates return false. */
     @Transactional
     public boolean processBookingConfirmationRejected(BookingConfirmationRejectedEvent event) {
         if (!claim(event.eventId(), BOOKING_CONFIRMATION_REJECTED)) {
@@ -192,22 +121,15 @@ public class NotificationService {
     }
 
     /**
-     * THE CLAIM: try to insert the dedupe row. {@code true} means this consumer won the event and may
-     * send; {@code false} means a duplicate/redelivery — someone already processed it, so the caller
-     * returns without sending.
-     *
-     * <p>The repository's {@code claim} is a raw INSERT (see its javadoc for why not
-     * {@code saveAndFlush}): it either creates the row or violates the PK. On the duplicate the
-     * failed statement leaves the transaction in a state we do not want to commit, so we mark it
-     * rollback-only explicitly rather than letting Spring commit over a failed insert. Rolling back
-     * cleanly is what lets the listener ack the redelivery as handled.
+     * Inserts the dedupe row; false on duplicate.
+     * Marks rollback-only on duplicate so the redelivery acks cleanly.
      */
     private boolean claim(long eventId, String eventType) {
         try {
             processedEvents.claim(eventId, eventType, Instant.now());
             return true;
         } catch (DataIntegrityViolationException duplicate) {
-            // The dedupe fired: a concurrent (or redelivered) claim won. Ack-and-no-op — do NOT rethrow.
+            // Duplicate claim — ack as handled without sending.
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
             log.info("Duplicate booking event eventId={} eventType={} — already processed, not sending again",
                     eventId, eventType);

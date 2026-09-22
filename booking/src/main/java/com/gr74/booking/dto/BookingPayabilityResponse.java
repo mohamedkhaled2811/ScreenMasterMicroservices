@@ -6,17 +6,7 @@ import java.time.Instant;
 import com.gr74.booking.model.Booking;
 
 /**
- * The narrow slice of a booking the Payment service needs before opening a checkout session.
- *
- * <p>Deliberately <b>not</b> {@link BookingResponse}: Payment has no business knowing about seats,
- * showtimes, or movie ids. This exposes exactly the four facts its guards ask — does the booking
- * exist, whose is it, is it in a payable state, has its hold lapsed — plus the authoritative amount.
- *
- * <p><b>Why the amount lives here at all:</b> Payment must never take a price from the client, or a
- * browser could buy a 300 EGP ticket for 1. Booking owns pricing, so Booking is what Payment asks.
- *
- * <p>{@code status} travels as a plain string: Payment does not (and must not) import Booking's enum —
- * that would be shared code across a service boundary. The string is the contract.
+ * Payability facts for one booking, read by the Payment service. Amount is authoritative here, never client-supplied.
  */
 public record BookingPayabilityResponse(
         Long bookingId,

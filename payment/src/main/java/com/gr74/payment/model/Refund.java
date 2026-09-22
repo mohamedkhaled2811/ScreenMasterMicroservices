@@ -20,18 +20,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * One refund against a {@link Payment}.
- *
- * <p>A refund is a <b>row, not a status flip</b>, because partial refunds are real: a 1000 EGP
- * payment refunded 300 and then 200 leaves 500 refundable, which {@code PAID -> REFUNDED} cannot
- * express. The payment's status is <em>derived</em> from the running total of confirmed refunds
- * ({@link Payment#applyRefund}), so it can never contradict the rows.
- *
- * <p>The invariant {@code SUM(amount) <= payment.amount} is enforced in the service under a row
- * lock, not by a constraint — a CHECK cannot span rows.
- *
- * <p>A refund only becomes {@link RefundStatus#SUCCEEDED} when the gateway's own refund webhook
- * confirms it. The API call returning is not proof the money moved.
+ * One refund against a payment. Status is derived into the payment total only once SUCCEEDED via webhook.
  */
 @Entity
 @Table(name = "refunds")
@@ -47,7 +36,7 @@ public class Refund {
     @JoinColumn(name = "payment_id", nullable = false)
     private Payment payment;
 
-    /** The gateway's refund id. Null until the gateway answers. */
+    /** Gateway refund id; null until the gateway answers. */
     @Column(name = "gateway_refund_id", length = 255)
     private String gatewayRefundId;
 
@@ -58,11 +47,11 @@ public class Refund {
     @Column(nullable = false, length = 24)
     private RefundStatus status;
 
-    /** Why this refund exists, e.g. {@code BOOKING_EXPIRED} for the automatic compensation path. */
+    /** Why this refund exists, e.g. {@code BOOKING_EXPIRED}. */
     @Column(nullable = false, updatable = false, length = 255)
     private String reason;
 
-    /** UNIQUE — the guard that stops the same compensation refunding twice. */
+    /** UNIQUE guard against duplicate refunds. */
     @Column(name = "idempotency_key", nullable = false, unique = true, updatable = false, length = 120)
     private String idempotencyKey;
 
@@ -81,21 +70,13 @@ public class Refund {
         this.updatedAt = this.createdAt;
     }
 
-    /**
-     * Record what the gateway accepted, without moving money. The refund stays {@code PENDING}:
-     * only its webhook promotes it to {@code SUCCEEDED} (see {@link #markSucceeded}), because the
-     * API response is provisional — the money has not demonstrably moved until the gateway says so
-     * out-of-band.
-     */
+    /** Record gateway acceptance; stays PENDING until the webhook confirms. */
     public void recordAcceptance(String gatewayRefundId) {
         this.gatewayRefundId = gatewayRefundId;
         touch();
     }
 
-    /**
-     * Confirm this refund from its gateway webhook. Returns {@code false} if it is already terminal,
-     * so a redelivered refund webhook cannot add the same amount to the payment's total twice.
-     */
+    /** Confirm from webhook; no-op if already terminal so redelivery is safe. */
     public boolean markSucceeded(String gatewayRefundId) {
         if (status != RefundStatus.PENDING) {
             return false;
@@ -106,7 +87,7 @@ public class Refund {
         return true;
     }
 
-    /** The gateway rejected it. Contributes nothing to the payment's refunded total. */
+    /** Mark rejected; contributes nothing to the refunded total. */
     public boolean markFailed() {
         if (status != RefundStatus.PENDING) {
             return false;
@@ -116,7 +97,7 @@ public class Refund {
         return true;
     }
 
-    /** Set by {@link Payment#addRefund} to keep both sides of the relationship in sync. */
+    /** Set by {@link Payment#addRefund}. */
     void assignTo(Payment payment) {
         this.payment = payment;
     }

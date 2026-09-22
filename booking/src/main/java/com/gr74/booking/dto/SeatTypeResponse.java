@@ -5,7 +5,7 @@ import java.math.BigDecimal;
 import com.gr74.booking.model.SeatType;
 
 /**
- * Response shape for a seat type — a DTO, not the {@link SeatType} entity (project convention).
+ * Response for a seat type.
  */
 public record SeatTypeResponse(Long id, String name, BigDecimal priceMultiplier) {
 

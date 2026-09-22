@@ -6,14 +6,7 @@ import java.util.Set;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * Config for the Paymob adapter ({@code payment.gateway.paymob.*}).
- *
- * <p>Bound only when {@code api-key} is present ({@code PaymobGateway} carries the
- * {@code @ConditionalOnProperty}), so a deployment without Paymob credentials never offers it.
- *
- * <p>{@code integrationId} and {@code iframeId} come from the Paymob dashboard and identify which
- * payment method and which hosted checkout page to use — Paymob has no equivalent of Stripe's single
- * "Checkout" endpoint, so both must be configured explicitly.
+ * Config for the Paymob adapter ({@code payment.gateway.paymob.*}). Bound only when credentials exist.
  */
 @ConfigurationProperties(prefix = "payment.gateway.paymob")
 public record PaymobGatewayProps(

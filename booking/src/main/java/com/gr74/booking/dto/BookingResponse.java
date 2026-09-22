@@ -9,11 +9,7 @@ import com.gr74.booking.model.BookingStatus;
 import com.gr74.booking.model.PaymentStatus;
 
 /**
- * Response shape for a single booking (the {@code POST /bookings} result). Carries the cross-service
- * {@code movieId} as a bare id — no title here; resolving the title against Catalog is the job of the
- * "my bookings" read ({@link MyBookingDto}), which is exactly where the missing JOIN is meant to bite.
- * {@code userId} is intentionally omitted (the caller already knows who they are). DTOs cross the wire,
- * not the {@link Booking} entity.
+ * Response for {@code POST /bookings} — one booking with its reserved seats.
  */
 public record BookingResponse(
         Long id,

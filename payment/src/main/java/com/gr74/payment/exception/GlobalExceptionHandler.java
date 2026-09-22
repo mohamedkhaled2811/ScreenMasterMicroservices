@@ -24,32 +24,16 @@ import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Turns every error this service produces into an RFC 9457 {@code ProblemDetail}
- * ({@code application/problem+json}) carrying a stable, machine-readable {@code code}.
- *
- * <p>Why this exists: without a single advice, a bad request falls back to Spring's default body
- * ({@code {"error":"Bad Request",...}}) which has no field a caller can branch on. By extending
- * {@link ResponseEntityExceptionHandler} we reuse Spring's own handling of framework errors (bean
- * validation, unreadable bodies, missing headers) and only add the {@code code} property, so
- * <em>every</em> error — ours or the framework's — speaks the same contract. Booking's saga keys off
- * {@code code}, not the HTTP status or the human-readable {@code detail}. See
- * {@code docs/concepts/error-handling-problemdetail.md}.
- *
- * <p>The {@code code} comes from {@link PaymentErrorCode}; the HTTP status is taken from the code so
- * the two can never drift apart.
+ * Renders every service error as an RFC 9457 ProblemDetail with a stable {@code code}.
  */
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
-    /** Custom {@code ProblemDetail} member that holds the {@link PaymentErrorCode} name. */
+    /** Property holding the {@link PaymentErrorCode} name. */
     private static final String CODE_PROPERTY = "code";
 
-    /**
-     * Any error we raised deliberately. The carried {@link PaymentErrorCode} drives both the HTTP
-     * status and the {@code code}, so a new failure mode is one enum constant plus a throw — no
-     * change here.
-     */
+    /** Deliberate domain errors; status and code come from the carried {@link PaymentErrorCode}. */
     @ExceptionHandler(PaymentException.class)
     public ProblemDetail handlePaymentException(PaymentException ex) {
         PaymentErrorCode code = ex.errorCode();
@@ -62,18 +46,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return problemDetail(code, ex.getMessage());
     }
 
-    /**
-     * A {@code @PreAuthorize} (or any method-security rule) denied the call — e.g. a {@code USER}
-     * calling the {@code ADMIN}-only refund endpoint.
-     *
-     * <p><b>Why this handler must exist:</b> a method-security denial is thrown from the controller
-     * proxy <em>inside</em> the {@code DispatcherServlet} — <em>after</em> the security filter
-     * chain (and its {@code AccessDeniedHandler}) has already run. The filter-chain handler can
-     * never see it, so without this method the denial falls through to the catch-all below as an
-     * opaque 500. Rendered here as the same coded {@code PAYMENT_ACCESS_DENIED} (403) the chain
-     * produces — deliberately <em>not</em> {@code PAYMENT_FORBIDDEN}, which already means "this
-     * payment belongs to another user" (see {@code SecurityProblemSupport}).
-     */
+    /** Method-security denials (e.g. USER calling an ADMIN-only endpoint) as 403. */
     @ExceptionHandler(AuthorizationDeniedException.class)
     public ProblemDetail handleAuthorizationDenied(AuthorizationDeniedException ex) {
         log.warn("Access denied: {}", ex.getMessage());
@@ -81,11 +54,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 "Insufficient permissions for this resource");
     }
 
-    /**
-     * Last line of defence: anything we did not anticipate becomes a 500 with the generic
-     * {@code PAYMENT_INTERNAL_ERROR} code and a safe message — we never leak the exception text to
-     * the caller, but we log the full detail for ourselves.
-     */
+    /** Catch-all: unanticipated errors become 500 without leaking internals. */
     @ExceptionHandler(Exception.class)
     public ProblemDetail handleUnexpected(Exception ex) {
         log.error("Unhandled exception in payment service", ex);
@@ -93,29 +62,16 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 "An unexpected error occurred while processing the payment");
     }
 
-    /**
-     * The gateway's circuit breaker is OPEN and refused the call without touching the network.
-     * This is the same condition a real outage produces, so it answers with the SAME coded 503 a
-     * client already handles ({@code PAYMENT_GATEWAY_UNAVAILABLE}) — only faster (microseconds,
-     * not a 10s timeout). Mapping it here (rather than in the decorator) guarantees a resilience
-     * exception can never leak as an opaque 500.
-     */
+    /** Open circuit breaker: same coded 503 as a real outage, returned immediately. */
     @ExceptionHandler(CallNotPermittedException.class)
     public ProblemDetail handleCallNotPermitted(CallNotPermittedException ex) {
-        // The exception message names the breaker (e.g. CircuitBreaker 'paymob' is open ...).
+        // The exception message names the breaker.
         log.warn("Gateway circuit breaker open, failing fast: {}", ex.getMessage());
         return problemDetail(PaymentErrorCode.PAYMENT_GATEWAY_UNAVAILABLE,
                 "Payment gateway is unavailable: " + ex.getMessage());
     }
 
-    /**
-     * The gateway's bulkhead is full and the call was rejected rather than queued. A different code
-     * (429 {@code PAYMENT_GATEWAY_BUSY}) from an outage on purpose: "we are saturated" is not "the
-     * gateway is down", and the 429 tells a client to back off rather than treat it as a hard stop.
-     * The decorator normally translates this into a {@link GatewayBusyException} with a domain
-     * message; this handler is the safety net so even a raw resilience exception renders as a coded
-     * 429, never a 500.
-     */
+    /** Full bulkhead: coded 429 so clients back off. */
     @ExceptionHandler(BulkheadFullException.class)
     public ProblemDetail handleBulkheadFull(BulkheadFullException ex) {
         log.warn("Gateway bulkhead full, rejecting call: {}", ex.getMessage());
@@ -123,11 +79,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 "Payment gateway is at capacity: " + ex.getMessage());
     }
 
-    /**
-     * Bean-validation failures on {@code @Valid @RequestBody} (e.g. a non-positive amount). Spring
-     * raises this before our code runs; we override its hook so the response gets a {@code code}
-     * too, with the field violations folded into the detail.
-     */
+    /** Bean-validation failures on {@code @Valid @RequestBody}. */
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(
             MethodArgumentNotValidException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
@@ -142,11 +94,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.status(body.getStatus()).body(body);
     }
 
-    /**
-     * Method-level constraint failures on controller parameters — here, the
-     * {@code @NotBlank X-User-Id} header (Spring 6.1+ raises this rather than
-     * {@link MethodArgumentNotValidException} for non-body params). Same {@code code}, same shape.
-     */
+    /** Constraint failures on controller parameters. */
     @Override
     protected ResponseEntity<Object> handleHandlerMethodValidationException(
             HandlerMethodValidationException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
@@ -161,19 +109,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.status(body.getStatus()).body(body);
     }
 
-    /**
-     * The request body could not be parsed at all — malformed JSON, or a value that cannot be bound
-     * to its target type (e.g. {@code "gateway":"NOT_A_GATEWAY"} for the
-     * {@link com.gr74.payment.model.PaymentGatewayType} enum).
-     *
-     * <p>Spring's own handling produces a {@code ProblemDetail} with <b>no {@code code}</b>, which
-     * quietly breaks this service's contract: a client that branches on {@code code} would see the
-     * field simply missing. Overriding the hook keeps every error — ours and the framework's —
-     * speaking the same shape.
-     *
-     * <p>The detail is deliberately generic. Jackson's own message names internal class and field
-     * paths, which is information the caller neither needs nor should see.
-     */
+    /** Unparseable bodies become validation errors with a generic detail. */
     @Override
     protected ResponseEntity<Object> handleHttpMessageNotReadable(
             HttpMessageNotReadableException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
@@ -184,10 +120,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.status(body.getStatus()).body(body);
     }
 
-    /**
-     * A required header is absent altogether (e.g. no {@code X-User-Id}). Treated as the
-     * caller's validation error so it carries {@code PAYMENT_VALIDATION_ERROR} like the others.
-     */
+    /** Missing required headers become validation errors. */
     @ExceptionHandler(MissingRequestHeaderException.class)
     public ProblemDetail handleMissingHeader(MissingRequestHeaderException ex) {
         String detail = "Required header '" + ex.getHeaderName() + "' is missing";
@@ -195,7 +128,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return problemDetail(PaymentErrorCode.PAYMENT_VALIDATION_ERROR, detail);
     }
 
-    /** Build a {@code ProblemDetail} with the status from the code and the {@code code} attached. */
+    /** Builds a ProblemDetail with the code's status and the flat {@code code} property. */
     private ProblemDetail problemDetail(PaymentErrorCode code, String detail) {
         HttpStatus status = code.status();
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);

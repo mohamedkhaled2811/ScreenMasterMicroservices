@@ -138,4 +138,3 @@ Config is env-var driven with local-dev defaults. The full set (all in `src/main
 | How the dedupe works, with the exact SQL | `NotificationService`, `ProcessedEventRepository` (javadoc is exhaustive) |
 | The retry / dead-letter contract | `application.yml` (the `listener` block comment) |
 | What a pattern or annotation means | [`../docs/concepts/`](../docs/concepts/) — start with `idempotent-consumer.md`, `notification-channels.md`, `rabbitmq.md` |
-| What's next for this service | [`../docs/BUILD_PLAN.md`](../docs/BUILD_PLAN.md) |

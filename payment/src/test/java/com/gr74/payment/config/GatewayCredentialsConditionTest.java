@@ -13,17 +13,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gr74.payment.gateway.stripe.StripeGateway;
 
 /**
- * A gateway with no credentials must be <b>absent</b>, not registered-and-broken.
- *
- * <p>This is a regression test for a real defect. The adapters originally used Spring's
- * {@code @ConditionalOnProperty}, and our config supplies empty defaults ({@code ${STRIPE_SECRET_KEY:}})
- * so the service can start without every gateway configured. But {@code @ConditionalOnProperty} counts
- * an <b>empty string as present</b> — so Stripe and Paymob both registered with blank credentials,
- * appeared in {@code GET /payments/gateways}, and would have failed only when a real user tried to pay.
- * A live boot against Postgres logged {@code Registered payment gateways: [STRIPE, PAYMOB, SANDBOX]}
- * with no keys set, which is how it was caught.
- *
- * <p>{@link ConditionalOnGatewayCredentials} treats blank as absent; these tests pin that down.
+ * A gateway without credentials stays unregistered, never listed-but-broken.
  */
 class GatewayCredentialsConditionTest {
 

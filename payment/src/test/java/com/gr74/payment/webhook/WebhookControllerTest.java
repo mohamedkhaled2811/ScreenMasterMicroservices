@@ -24,18 +24,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import com.gr74.payment.config.SecurityConfig;
 
 /**
- * The HTTP contract of {@code POST /payments/webhooks/{gateway}}.
- *
- * <p>Two things are asserted here that no service-level test can see: that the raw bytes reach the
- * processor untouched (a Jackson round-trip would break HMAC verification), and that each outcome
- * maps to the documented status + coded body — 200 for almost everything, 400 only for a bad
- * signature or an unknown gateway segment.
- *
- * <p>Imports the real {@link SecurityConfig} so the raw-byte path is proven
- * <em>under the security filter chain</em> — the chain must not consume or wrap the body before the
- * controller reads it, or every genuine delivery would fail verification looking like a forged one.
- * Every case below runs with NO token (gateways hold no JWT): webhooks are signature-authed, not
- * token-authed, and a forged signature still yields 400 (not 401, not 500).
+ * HTTP contract of {@code POST /payments/webhooks/{gateway}}: raw bytes and coded outcomes.
  */
 @Import(SecurityConfig.class)
 @WebMvcTest(WebhookController.class)

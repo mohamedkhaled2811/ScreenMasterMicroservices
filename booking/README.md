@@ -169,4 +169,3 @@ Config is env-var driven with local-dev defaults: `BOOKING_DB_URL`, `BOOKING_DB_
 | Why the service is shaped this way | [`docs/diagrams/architecture-booking-service.md`](docs/diagrams/architecture-booking-service.md) |
 | How the cross-service reads work | [`docs/diagrams/process-booking-integration.md`](docs/diagrams/process-booking-integration.md) |
 | What a pattern or annotation means | [`../docs/concepts/`](../docs/concepts/) |
-| What's next for this service | [`../docs/BUILD_PLAN.md`](../docs/BUILD_PLAN.md) |

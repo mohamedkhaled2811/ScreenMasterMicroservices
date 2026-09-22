@@ -24,14 +24,7 @@ import com.gr74.booking.model.Showtime;
 import com.gr74.booking.model.Theater;
 
 /**
- * Persistence slice for the inventory + showtime schema on in-memory H2 (Liquibase off, Hibernate
- * builds the test schema from the entities). Proves the things the write endpoints and the Phase-3
- * saga depend on: the theater→screen→seat→seat-type graph round-trips through real FKs; the seats
- * repository eager-fetches {@code seatType} (so the DTO mapper can read the type name under
- * {@code open-in-view: false}); and every uniqueness invariant actually rejects a duplicate.
- *
- * <p>{@link JpaAuditingConfig} is imported so {@code @CreatedDate} populates the NOT NULL
- * {@code created_date} — {@code @DataJpaTest} doesn't load {@code @Configuration} beans automatically.
+ * Persistence slice for the inventory and showtime repositories on H2.
  */
 @DataJpaTest
 @Import(JpaAuditingConfig.class)
@@ -64,7 +57,7 @@ class InventoryRepositoryTest {
         Screen screen = em.persist(new Screen(SCREEN_1, ScreenType.SCREEN_3D, theater));
         em.persist(new Seat("A", 1, screen, standard));
         em.flush();
-        em.clear(); // force a fresh load so the @EntityGraph fetch is actually exercised
+        em.clear(); // force a fresh load so the fetch is actually exercised
 
         List<Seat> seats = seatRepository.findByScreenIdOrderBySeatRowAscSeatNumberAsc(screen.getId());
 
@@ -72,7 +65,7 @@ class InventoryRepositoryTest {
         Seat loaded = seats.get(0);
         assertThat(loaded.getSeatRow()).isEqualTo("A");
         assertThat(loaded.getSeatNumber()).isEqualTo(1);
-        // seatType is eager-fetched by the repository's @EntityGraph — readable after em.clear().
+        // seatType is eager-fetched — readable after em.clear().
         assertThat(loaded.getSeatType().getName()).isEqualTo(STANDARD);
         assertThat(theater.getCreatedDate()).isNotNull(); // auditing populated it
     }
@@ -127,7 +120,7 @@ class InventoryRepositoryTest {
         Screen screen = em.persist(new Screen(SCREEN_S1, ScreenType.FRONT_SCREEN, theater));
         LocalDate date = LocalDate.of(2026, 7, 10);
         LocalTime time = LocalTime.of(19, 30);
-        // movieId 999999 need not exist anywhere — the cut means there is no FK to satisfy.
+        // movieId need not exist anywhere — there is no FK to satisfy.
         em.persist(new Showtime(999_999L, screen, date, time, new BigDecimal("12.50")));
         em.flush();
 

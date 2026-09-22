@@ -5,55 +5,39 @@ spring:
   application:
     name: notification
 
-  # Owns notification-db. Credentials come from env vars (never hard-coded), with local-dev defaults
-  # after the ':'. Compose overrides the URL/host via env.
+  # Owns notification-db; credentials come from env vars with local-dev defaults.
   datasource:
     url: ${NOTIFICATION_DB_URL:jdbc:postgresql://localhost:5432/notification}
     username: ${NOTIFICATION_DB_USER:postgres}
     password: ${NOTIFICATION_DB_PASSWORD:postgres}
 
-  # Liquibase owns the schema; Hibernate only VALIDATEs the entities against it on boot.
+  # Liquibase owns the schema; Hibernate only validates against it.
   liquibase:
     change-log: classpath:db/changelog/db.changelog-master.yaml
   jpa:
     hibernate:
       ddl-auto: validate
-    open-in-view: false   # no lazy loading in the view layer; keep the tx boundary in the service
+    open-in-view: false   # keep the transaction boundary in the service
 
-  # RabbitMQ — Notification CONSUMES BookingConfirmed / BookingConfirmationRejected here (BUILD_PLAN
-  # 4.3). Host defaults to localhost for `mvn spring-boot:run`; Compose overrides RABBITMQ_HOST to
-  # the `rabbitmq` container.
+  # RabbitMQ consumer config; host defaults to localhost, Compose overrides it.
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USER:guest}
     password: ${RABBITMQ_PASSWORD:guest}
 
-    # RETRY + DEAD-LETTER. A send can fail for reasons that fix themselves (Mailpit restarting,
-    # Keycloak briefly down) and reasons that never will (a user with no email address). Without
-    # this block, a failing send nacks and RabbitMQ redelivers IMMEDIATELY, forever — a hot loop
-    # that buries the broker and the logs.
-    #
-    # How it interacts with the idempotent consumer: the claim and the send are in ONE transaction,
-    # so a failed send rolls the claim back too. The retry therefore re-claims successfully and
-    # re-sends — no double-send, because no send ever succeeded. See NotificationService's javadoc.
-    #
-    # After max-attempts the message is REJECTED, and because the queue is declared with a
-    # dead-letter exchange (RabbitConfig), it lands in the DLQ instead of vanishing. A ticket that
-    # cannot be sent is a customer problem, not a log line — it must be inspectable.
+    # Retry with backoff; exhausted messages go to the dead-letter queue.
     listener:
       simple:
-        default-requeue-rejected: false   # exhausted -> dead-letter, do NOT requeue into the hot loop
+        default-requeue-rejected: false   # exhausted messages go to the dead-letter queue
         retry:
           enabled: true
           max-attempts: 5
           initial-interval: 2s
           multiplier: 2.0
-          max-interval: 30s               # 2s, 4s, 8s, 16s, 30s -> ~60s of grace before the DLQ
+          max-interval: 30s               # 2s, 4s, 8s, 16s, 30s of backoff before the DLQ
 
-  # SMTP. Every property is env-driven: pointing at SES/SendGrid instead of Mailpit is a config
-  # change with ZERO code change, which is the reason the send goes through JavaMailSender at all.
-  # Defaults target a locally-running Mailpit (`docker compose up mailpit`).
+  # SMTP is env-driven; defaults target a local Mailpit.
   mail:
     host: ${MAIL_HOST:localhost}
     port: ${MAIL_PORT:1025}
@@ -62,33 +46,16 @@ spring:
     properties:
       mail:
         smtp:
-          # Both false for Mailpit (no auth, no TLS on a local network). A real provider sets these
-          # to true via env — still no code change.
+          # Auth and TLS off for Mailpit; enabled via env for real providers.
           auth: ${MAIL_SMTP_AUTH:false}
           starttls:
             enable: ${MAIL_SMTP_STARTTLS:false}
-          # Never let a hung SMTP connection pin a listener thread forever: an unbounded socket read
-          # would hold the consumer (and its open transaction) open indefinitely. Fail fast, nack,
-          # and let the retry/backoff above handle it.
+          # Timeouts prevent a hung SMTP connection from blocking the listener.
           connectiontimeout: 5000
           timeout: 5000
           writetimeout: 5000
 
-  # Phase 7 (BUILD_PLAN 7.2/7.3 + 7.6): TWO OAuth2 roles in one service.
-  #
-  # 1. RESOURCE SERVER (inbound): this service validates the user's Bearer JWT itself (zero trust),
-  #    like every other service. ONE issuer URI everywhere: it feeds BOTH the accepted `iss` claim
-  #    and the derived JWKS fetch URL (see SecurityConfig), so the two can never drift apart. In
-  #    Compose this is `http://keycloak:8180/realms/cinema` (container DNS — the `keycloak` service
-  #    name); Keycloak is told to mint exactly that `iss` via KC_HOSTNAME (see compose.yaml).
-  # 2. CLIENT (outbound, machine token — decision B3a): the `notification-keycloak` registration is
-  #    this service's OWN identity toward Keycloak (client-credentials grant), spent in part 2 to
-  #    look up a user's email by `sub`. The secret travels via env (never committed — the dev
-  #    default below only matches the DEV realm JSON; production sets NOTIFICATION_SVC_SECRET).
-  #    NOTE the provider declares only `token-uri`, deliberately NOT `issuer-uri`: Boot resolves an
-  #    issuer-uri EAGERLY at startup (an OIDC discovery fetch), which would make this service
-  #    unbootable whenever Keycloak is briefly down — and untestable hermetically. The token-uri is
-  #    called lazily, on the first machine-token request, so boot never depends on the IdP.
+  # Inbound JWT validation plus outbound client-credentials registration for Keycloak.
   security:
     oauth2:
       resourceserver:
@@ -104,48 +71,36 @@ spring:
           notification-keycloak:
             token-uri: ${KEYCLOAK_ISSUER_URI:http://keycloak:8180/realms/cinema}/protocol/openid-connect/token
 
-# A Eureka CLIENT: registers with the discovery server on startup. (No register/fetch overrides —
-# those are server-only.) See docs/concepts/service-discovery.md.
+# Eureka client registration.
 eureka:
   client:
     service-url:
       defaultZone: ${EUREKA_SERVICE_URL:http://localhost:8761/eureka/}
 
-# Distributed tracing: sample 100% in the lab so every demo request appears
-# in Zipkin. Production runs ~0.1 (10%) — recording every trace is expensive (CPU + span storage),
-# and the sampling decision is made once at the first service and carried in the traceparent flag. The
-# endpoint defaults to the local Zipkin; Compose points it at the `zipkin` container via ZIPKIN_ENDPOINT.
+# Tracing sampled at 100%; the Zipkin endpoint is env-driven.
 management:
   tracing:
     sampling:
       probability: ${TRACING_SAMPLE_RATE:1.0}
-    # Boot 4 renamed this key: it is `management.tracing.export.zipkin.endpoint`, NOT the Boot 3
-    # `management.zipkin.tracing.endpoint`. The old key binds to nothing and the sender silently
-    # keeps its built-in default of http://localhost:9411 — which inside a container is the
-    # container itself, so every export fails with ConnectException while the network is fine.
     export:
       zipkin:
         endpoint: ${ZIPKIN_ENDPOINT:http://localhost:9411/api/v2/spans}
 
-# This service's own settings (bound by NotificationProps, @ConfigurationProperties("notification")).
+# Service settings bound by NotificationProps.
 notification:
   mail:
-    # The From: address on every ticket. A real provider only lets you send as a domain you own.
+    # From address for outgoing ticket mail.
     from: ${NOTIFICATION_MAIL_FROM:tickets@screenmaster.local}
     from-name: ${NOTIFICATION_MAIL_FROM_NAME:ScreenMaster}
-  # Poster rendering. Catalog snapshots TMDB *paths* ("/abc.jpg") onto the event, never full URLs —
-  # the CDN host and the size are a rendering concern, and baking them into stored data would mean a
-  # re-sync to change image size. The email builds {base}/{size}{path} at render time.
+  # Poster image host and size for rendering email images.
   image:
     base-url: ${NOTIFICATION_IMAGE_BASE_URL:https://image.tmdb.org/t/p}
     poster-size: ${NOTIFICATION_IMAGE_POSTER_SIZE:w780}
   identity:
-    # Keycloak Admin API base. The email lookup is GET {base}/admin/realms/{realm}/users/{sub}.
-    # Derived from the SAME issuer URI every other Keycloak setting pins, so they cannot drift.
+    # Keycloak Admin API base for email lookup.
     server-url: ${KEYCLOAK_SERVER_URL:http://keycloak:8180}
     realm: ${KEYCLOAK_REALM:cinema}
-    # How long a resolved email is cached. Emails change rarely; the lookup is on the consume path
-    # of EVERY booking event. Short enough that a changed address is picked up the same session.
+    # Resolved-email cache TTL.
     email-cache-ttl: ${NOTIFICATION_EMAIL_CACHE_TTL:10m}
     email-cache-max-size: ${NOTIFICATION_EMAIL_CACHE_MAX_SIZE:10000}
 

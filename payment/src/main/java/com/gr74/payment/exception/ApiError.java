@@ -3,20 +3,7 @@ package com.gr74.payment.exception;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
- * OpenAPI-only documentation of the error body every failing endpoint returns.
- *
- * <p>This class is never instantiated or returned by any controller — the real error body is a Spring
- * {@link org.springframework.http.ProblemDetail} built in {@link GlobalExceptionHandler}. It exists
- * purely so springdoc has a schema to render in Swagger UI, because springdoc <em>cannot</em> infer the
- * custom {@code code} member (added at runtime via {@code problemDetail.setProperty("code", …)}) — it
- * only sees the framework's {@code ProblemDetail} type, which has no such field. We mirror the RFC 9457
- * shape plus our {@code code} extension here so the machine-readable contract siblings and the frontend
- * branch on is visible in the docs.
- *
- * <p>Keep the {@code code} description in sync with {@link PaymentErrorCode} — the coupling is manual
- * (see {@code docs/concepts/openapi-springdoc.md}, "Gotchas").
- *
- * @see PaymentErrorCode
+ * OpenAPI-only documentation of the RFC 9457 error body; never instantiated by controllers.
  */
 @Schema(name = "ProblemDetail", description = "RFC 9457 problem response (application/problem+json) with a stable machine-readable code.")
 public record ApiError(

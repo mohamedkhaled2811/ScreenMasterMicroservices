@@ -2,6 +2,10 @@ package com.gr74.booking.service;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,13 +20,20 @@ import com.gr74.booking.messaging.BookingConfirmed;
 import com.gr74.booking.messaging.ConfirmationRejectionReason;
 import com.gr74.booking.messaging.PaymentFailedEvent;
 import com.gr74.booking.messaging.PaymentSucceededEvent;
+import com.gr74.booking.messaging.TicketSeat;
 import com.gr74.booking.model.Booking;
+import com.gr74.booking.model.BookingSeat;
 import com.gr74.booking.model.BookingStatus;
 import com.gr74.booking.model.PaymentStatus;
+import com.gr74.booking.model.Seat;
+import com.gr74.booking.model.Showtime;
 import com.gr74.booking.outbox.OutboxEventType;
 import com.gr74.booking.outbox.OutboxMessage;
 import com.gr74.booking.outbox.OutboxMessageRepository;
+import com.gr74.booking.client.CatalogClient.MovieProjectionData;
 import com.gr74.booking.repository.BookingRepository;
+import com.gr74.booking.repository.SeatRepository;
+import com.gr74.booking.repository.ShowtimeRepository;
 
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
@@ -58,6 +69,11 @@ public class BookingConfirmer {
     private final ObjectMapper objectMapper;
     private final Clock clock;
     private final Tracer tracer;
+    // The three collaborators the TICKET SNAPSHOT needs. They are read inside the confirm
+    // transaction so the event carries what was true at that moment — see buildConfirmed().
+    private final ShowtimeRepository showtimes;
+    private final SeatRepository seats;
+    private final MovieReadModel movies;
 
     /** What one {@code PaymentSucceeded} decided — returned so tests can assert the branch. */
     public enum ConfirmOutcome {
@@ -94,8 +110,7 @@ public class BookingConfirmer {
                             "Booking " + event.bookingId() + " confirmed then vanished mid-transaction"));
             // eventId is a 0L placeholder; the relay stamps the outbox row id onto the wire so a
             // republished event keeps the same id and the consumer's dedupe fires.
-            writeOutbox(new BookingConfirmed(0L,
-                            booking.getId(), booking.getBookingReference(), booking.getUserId(), now),
+            writeOutbox(buildConfirmed(booking, now),
                     OutboxEventType.BOOKING_CONFIRMED, booking.getId(),
                     RabbitConfig.BOOKING_CONFIRMED_ROUTING_KEY);
             log.info("Confirmed booking id={} ref={} off paymentId={} (eventId={})",
@@ -130,6 +145,92 @@ public class BookingConfirmer {
         log.debug("Dropped PaymentFailed for bookingId={} — no longer PENDING (eventId={})",
                 event.bookingId(), event.eventId());
         return false;
+    }
+
+    /**
+     * Assemble the {@link BookingConfirmed} event, snapshotting everything a ticket must print.
+     *
+     * <p><b>Why all of this is gathered HERE, inside the confirm transaction.</b> This is the one
+     * moment where the booking, its seats, its showtime, that showtime's screen and theater, and the
+     * cached movie are all reachable in one place with one consistent view. Notification cannot reach
+     * any of it — it has no access to Booking's database and must not acquire one — so either these
+     * facts travel on the event, or Notification calls back for them at send time and renders whatever
+     * is true THEN rather than what was true now. For a ticket, the latter is wrong: see the class
+     * javadoc on {@link BookingConfirmed}.
+     *
+     * <p><b>Nothing here may fail the confirm.</b> The booking is already updated and the money has
+     * already moved; a missing showtime row or an unresolvable movie title must degrade to a ticket
+     * with a blank field, never to a rolled-back sale. Every lookup below is therefore null-tolerant,
+     * and the email template is built to render without any of them.
+     */
+    private BookingConfirmed buildConfirmed(Booking booking, Instant now) {
+        // One query, both associations fetched — the join the ticket needs, and the one Notification
+        // would otherwise have had to make over HTTP. open-in-view is false, so this explicit fetch is
+        // what makes screen/theater readable at all.
+        Showtime showtime = showtimes.findWithScreenAndTheaterById(booking.getShowtimeId()).orElse(null);
+        MovieProjectionData movie = movies.movieById(booking.getMovieId()).orElse(null);
+
+        return new BookingConfirmed(0L,
+                booking.getId(),
+                booking.getBookingReference(),
+                booking.getUserId(),
+                booking.getMovieId(),
+                movie == null ? null : movie.title(),
+                movie == null ? null : movie.posterPath(),
+                startsAt(showtime),
+                showtime == null ? null : showtime.getScreen().getTheater().getName(),
+                showtime == null ? null : showtime.getScreen().getName(),
+                ticketSeats(booking),
+                booking.getTotalAmount(),
+                booking.getCurrency(),
+                now);
+    }
+
+    /**
+     * The showtime's start as a UTC instant.
+     *
+     * <p>{@code Showtime} stores a local date and a local time — correct for the theater, which thinks
+     * in wall-clock terms. An instant is what crosses the wire: the consumer formats it for display,
+     * and unlike a bare {@code LocalDateTime} it cannot be silently reinterpreted in a different zone.
+     * The zone comes from the injected {@link Clock}, so a test with a fixed-zone clock gets a
+     * deterministic value instead of depending on the host's timezone.
+     */
+    private Instant startsAt(Showtime showtime) {
+        if (showtime == null) {
+            return null;
+        }
+        return showtime.getShowDate().atTime(showtime.getShowTime()).atZone(clock.getZone()).toInstant();
+    }
+
+    /**
+     * Turn the booking's line items into printable ticket seats.
+     *
+     * <p>{@code booking_seats} holds a {@code seatId}, which means nothing to a customer — the ticket
+     * needs "E5". The labels come from one batched {@code IN} query rather than a lookup per seat: a
+     * party of six would otherwise be six round trips to the database on the confirm path.
+     *
+     * <p>Price and type name are read straight off the booking's own line items, NOT recomputed from
+     * the seat's current type — they were frozen at booking time precisely so a later price change
+     * cannot rewrite what someone already paid.
+     */
+    private List<TicketSeat> ticketSeats(Booking booking) {
+        List<Long> seatIds = booking.getSeats().stream().map(BookingSeat::getSeatId).toList();
+        if (seatIds.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, Seat> byId = seats.findWithSeatTypeByIdIn(seatIds).stream()
+                .collect(Collectors.toMap(Seat::getId, Function.identity(), (a, b) -> a));
+        return booking.getSeats().stream()
+                .map(line -> new TicketSeat(
+                        label(byId.get(line.getSeatId())),
+                        line.getSeatTypeName(),
+                        line.getSeatPrice()))
+                .toList();
+    }
+
+    /** {@code E} + {@code 5} → {@code "E5"}; null when the seat row vanished (never expected). */
+    private String label(Seat seat) {
+        return seat == null ? null : seat.getSeatRow() + seat.getSeatNumber();
     }
 
     private ConfirmOutcome reject(Booking booking, PaymentSucceededEvent event, Instant now) {

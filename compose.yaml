@@ -222,6 +222,17 @@ services:
       # the notification-svc client). Dev default matches the DEV realm JSON; production sets this
       # in .env — never committed.
       NOTIFICATION_SVC_SECRET: ${NOTIFICATION_SVC_SECRET:-notification-svc-dev-secret}
+      # SMTP. Mailpit in the lab; production overrides these four to a real provider with NO code
+      # change (that is the whole point of going through JavaMailSender). Auth is off because
+      # Mailpit accepts anything — MAIL_USERNAME/MAIL_PASSWORD stay empty here and come from .env
+      # when pointed at a real provider.
+      MAIL_HOST: mailpit
+      MAIL_PORT: "1025"
+      # The From: address on every ticket. Must be a domain the provider is allowed to send as.
+      NOTIFICATION_MAIL_FROM: ${NOTIFICATION_MAIL_FROM:-tickets@screenmaster.local}
+      # Poster images: Catalog stores TMDB *paths* (/abc.jpg); the email needs a full URL. Same base
+      # as catalog's TMDB_IMAGE_BASE_URL — w780 is a good width for a ~600px email body.
+      NOTIFICATION_IMAGE_BASE_URL: ${TMDB_IMAGE_BASE_URL:-https://image.tmdb.org/t/p}
       # Tracing: the Zipkin exporter endpoint. No depends_on — see the discovery block.
       ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
       # Boot 4 key (management.tracing.export.zipkin.endpoint) as a relaxed-binding env var.
@@ -234,6 +245,11 @@ services:
         condition: service_started
       rabbitmq:
         condition: service_healthy
+      # No condition: service_healthy — Mailpit has no healthcheck and a send that races its
+      # startup simply fails, nacks, and redelivers. The consumer is idempotent; that is the
+      # retry path working as designed, not a race worth gating boot on.
+      mailpit:
+        condition: service_started
     networks: [screenmaster]
 
   # ===========================================================================
@@ -420,6 +436,29 @@ services:
     image: openzipkin/zipkin
     ports:
       - "9411:9411"          # trace UI + collector -> http://localhost:9411 (used from Phase 6)
+    networks: [screenmaster]
+
+  # ===========================================================================
+  #  Mailpit — a FAKE SMTP server with a web inbox. Notification points
+  #  spring.mail.host here, so the send path is real SMTP through a real
+  #  JavaMailSender; only the far end is local. Open http://localhost:8025 to
+  #  SEE the rendered ticket, which is the only practical way to iterate on
+  #  HTML email (the markup is table-based and client-quirky — you have to look
+  #  at it). Mailpit is the maintained successor to the archived MailHog.
+  #
+  #  Why not a real provider in dev: credentials to manage, deliverability
+  #  rabbit holes (SPF/DKIM), rate limits, and every `--scale notification=2`
+  #  dedupe experiment would mail a real human. Switching to SES/SendGrid later
+  #  is FOUR config properties and ZERO code — spring.mail.* via env.
+  # ===========================================================================
+  mailpit:
+    image: axllent/mailpit
+    ports:
+      - "8025:8025"          # web inbox -> http://localhost:8025 (look at the ticket here)
+      - "1025:1025"          # SMTP — what notification's JavaMailSender connects to
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"      # dev: any credentials pass (there are none)
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"  # dev: no TLS on the loopback network
     networks: [screenmaster]
 
 # A dedicated network so service names resolve as DNS and the stack is isolated

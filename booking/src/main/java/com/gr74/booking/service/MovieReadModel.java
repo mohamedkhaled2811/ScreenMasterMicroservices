@@ -2,11 +2,13 @@ package com.gr74.booking.service;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.gr74.booking.client.CatalogClient.MovieProjectionData;
 import com.gr74.booking.model.MovieProjection;
 import com.gr74.booking.repository.MovieProjectionRepository;
 
@@ -59,10 +61,33 @@ public class MovieReadModel {
             if (resolved.containsKey(id)) {
                 continue;
             }
-            backfiller.backfill(id).ifPresent(title -> resolved.put(id, title));
+            backfiller.backfill(id).ifPresent(movie -> resolved.put(id, movie.title()));
         }
         log.info("Way-B titles: {}/{} resolved ({} local hits, {} backfilled)",
                 resolved.size(), ids.size(), localHits, resolved.size() - localHits);
         return resolved;
+    }
+
+    /**
+     * Resolve ONE movie id to the title + poster the ticket email needs, backfilling a miss.
+     *
+     * <p>Used on the booking-confirm path, where the facts are snapshotted onto the
+     * {@code BookingConfirmed} event. Reading them here — from Booking's own read model — is precisely
+     * what keeps Notification free of a synchronous Catalog call at send time: the confirm pays for the
+     * lookup once (usually a local row read), and the event carries the answer forever after.
+     *
+     * <p><b>Returns empty rather than throwing when the movie cannot be resolved</b>, and the caller must
+     * treat that as "send the ticket without the title/poster". A confirmed booking is money that has
+     * already changed hands; failing the confirm — or the email — because a decorative poster could not
+     * be looked up would be letting the least important dependency veto the most important outcome.
+     */
+    @Transactional(readOnly = true)
+    public Optional<MovieProjectionData> movieById(Long id) {
+        if (id == null) {
+            return Optional.empty();
+        }
+        return movieProjectionRepository.findById(id)
+                .map(cached -> new MovieProjectionData(cached.getTitle(), cached.getPosterPath()))
+                .or(() -> backfiller.backfill(id));
     }
 }

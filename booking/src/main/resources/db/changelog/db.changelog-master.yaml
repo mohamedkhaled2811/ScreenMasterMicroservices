@@ -17,6 +17,8 @@
 #                           booking write; the Phase-4 relay publishes them (BUILD_PLAN 4.1/4.2)
 #   011-add-outbox-trace-  outbox.trace_id + span_id — the originating trace, persisted so the
 #     context              async relay can carry it across the commit boundary
+#   012-add-movie-projec-  movie_projections.poster_path — the movie artwork the ticket email renders,
+#     tion-poster          cached alongside the title on the same read model
 #
 # See docs/concepts/liquibase.md.
 databaseChangeLog:
@@ -42,3 +44,5 @@ databaseChangeLog:
       file: db/changelog/changes/010-create-outbox.yaml
   - include:
       file: db/changelog/changes/011-add-outbox-trace-context.yaml
+  - include:
+      file: db/changelog/changes/012-add-movie-projection-poster.yaml

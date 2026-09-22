@@ -65,11 +65,16 @@ class BookingEventListenerTest {
         listener = new BookingEventListener(notificationService, objectMapper, tracer);
     }
 
+    // The ticket fields are left null throughout this class on purpose: this is the AMQP ADAPTER's
+    // test, and the adapter only routes and delegates — it never reads the payload's contents. The
+    // service is mocked, so filling in a full ticket here would assert nothing and would have to be
+    // updated every time the event contract grows. NotificationServiceTest covers the contents.
+
     @Test
     @DisplayName("booking-confirmed-key converts to BookingConfirmedEvent and delegates")
     void dispatchesConfirmedEvent() {
         BookingConfirmedEvent event = new BookingConfirmedEvent(1L, 101L, "BK-00001", "user-1",
-                Instant.parse("2026-09-13T12:00:00Z"));
+                null, null, null, null, null, null, null, null, null, Instant.parse("2026-09-13T12:00:00Z"));
         when(objectMapper.convertValue(any(Map.class), eq(BookingConfirmedEvent.class))).thenReturn(event);
 
         listener.onBookingEvent(Map.of(), RabbitConfig.BOOKING_CONFIRMED_ROUTING_KEY, null);
@@ -106,7 +111,7 @@ class BookingEventListenerTest {
     @DisplayName("a message with NO traceparent still processes — backwards compatibility")
     void noTraceparentStillProcesses() {
         BookingConfirmedEvent event = new BookingConfirmedEvent(3L, 303L, "BK-00003", "user-1",
-                Instant.parse("2026-09-13T12:00:00Z"));
+                null, null, null, null, null, null, null, null, null, Instant.parse("2026-09-13T12:00:00Z"));
         when(objectMapper.convertValue(any(Map.class), eq(BookingConfirmedEvent.class))).thenReturn(event);
 
         listener.onBookingEvent(Map.of(), RabbitConfig.BOOKING_CONFIRMED_ROUTING_KEY, null);
@@ -121,7 +126,7 @@ class BookingEventListenerTest {
     @DisplayName("a traceparent header restores the traceId into the MDC during processing, then clears it")
     void traceparentRestoresTraceIdAndClearsItAfter() {
         BookingConfirmedEvent event = new BookingConfirmedEvent(4L, 404L, "BK-00004", "user-1",
-                Instant.parse("2026-09-13T12:00:00Z"));
+                null, null, null, null, null, null, null, null, null, Instant.parse("2026-09-13T12:00:00Z"));
         when(objectMapper.convertValue(any(Map.class), eq(BookingConfirmedEvent.class))).thenReturn(event);
 
         TraceContext context = mock(TraceContext.class);
@@ -164,7 +169,7 @@ class BookingEventListenerTest {
     @DisplayName("a failed dispatch records the error on the span, still clears the MDC, and rethrows")
     void failedDispatchMarksSpanWithError() {
         BookingConfirmedEvent event = new BookingConfirmedEvent(6L, 606L, "BK-00006", "user-1",
-                Instant.parse("2026-09-13T12:00:00Z"));
+                null, null, null, null, null, null, null, null, null, Instant.parse("2026-09-13T12:00:00Z"));
         when(objectMapper.convertValue(any(Map.class), eq(BookingConfirmedEvent.class))).thenReturn(event);
 
         TraceContext context = mock(TraceContext.class);
@@ -205,7 +210,7 @@ class BookingEventListenerTest {
     @DisplayName("a malformed traceparent is ignored and the message still processes")
     void malformedTraceparentStillProcesses() {
         BookingConfirmedEvent event = new BookingConfirmedEvent(5L, 505L, "BK-00005", "user-1",
-                Instant.parse("2026-09-13T12:00:00Z"));
+                null, null, null, null, null, null, null, null, null, Instant.parse("2026-09-13T12:00:00Z"));
         when(objectMapper.convertValue(any(Map.class), eq(BookingConfirmedEvent.class))).thenReturn(event);
 
         listener.onBookingEvent(Map.of(), RabbitConfig.BOOKING_CONFIRMED_ROUTING_KEY, "not-a-header");

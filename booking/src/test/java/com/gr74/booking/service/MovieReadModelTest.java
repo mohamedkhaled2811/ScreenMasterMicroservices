@@ -16,6 +16,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import com.gr74.booking.client.CatalogClient;
+import com.gr74.booking.client.CatalogClient.MovieProjectionData;
 import com.gr74.booking.exception.CatalogUnavailableException;
 import com.gr74.booking.model.MovieProjection;
 import com.gr74.booking.repository.MovieProjectionRepository;
@@ -46,17 +47,17 @@ class MovieReadModelTest {
 
     @Test
     void cachedTitleServedLocallyWithoutCallingCatalog() {
-        repository.saveAndFlush(new MovieProjection(603L, "The Matrix", null));
+        repository.saveAndFlush(new MovieProjection(603L, "The Matrix", "/matrix.jpg", null));
 
         Map<Long, String> titles = readModel.titlesByIds(Set.of(603L));
 
         assertThat(titles).containsEntry(603L, "The Matrix");
-        verify(catalogClient, never()).titleById(603L); // local hit — no network
+        verify(catalogClient, never()).projectionById(603L); // local hit — no network
     }
 
     @Test
     void missIsLazilyBackfilledFromCatalogAndCached() {
-        given(catalogClient.titleById(550L)).willReturn(Optional.of("Fight Club"));
+        given(catalogClient.projectionById(550L)).willReturn(Optional.of(new MovieProjectionData("Fight Club", "/fightclub.jpg")));
 
         Map<Long, String> titles = readModel.titlesByIds(Set.of(550L));
 
@@ -64,12 +65,15 @@ class MovieReadModelTest {
         // Cached for next time (updatedAt null: from a fetch, not an event).
         MovieProjection cached = repository.findById(550L).orElseThrow();
         assertThat(cached.getTitle()).isEqualTo("Fight Club");
+        // The poster is cached by the SAME backfill — one fetch fills both columns, so the ticket
+        // email's artwork never costs a second Catalog call.
+        assertThat(cached.getPosterPath()).isEqualTo("/fightclub.jpg");
         assertThat(cached.getUpdatedAt()).isNull();
     }
 
     @Test
     void missWhileCatalogDownServesNullAndDoesNotPoisonTheCache() {
-        given(catalogClient.titleById(777L)).willThrow(new CatalogUnavailableException(777L, new RuntimeException("down")));
+        given(catalogClient.projectionById(777L)).willThrow(new CatalogUnavailableException(777L, new RuntimeException("down")));
 
         Map<Long, String> titles = readModel.titlesByIds(Set.of(777L));
 
@@ -80,7 +84,7 @@ class MovieReadModelTest {
 
     @Test
     void missOn404DoesNotCacheButServesNull() {
-        given(catalogClient.titleById(999L)).willReturn(Optional.empty()); // Catalog says "no such movie"
+        given(catalogClient.projectionById(999L)).willReturn(Optional.empty()); // Catalog says "no such movie"
 
         Map<Long, String> titles = readModel.titlesByIds(Set.of(999L));
 
@@ -90,12 +94,12 @@ class MovieReadModelTest {
 
     @Test
     void mixOfCachedAndBackfilledIdsResolvesBoth() {
-        repository.saveAndFlush(new MovieProjection(603L, "The Matrix", null));
-        given(catalogClient.titleById(550L)).willReturn(Optional.of("Fight Club"));
+        repository.saveAndFlush(new MovieProjection(603L, "The Matrix", "/matrix.jpg", null));
+        given(catalogClient.projectionById(550L)).willReturn(Optional.of(new MovieProjectionData("Fight Club", "/fightclub.jpg")));
 
         Map<Long, String> titles = readModel.titlesByIds(Set.of(603L, 550L));
 
         assertThat(titles).containsEntry(603L, "The Matrix").containsEntry(550L, "Fight Club");
-        verify(catalogClient, never()).titleById(603L); // cached one never hit Catalog
+        verify(catalogClient, never()).projectionById(603L); // cached one never hit Catalog
     }
 }

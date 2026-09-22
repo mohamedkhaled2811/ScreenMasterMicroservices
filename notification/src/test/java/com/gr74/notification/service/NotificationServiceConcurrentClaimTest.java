@@ -1,6 +1,7 @@
 package com.gr74.notification.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -18,6 +19,9 @@ import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import com.gr74.notification.channel.NotificationChannel;
+import com.gr74.notification.config.NotificationProps;
+import com.gr74.notification.identity.KeycloakUserClient;
 import com.gr74.notification.messaging.BookingConfirmedEvent;
 import com.gr74.notification.repository.ProcessedEventRepository;
 
@@ -39,6 +43,15 @@ class NotificationServiceConcurrentClaimTest {
     @MockitoBean
     private ProcessedEventRepository processedEvents;
 
+    @MockitoBean
+    private NotificationChannel channel;
+
+    @MockitoBean
+    private KeycloakUserClient users;
+
+    @MockitoBean
+    private NotificationProps props;
+
     @Autowired
     private NotificationService service;
 
@@ -49,13 +62,19 @@ class NotificationServiceConcurrentClaimTest {
         org.mockito.Mockito.when(processedEvents.claim(anyLong(), anyString(), any()))
                 .thenThrow(new DataIntegrityViolationException("duplicate key"));
 
+        // Ticket fields null: the claim loses BEFORE anything is rendered or sent, so their values
+        // are irrelevant to what this test proves.
         BookingConfirmedEvent event = new BookingConfirmedEvent(99L, 199L, "BK-00099", "user-1",
+                null, null, null, null, null, null, null, null, null,
                 Instant.parse("2026-09-13T12:00:00Z"));
 
         boolean sent = service.processBookingConfirmed(event);
 
         assertThat(sent).isFalse();                       // loser: ack-and-no-op
-        assertThat(output).doesNotContain("ticket emailed");
+        assertThat(output).doesNotContain("Ticket emailed");
         assertThat(output).contains("already processed, not sending again");
+        // Nothing was delivered: the channel and the Keycloak lookup are never even reached, which is
+        // the point — the claim is checked before any side effect, not after.
+        verifyNoInteractions(channel, users);
     }
 }

@@ -105,6 +105,16 @@ class BookingConfirmerTest {
     @MockitoBean
     private Tracer tracer;
 
+    /**
+     * The movie read model feeds the ticket snapshot (title + poster) onto BookingConfirmed. Mocked
+     * because it fronts a Catalog HTTP client, and because what this class tests is the CONFIRM's
+     * transactional behaviour — not how a title is resolved. It returns empty by default, which also
+     * exercises the degradation that matters: an unresolvable movie must still confirm the booking
+     * and still announce it. Money has already moved; a missing poster cannot veto that.
+     */
+    @MockitoBean
+    private MovieReadModel movies;
+
     @Test
     void confirmOnLivePendingHoldConfirmsAndWritesOutboxRow() {
         Booking booking = persist("BK-CONFIRM01", BookingStatus.PENDING, NOW.plusSeconds(900));

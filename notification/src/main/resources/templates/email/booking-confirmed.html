@@ -1,0 +1,189 @@
+<!doctype html>
+<!--/*
+  THE TICKET EMAIL.
+
+  Read this before editing, because HTML email is not HTML:
+
+  1. TABLES FOR LAYOUT, INLINE STYLES FOR EVERYTHING. Outlook desktop renders with Word's engine:
+     no flexbox, no grid, no position. Several clients strip <style> blocks entirely, so any style
+     that must survive is inline on the element. This markup is deliberately 2005-era.
+
+  2. THE POSTER IS DECORATION AND THE TICKET MUST READ WITHOUT IT. Most clients block remote images
+     until the reader clicks "show images", and TMDB has no artwork for some titles (posterUrl is
+     then null and the whole band is dropped). So every fact — reference, seats, time, theater —
+     sits on a solid background, never on the image. Test by blocking images; if anything becomes
+     unreadable, the change is wrong.
+
+  3. NO CSS background-image. It is unsupported in Outlook desktop and stripped elsewhere — you get
+     a blank box. The poster is a real <img> band above the content, which works everywhere.
+
+  4. ~600px MAX. The classic safe width; wider gets clipped in narrow preview panes. The wrapper
+     table is width="100%" with a fixed-width inner table so it centers and degrades on mobile.
+
+  Every th:text below has a matching key in NotificationService.confirmedVariables(). Fields that
+  may legitimately be null (title, poster, showtime, theater, screen) are each wrapped in th:if so a
+  missing value renders as nothing rather than the word "null".
+*/-->
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Your tickets</title>
+</head>
+<!--/* The body background shows around the 600px card; the card itself is white. */-->
+<body style="margin:0; padding:0; background-color:#f2f3f5; -webkit-text-size-adjust:100%;">
+
+<!--/* Preheader: the grey line a client shows next to the subject in the inbox list. Hidden in the
+     body itself by zero dimensions — without it, clients scrape the first visible text, which here
+     would be the word "SCREENMASTER". */-->
+<div style="display:none; font-size:1px; color:#f2f3f5; line-height:1px; max-height:0; max-width:0; opacity:0; overflow:hidden;">
+  Your booking is confirmed<span th:if="${movieTitle}" th:text="' — ' + ${movieTitle}"></span>. Show this email at the door.
+</div>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+       style="background-color:#f2f3f5;">
+  <tr>
+    <td align="center" style="padding:24px 12px;">
+
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0"
+             style="width:600px; max-width:600px; background-color:#ffffff; border-radius:12px; overflow:hidden; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+
+        <!--/* Brand bar. Solid colour, no image — this is the one thing guaranteed to render. */-->
+        <tr>
+          <td style="background-color:#111827; padding:18px 28px;">
+            <span style="color:#ffffff; font-size:15px; font-weight:700; letter-spacing:1.5px;">SCREENMASTER</span>
+          </td>
+        </tr>
+
+        <!--/* POSTER BAND. Dropped entirely when there is no artwork. The fixed height plus
+             object-fit crops a tall poster to a banner in clients that honour it; those that don't
+             simply letterbox it, which is fine. alt carries the title so a blocked image still
+             says what the film is. */-->
+        <tr th:if="${posterUrl}">
+          <td style="padding:0; font-size:0; line-height:0;">
+            <img th:src="${posterUrl}" th:alt="${movieTitle} ?: 'Film poster'"
+                 width="600" height="220"
+                 style="display:block; width:100%; max-width:600px; height:220px; object-fit:cover; border:0; outline:none; text-decoration:none;">
+          </td>
+        </tr>
+
+        <!--/* Headline. On a solid white background, BELOW the image, never on top of it — text over
+             a blocked image is invisible text. */-->
+        <tr>
+          <td style="padding:28px 28px 8px 28px;">
+            <p style="margin:0 0 6px 0; font-size:13px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:#16a34a;">
+              Booking confirmed
+            </p>
+            <h1 th:if="${movieTitle}" th:text="${movieTitle}"
+                style="margin:0; font-size:26px; line-height:1.25; color:#111827; font-weight:700;">Movie title</h1>
+            <h1 th:unless="${movieTitle}"
+                style="margin:0; font-size:26px; line-height:1.25; color:#111827; font-weight:700;">Your tickets</h1>
+          </td>
+        </tr>
+
+        <!--/* Screening facts. A two-column table rather than a definition list: label/value pairs
+             align reliably in every client this way. */-->
+        <tr>
+          <td style="padding:12px 28px 4px 28px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                   style="font-size:15px; color:#374151;">
+              <tr th:if="${showtime}">
+                <td width="110" style="padding:7px 0; color:#6b7280;">When</td>
+                <td style="padding:7px 0; font-weight:600; color:#111827;" th:text="${showtime}">Fri 25 Sep 2026, 19:30</td>
+              </tr>
+              <tr th:if="${theaterName}">
+                <td width="110" style="padding:7px 0; color:#6b7280;">Where</td>
+                <td style="padding:7px 0; font-weight:600; color:#111827;" th:text="${theaterName}">Theater</td>
+              </tr>
+              <tr th:if="${screenName}">
+                <td width="110" style="padding:7px 0; color:#6b7280;">Screen</td>
+                <td style="padding:7px 0; font-weight:600; color:#111827;" th:text="${screenName}">Screen 1</td>
+              </tr>
+              <tr>
+                <td width="110" style="padding:7px 0; color:#6b7280;">Reference</td>
+                <td style="padding:7px 0; font-weight:700; color:#111827; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; letter-spacing:.5px;"
+                    th:text="${bookingReference}">ABC12345</td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!--/* ONE TICKET CARD PER SEAT, in a single email. A party of four gets one message with four
+             stubs, not four messages — the booking is the unit a person thinks in, and four separate
+             emails for one purchase reads as a bug. */-->
+        <tr>
+          <td style="padding:20px 28px 4px 28px;">
+            <p style="margin:0 0 10px 0; font-size:13px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:#6b7280;">
+              Your seats
+            </p>
+
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr th:each="seat : ${seats}">
+                <td style="padding:0 0 10px 0;">
+                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                         style="background-color:#f9fafb; border:1px solid #e5e7eb; border-radius:10px;">
+                    <tr>
+                      <!--/* The seat label, oversized: this is the one thing someone squints at in a
+                           dark auditorium. */-->
+                      <td width="86" align="center"
+                          style="padding:14px 8px; border-right:1px dashed #d1d5db;">
+                        <div style="font-size:22px; font-weight:700; color:#111827; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;"
+                             th:text="${seat.label} ?: '—'">E5</div>
+                      </td>
+                      <td style="padding:14px 16px;">
+                        <div style="font-size:14px; color:#374151;" th:text="${seat.seatTypeName}">STANDARD</div>
+                        <div style="font-size:13px; color:#6b7280; padding-top:2px;">
+                          <span th:text="${seat.price}">12.00</span>
+                          <span th:text="${currency}">EGP</span>
+                        </div>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!--/* Total. Ruled off above so it reads as the sum of the cards, not another line item. */-->
+        <tr>
+          <td style="padding:8px 28px 4px 28px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                   style="border-top:2px solid #111827;">
+              <tr>
+                <td style="padding:14px 0; font-size:15px; color:#6b7280;">Total paid</td>
+                <td align="right" style="padding:14px 0; font-size:20px; font-weight:700; color:#111827;">
+                  <span th:text="${totalAmount}">36.00</span>
+                  <span th:text="${currency}" style="font-size:15px; font-weight:600; color:#6b7280;">EGP</span>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <tr>
+          <td style="padding:6px 28px 26px 28px;">
+            <p style="margin:0; font-size:13px; line-height:1.6; color:#6b7280;">
+              Show this email at the door — the booking reference above is all staff need.
+              Please arrive ten minutes before the screening starts.
+            </p>
+          </td>
+        </tr>
+
+        <tr>
+          <td style="background-color:#f9fafb; border-top:1px solid #e5e7eb; padding:18px 28px;">
+            <p style="margin:0; font-size:12px; line-height:1.5; color:#9ca3af;">
+              This is an automated message about booking
+              <span th:text="${bookingReference}" style="color:#6b7280;">ABC12345</span>.
+              Please don't reply to it.
+            </p>
+          </td>
+        </tr>
+
+      </table>
+    </td>
+  </tr>
+</table>
+
+</body>
+</html>

@@ -31,7 +31,7 @@ import lombok.extern.slf4j.Slf4j;
  *   <li>{@link #titlesByIds(Set)} (read path, "my bookings" way A) <b>degrades to an empty map</b> — a
  *       Catalog outage still renders the list (with null titles) instead of failing. A read is more useful
  *       stale/partial than absent.</li>
- *   <li>{@link #titleById(long)} (cache-fill, "my bookings" way B lazy backfill) <b>returns empty on 404
+ *   <li>{@link #projectionById(long)} (cache-fill, "my bookings" way B lazy backfill) <b>returns empty on 404
  *       but throws on unavailable</b> — it must distinguish the two, because it writes the result into a
  *       persistent read model: a genuine 404 is safe to treat as "unknown", but an outage must NOT be
  *       cached (writing a null/placeholder would poison the cache and suppress the retry). This is exactly
@@ -135,11 +135,11 @@ public class CatalogClient {
     }
 
     /**
-     * Resolve a <em>single</em> movie id to its title for the way-B lazy backfill — the cache-fill on a
+     * Resolve a <em>single</em> movie id to its cached fields for the way-B lazy backfill — the cache-fill on a
      * {@code movie_projections} miss. Unlike {@link #titlesByIds}, this <b>distinguishes 404 from unavailable</b>
      * because the caller persists the result:
      * <ul>
-     *   <li><b>2xx</b> → {@code Optional.of(title)} — cache it.</li>
+     *   <li><b>2xx</b> → {@code Optional.of(projection)} — cache it.</li>
      *   <li><b>404</b> → {@code Optional.empty()} — a definitive "no such movie". The caller serves a null
      *       title and need not keep hammering Catalog for a genuinely-unknown id.</li>
      *   <li><b>anything else / transport / timeout</b> → <b>throws</b> {@link CatalogUnavailableException}.
@@ -147,10 +147,11 @@ public class CatalogClient {
      *       the miss and suppress the retry once Catalog recovers (cache poisoning). Serve null this once;
      *       the next read retries.</li>
      * </ul>
-     * Reads {@code GET /movies/{id}} and projects out just the title (it's the {@code MovieDto} detail
-     * shape; we only need the title here).
+     * Reads {@code GET /movies/{id}} and projects out the title and poster path — the two columns of a
+     * {@code movie_projections} row. One call fills both: the poster is needed by the ticket email, and
+     * fetching it separately would double the backfill's network cost for no reason.
      */
-    public Optional<String> titleById(long movieId) {
+    public Optional<MovieProjectionData> projectionById(long movieId) {
         try {
             MovieSummary movie = catalogRestClient.get()
                     .uri("/movies/{id}", movieId)
@@ -161,7 +162,9 @@ public class CatalogClient {
                         throw new MovieNotInCatalogException(movieId);
                     })
                     .body(MovieSummary.class);
-            return Optional.ofNullable(movie).map(MovieSummary::title);
+            return Optional.ofNullable(movie)
+                    .filter(m -> m.title() != null)
+                    .map(m -> new MovieProjectionData(m.title(), m.posterPath()));
         } catch (MovieNotInCatalogException notFound) {
             return Optional.empty();
         } catch (RestClientResponseException http) {
@@ -181,7 +184,22 @@ public class CatalogClient {
         return uri.build();
     }
 
-    /** Minimal projection of Catalog's {@code MovieSummaryDto} — Booking only needs the id and title here. */
-    record MovieSummary(Long id, String title) {
+    /**
+     * Minimal projection of Catalog's {@code MovieSummaryDto} — Booking needs the id, the title, and
+     * the poster path (the ticket email's artwork). Unknown JSON properties are ignored by default, so
+     * naming only these three is how Booking states what it actually depends on: Catalog can add or
+     * reorder fields without breaking this consumer.
+     */
+    record MovieSummary(Long id, String title, String posterPath) {
+    }
+
+    /**
+     * What Booking caches about a Catalog movie — the shape of one {@code movie_projections} row,
+     * returned by {@link #projectionById(long)} so a single backfill fills both columns.
+     *
+     * @param title      the movie's title
+     * @param posterPath TMDB artwork path ("/abc.jpg"), null when the movie has no poster
+     */
+    public record MovieProjectionData(String title, String posterPath) {
     }
 }

@@ -1,0 +1,35 @@
+# Changeset 012 — movie_projections.poster_path.
+#
+# The ticket email renders the movie's poster behind its header. The image lives in Catalog
+# (movies.poster_path, a TMDB path like "/abc123.jpg"), and Booking needs it at CONFIRM time to
+# snapshot onto the BookingConfirmed event.
+#
+# WHY HERE and not on `showtimes`:
+#   movie_projections is already Booking's local read model of Catalog movie data — kept current by
+#   MovieUpserted events and seeded by lazy backfill. The poster is more Catalog movie data, so it
+#   belongs on the existing projection rather than duplicated onto every showtime row of the same
+#   movie. Changeset 008's own comment named "poster path" as the next column to land here.
+#
+#   Putting it here also means the confirm path needs NO Catalog call: the poster is read from
+#   Booking's own table, which is the entire point of having a read model.
+#
+# NULLABLE, deliberately: TMDB genuinely has no artwork for some titles, and every row created
+# before this changeset has no poster yet (the next MovieUpserted or backfill fills it). A NOT NULL
+# with a placeholder default would be a lie the email would then render. The ticket template is
+# built to work without the image anyway — most mail clients block remote images by default.
+#
+# Length 255: TMDB paths are short ("/abc123.jpg"), and this is a path, never a full URL — the CDN
+# host and size are rendering concerns composed at send time (NotificationProps.Image).
+databaseChangeLog:
+  - changeSet:
+      id: 012-add-movie-projection-poster
+      author: mohamed
+      changes:
+        - addColumn:
+            tableName: movie_projections
+            columns:
+              - column:
+                  name: poster_path
+                  type: varchar(255)
+                  constraints:
+                    nullable: true

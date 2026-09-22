@@ -43,7 +43,7 @@ class MovieProjectorTest {
 
     @Test
     void firstEventInsertsTheTitle() {
-        boolean applied = projector.apply(new MovieUpsertedEvent(MOVIE, "The Matrix", T1, "evt-1"));
+        boolean applied = projector.apply(new MovieUpsertedEvent(MOVIE, "The Matrix", "/poster.jpg", T1, "evt-1"));
 
         assertThat(applied).isTrue();
         assertThat(repository.findById(MOVIE)).get()
@@ -53,7 +53,7 @@ class MovieProjectorTest {
 
     @Test
     void redeliveringTheSameEventIsIdempotent() {
-        MovieUpsertedEvent event = new MovieUpsertedEvent(MOVIE, "The Matrix", T1, "evt-1");
+        MovieUpsertedEvent event = new MovieUpsertedEvent(MOVIE, "The Matrix", "/poster.jpg", T1, "evt-1");
 
         projector.apply(event);
         boolean secondApplied = projector.apply(event); // redelivery: equal timestamp -> not strictly newer
@@ -66,9 +66,9 @@ class MovieProjectorTest {
 
     @Test
     void newerEventUpdatesTheTitle() {
-        projector.apply(new MovieUpsertedEvent(MOVIE, "Old Title", T1, "evt-1"));
+        projector.apply(new MovieUpsertedEvent(MOVIE, "Old Title", "/poster.jpg", T1, "evt-1"));
 
-        boolean applied = projector.apply(new MovieUpsertedEvent(MOVIE, "New Title", T2, "evt-2"));
+        boolean applied = projector.apply(new MovieUpsertedEvent(MOVIE, "New Title", "/poster.jpg", T2, "evt-2"));
 
         assertThat(applied).isTrue();
         assertThat(repository.findById(MOVIE)).get()
@@ -78,9 +78,9 @@ class MovieProjectorTest {
 
     @Test
     void olderEventIsDroppedByTheGuard() {
-        projector.apply(new MovieUpsertedEvent(MOVIE, "New Title", T2, "evt-2")); // newer stored first
+        projector.apply(new MovieUpsertedEvent(MOVIE, "New Title", "/poster.jpg", T2, "evt-2")); // newer stored first
 
-        boolean applied = projector.apply(new MovieUpsertedEvent(MOVIE, "Stale Title", T1, "evt-1"));
+        boolean applied = projector.apply(new MovieUpsertedEvent(MOVIE, "Stale Title", "/poster.jpg", T1, "evt-1"));
 
         assertThat(applied).isFalse();
         assertThat(repository.findById(MOVIE)).get()
@@ -91,9 +91,9 @@ class MovieProjectorTest {
     @Test
     void firstRealEventOverwritesLazyBackfilledRowWithNullBaseline() {
         // A lazy-backfilled row: title cached from a Catalog fetch, no event timestamp yet.
-        repository.saveAndFlush(new MovieProjection(MOVIE, "Backfilled Title", null));
+        repository.saveAndFlush(new MovieProjection(MOVIE, "Backfilled Title", null, null));
 
-        boolean applied = projector.apply(new MovieUpsertedEvent(MOVIE, "Event Title", T1, "evt-1"));
+        boolean applied = projector.apply(new MovieUpsertedEvent(MOVIE, "Event Title", "/poster.jpg", T1, "evt-1"));
 
         assertThat(applied).isTrue();
         assertThat(repository.findById(MOVIE)).get()

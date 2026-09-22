@@ -12,6 +12,8 @@ import java.time.Instant;
  * <ul>
  *   <li>{@code id} — the movie id; the UPSERT key into {@code movie_projections}.</li>
  *   <li>{@code title} — the new title to cache.</li>
+ *   <li>{@code posterPath} — TMDB's artwork path, cached alongside the title so the ticket email can
+ *       render the poster without Notification calling Catalog on the consume path. Nullable.</li>
  *   <li>{@code updatedAt} — the source row's last-modified time; the consumer's ordering-guard baseline
  *       (drop an event whose {@code updatedAt <=} the stored one).</li>
  *   <li>{@code eventId} — <b>intentionally unused until Phase 4.</b> The consumer is idempotent via the
@@ -22,6 +24,7 @@ import java.time.Instant;
 public record MovieUpsertedEvent(
         Long id,
         String title,
+        String posterPath,
         Instant updatedAt,
         String eventId) {
 }

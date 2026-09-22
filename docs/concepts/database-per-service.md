@@ -27,7 +27,7 @@ Saying the cost is what earns trust. The price *is* the architecture working as 
 2. **CQRS read model** (Command Query Responsibility Segregation) — services publish events; a consumer maintains a denormalized, query-optimized view (e.g. a `booking_history` table or an Elasticsearch index holding booking + movie title + poster). Writes go to the owners; heavy reads hit the view. **Cost: the view is eventually consistent** — it lags by however long events take to arrive. This is denormalization, applied across services.
 
 ## ScreenMaster: the FK cuts
-These JPA associations cross the chosen boundaries and become **ids + API/event lookups** (from [ARCHITECTURE_AND_SCHEMA.md §8.2](../ARCHITECTURE_AND_SCHEMA.md)):
+These JPA associations cross the chosen boundaries and become **ids + API/event lookups**, as implemented in each service's `model/` entities and Liquibase changelogs:
 
 | Association today | Becomes |
 |---|---|

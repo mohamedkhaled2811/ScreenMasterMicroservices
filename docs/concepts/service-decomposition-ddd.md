@@ -27,7 +27,7 @@ Narrate the *reasoning*, not the boxes:
 - **Notification** — pure event consumer; emails can be late.
 - **Identity** — generic; delegate to Keycloak.
 
-(Compare with the finer-grained split in [ARCHITECTURE_AND_SCHEMA.md §8.1](../ARCHITECTURE_AND_SCHEMA.md): Identity, Catalog, Theater, Scheduling, Booking, Payment, Notification. For learning we collapse Theater + Scheduling into Booking, since the booking transaction needs their facts and only needs *immutable* data from them.)
+For learning we collapse Theater + Scheduling into Booking, since the booking transaction needs their facts and only needs *immutable* data from them — see the `booking` service's `model/` entities and Liquibase changelogs as source of truth.
 
 ## How to find boundaries in general
 Decompose by **business capability** ("manage catalog", "take bookings", "collect payment"), then validate each candidate with three tests:

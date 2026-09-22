@@ -78,6 +78,6 @@ Each concept file follows the same shape so they're predictable:
 
 ---
 
-These files are **learning notes**, not API docs. They lean on the two source documents:
+These files are **learning notes**, not API docs. They lean on one source document plus the code itself:
 - [`../microservices-interview-field-guide.md`](../microservices-interview-field-guide.md) — the theory and the lab.
-- [`../ARCHITECTURE_AND_SCHEMA.md`](../ARCHITECTURE_AND_SCHEMA.md) — the monolith we are splitting.
+- Each service's `model/` entities and Liquibase changelogs — the implemented boundaries, as source of truth.

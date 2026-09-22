@@ -1,6 +1,6 @@
 # Payment gateway integration
 
-> **Why this, here:** ScreenMaster's `payment` service integrates real gateways (Stripe, Paymob) in sandbox mode. Everything below exists because *money is the one thing you cannot roll back*. See [BUILD_PLAN.md Phase 3](../BUILD_PLAN.md) and the plan at [plans/real-payment-gateway/plan.mdx](../../plans/real-payment-gateway/plan.mdx).
+> **Why this, here:** ScreenMaster's `payment` service integrates real gateways (Stripe, Paymob) in sandbox mode. Everything below exists because *money is the one thing you cannot roll back*.
 
 ## The one idea everything follows from
 

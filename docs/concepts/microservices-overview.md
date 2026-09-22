@@ -21,7 +21,7 @@ Every former function call becomes a **network call**: slow, half-failing, or si
 **No.** For a small team or unproven product, a *well-modularized monolith* ships faster, debugs easier, and keeps transactions simple. Reach for microservices when **team count, deploy contention, or divergent scaling needs** make the monolith the bottleneck — and extract incrementally ([strangler fig](service-decomposition-ddd.md)), never rewrite. Citing "monolith-first" (Fowler, Newman) signals you've read the literature.
 
 ## How this applies here
-ScreenMaster is a working Spring Boot **monolith** ([ARCHITECTURE_AND_SCHEMA.md](../ARCHITECTURE_AND_SCHEMA.md)). This project decomposes it as a *learning exercise* — the value is in feeling each cost first-hand: the missing JOIN, the distributed transaction, the partial failure. We're not splitting it because the monolith is broken; we're splitting it to learn the discipline.
+ScreenMaster started as a working Spring Boot **monolith**. This project decomposes it as a *learning exercise* — the value is in feeling each cost first-hand: the missing JOIN, the distributed transaction, the partial failure. We're not splitting it because the monolith is broken; we're splitting it to learn the discipline. The implemented boundaries live in each service's `model/` entities and Liquibase changelogs.
 
 ## Interview lens
 - Lead with the tradeoff, not the benefits. Naming the costs makes you instantly more credible.

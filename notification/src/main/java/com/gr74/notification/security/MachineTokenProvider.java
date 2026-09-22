@@ -25,8 +25,8 @@ import lombok.extern.slf4j.Slf4j;
  * client holds the least-privilege {@code view-users} realm-management role, not a realm admin).
  *
  * <p><b>No hand-rolled token cache:</b> the injected {@link OAuth2AuthorizedClientManager} (the
- * framework default, wired from the {@code notification-keycloak} registration in
- * {@code application.yml}) fetches the token on first use and refreshes it before expiry. A naive
+ * service-backed variant defined in {@code SecurityConfig}, wired from the
+ * {@code notification-keycloak} registration in {@code application.yml}) fetches the token on first use and refreshes it before expiry. A naive
  * hand-rolled cache would race the refresh window under concurrent listener threads — solved code
  * stays solved.
  *

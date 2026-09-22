@@ -7,6 +7,11 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.client.AuthorizedClientServiceOAuth2AuthorizedClientManager;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClientManager;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClientProviderBuilder;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
@@ -101,6 +106,27 @@ public class SecurityConfig {
         JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
         converter.setJwtGrantedAuthoritiesConverter(new KeycloakRealmRoleConverter());
         return converter;
+    }
+
+    /**
+     * The machine-token manager, used by {@code MachineTokenProvider} on <b>non-request threads</b>
+     * (the {@code @RabbitListener} consuming {@code BookingConfirmed}).
+     *
+     * <p>Boot's default in a servlet app is {@code DefaultOAuth2AuthorizedClientManager}, which
+     * resolves the authorized client out of the current {@code HttpServletRequest} and asserts it is
+     * non-null — so calling it from a listener thread fails with
+     * {@code IllegalArgumentException: servletRequest cannot be null}. This variant keeps the
+     * authorized client in the {@link OAuth2AuthorizedClientService} instead of the request/session,
+     * which is exactly the client-credentials shape: one token per <em>service</em>, not per user.
+     */
+    @Bean
+    OAuth2AuthorizedClientManager authorizedClientManager(ClientRegistrationRepository registrations,
+            OAuth2AuthorizedClientService clients) {
+        AuthorizedClientServiceOAuth2AuthorizedClientManager manager =
+                new AuthorizedClientServiceOAuth2AuthorizedClientManager(registrations, clients);
+        manager.setAuthorizedClientProvider(
+                OAuth2AuthorizedClientProviderBuilder.builder().clientCredentials().build());
+        return manager;
     }
 
     /**

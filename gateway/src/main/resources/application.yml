@@ -1,29 +1,19 @@
 # =============================================================================
-#  gateway — Spring Cloud Gateway (web-mvc), the single public front door
-#  BUILD_PLAN 1.3 · concept: docs/concepts/api-gateway-and-bff.md
-#  Routing only at this milestone; edge auth + rate limiting land in Phase 7.
-#  Localhost-friendly; Compose (1.4) injects container-DNS overrides via env.
+#  gateway — Spring Cloud Gateway, the single public front door
 # =============================================================================
 
 server:
-  # The conventional public HTTP port. Backend services sit on 8081–8084 and are
-  # NOT meant to be hit directly — clients only ever talk to 8080.
+  # Public HTTP port. Backends are not meant to be hit directly.
   port: 8080
 
 spring:
   application:
-    # Registry id + log-line name. The gateway registers itself too (handy in the
-    # Eureka dashboard), though nothing routes *to* it.
+    # Registry id + log-line name.
     name: gateway
 
-  # Phase 7 (BUILD_PLAN 7.2): the edge is an OAuth2 resource server — the gateway validates the
-  # user's Bearer JWT before routing (fail fast; every service validates AGAIN — zero trust).
-  # ONE issuer URI everywhere: it feeds BOTH the accepted `iss` claim and the derived JWKS fetch URL
-  # (see SecurityConfig), so the two can never drift apart. In Compose this is
-  # `http://keycloak:8180/realms/cinema` (container DNS — the `keycloak` service name); Keycloak is
-  # told to mint exactly that `iss` via KC_HOSTNAME (see compose.yaml). No TokenRelay filter is
-  # needed: the gateway proxies headers, so the inbound Authorization header reaches the service
-  # byte-identical — that propagation IS the relay at the edge.
+  # OAuth2 resource server: validates the Bearer JWT before routing.
+  # ONE issuer URI feeds both the accepted `iss` and the JWKS fetch URL.
+  # No TokenRelay filter needed: the inbound Authorization header is proxied as-is.
   security:
     oauth2:
       resourceserver:
@@ -34,52 +24,36 @@ spring:
     gateway:
       server:
         webmvc:
-          # Each route = a predicate (which requests match) + a uri (where they go) + filters
-          # (how the request is transformed on the way). lb://name resolves through Eureka and
-          # load-balances across that service's healthy instances — so a service is reachable as
-          # soon as it registers, with no gateway edit. See concepts/service-discovery.md.
+          # Each route = predicate + uri + filters. lb:// resolves through Eureka.
           routes:
             - id: catalog
               uri: lb://catalog
               predicates:
                 - Path=/api/movies/**
               filters:
-                # StripPrefix=1 drops the leading /api segment: /api/movies/7 -> /movies/7.
-                # The /api namespace is an EDGE concern only; services keep bare paths. (Option A.)
+                # StripPrefix=1: /api/movies/7 -> /movies/7. /api is edge-only.
                 - StripPrefix=1
-                # Phase 7 (decision C1): X-User-Id was the pre-Keycloak identity. No service reads
-                # it anymore (identity is the JWT `sub`), so any inbound one is stripped — a
-                # client-set header must never travel downstream where stale code could trust it.
+                # Strip the legacy identity header; identity is the JWT `sub` now.
                 - RemoveRequestHeader=X-User-Id
             - id: booking
               uri: lb://booking
-              # Booking absorbed the monolith's Theater + Scheduling contexts (schema §8.1), so it now
-              # owns the inventory + showtime surface too. One route, several path prefixes: bookings,
-              # the inventory tree (theaters/screens/seats), seat-types, and showtimes. StripPrefix=1
-              # turns each /api/<x> into the bare /<x> the controllers expose (e.g. /api/theaters ->
-              # /theaters). A single Path predicate accepts a comma-separated list of patterns.
+              # Booking owns bookings + inventory + showtimes. One route, several prefixes.
               predicates:
                 - Path=/api/bookings/**,/api/theaters/**,/api/screens/**,/api/seat-types/**,/api/showtimes/**
               filters:
                 - StripPrefix=1
-                # Phase 7 (decision C1): see the catalog route — strip the dead identity header.
                 - RemoveRequestHeader=X-User-Id
             - id: payment
               uri: lb://payment
               predicates:
                 - Path=/api/payments/**
               filters:
-                # /api/payments -> /payments, matching PaymentController's @RequestMapping("/payments").
                 - StripPrefix=1
-                # Phase 7 (decision C1): see the catalog route — strip the dead identity header.
                 - RemoveRequestHeader=X-User-Id
 
-            # ---- OpenAPI docs proxying (see concepts/openapi-springdoc.md) --------------------------
-            # The aggregated Swagger UI (below) fetches each service's spec from the browser, so those
-            # specs must be reachable THROUGH the gateway (same-origin — no CORS). Each route exposes a
-            # service's spec at /<service>/v3/api-docs and StripPrefix=1 turns that into the bare
-            # /v3/api-docs the service actually serves. These are docs-only routes; the real API traffic
-            # still flows through the /api/** routes above.
+            # ---- OpenAPI docs proxying --------------------------
+            # The Swagger UI fetches specs through the gateway (same-origin), e.g.
+            # /catalog/v3/api-docs -> lb://catalog/v3/api-docs.
             - id: catalog-docs
               uri: lb://catalog
               predicates:
@@ -99,17 +73,8 @@ spring:
               filters:
                 - StripPrefix=1
 
-# OpenAPI / Swagger UI aggregation (see docs/concepts/openapi-springdoc.md). The gateway owns no
-# controllers, so it documents no spec of its own; instead the Swagger UI at :8080/swagger-ui.html is
-# pointed at each backend service's spec (proxied via the *-docs routes above) as a dropdown. The
-# frontend dev opens ONE URL and switches between catalog / booking / payment.
-#
-# IMPORTANT: do NOT set springdoc.api-docs.enabled=false here. The Swagger UI bootstraps by fetching
-# /v3/api-docs/swagger-config (the endpoint that hands the UI its dropdown of spec URLs); that endpoint
-# is part of the api-docs machinery, and disabling api-docs also switches off the /swagger-ui.html
-# welcome/redirect controller — the UI then 404s. The gateway has no @RestControllers, so leaving
-# api-docs enabled produces only an empty own-spec that nothing points at; the `urls` below still drive
-# the dropdown to the backend services only. (See the whitelabel-404 we hit when api-docs was disabled.)
+# Swagger UI aggregation: one UI with a dropdown over the backend specs (proxied above).
+# Do NOT disable api-docs here — the UI bootstraps from /v3/api-docs/swagger-config.
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
@@ -121,30 +86,24 @@ springdoc:
       - name: payment
         url: /payment/v3/api-docs
 
-# A Eureka CLIENT: registers with the discovery server and reads the registry so lb:// resolves.
+# A Eureka CLIENT: registers and reads the registry so lb:// resolves.
 eureka:
   client:
     service-url:
       defaultZone: ${EUREKA_SERVICE_URL:http://localhost:8761/eureka/}
 
-# Distributed tracing: sample 100% in the lab so every demo request appears
-# in Zipkin. Production runs ~0.1 (10%) — recording every trace is expensive (CPU + span storage),
-# and the sampling decision is made once at the first service and carried in the traceparent flag. The
-# endpoint defaults to the local Zipkin; Compose points it at the `zipkin` container via ZIPKIN_ENDPOINT.
-# The gateway is where traces are born (default instrumentation, no inbound adoption).
+# Distributed tracing: sample 100% locally; production uses ~0.1.
+# The gateway is where traces are born.
 management:
   tracing:
     sampling:
       probability: ${TRACING_SAMPLE_RATE:1.0}
-    # Boot 4 renamed this key: it is `management.tracing.export.zipkin.endpoint`, NOT the Boot 3
-    # `management.zipkin.tracing.endpoint`. The old key binds to nothing and the sender silently
-    # keeps its built-in default of http://localhost:9411 — which inside a container is the
-    # container itself, so every export fails with ConnectException while the network is fine.
+    # Zipkin export endpoint.
     export:
       zipkin:
         endpoint: ${ZIPKIN_ENDPOINT:http://localhost:9411/api/v2/spans}
 
-# Shared structured log pattern with a trace-id slot (empty until Phase 6 wires tracing).
+# Shared structured log pattern with a trace-id slot.
 logging:
   pattern:
     level: "%5p [${spring.application.name},%X{traceId:-},%X{spanId:-}]"

@@ -1,12 +1,6 @@
-# Test-only config. NOTE: this file has the same name as the main application.yml, so it
-# REPLACES it on the test classpath rather than merging — Spring does not combine two files
-# named application.yml. Anything the tests need from the main config must therefore be
-# repeated here, INCLUDING the routes (proven: without them the route list is empty in tests
-# and every path falls through to the security chain with nothing to route).
-#
-# The routes below mirror the main application.yml closely enough to exercise edge security.
-# They point at a non-existent host on purpose: these tests assert the SECURITY outcome
-# (rejected vs. allowed through), never a successful proxy.
+# Test-only config. This file REPLACES the main application.yml on the test classpath,
+# so needed routes are repeated here. They point at a non-existent host on purpose:
+# tests assert the security outcome, never a successful proxy.
 eureka:
   client:
     enabled: false

@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1480 860" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="patterns-map-title patterns-map-desc">
+    <title id="patterns-map-title">ScreenMaster — Patterns Map</title>
+    <desc id="patterns-map-desc">Four ScreenMaster services shown side by side, each listing the microservices patterns it implements and the class implementing each one. Catalog carries the specification filter and an event publisher; Booking carries the saga orchestrator, a CQRS read model, and a transactional outbox; Payment carries ports and adapters with a resilience decorator, an idempotent webhook consumer, and the compensating refund; Notification carries an idempotent consumer and a channel port. A cross-cutting band below lists the patterns every service shares: API gateway, service discovery, database per service, distributed tracing, and problem-detail errors.</desc>
+    <defs>
+      <style>@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap');</style>
+      <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+      <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#b8860b"/></marker>
+      <marker id="arrow-event" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#6d28d9"/></marker>
+    </defs>
+
+    <rect width="100%" height="100%" fill="#f7f5ef"/>
+
+    <!-- ============ ZONES ============ -->
+    <rect x="48" y="96" width="1384" height="444" rx="8" fill="rgba(26,26,46,0.02)" stroke="rgba(26,26,46,0.10)" stroke-width="0.8"/>
+    <rect x="64" y="100" width="210" height="12" rx="2" fill="#f7f5ef"/>
+    <text x="169" y="109" fill="rgba(26,26,46,0.45)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">PER-SERVICE · PATTERNS IT OWNS</text>
+
+    <rect x="48" y="592" width="1384" height="172" rx="8" fill="rgba(26,26,46,0.02)" stroke="rgba(26,26,46,0.10)" stroke-width="0.8"/>
+    <rect x="64" y="596" width="222" height="12" rx="2" fill="#f7f5ef"/>
+    <text x="175" y="605" fill="rgba(26,26,46,0.45)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">CROSS-CUTTING · EVERY SERVICE</text>
+
+    <!-- ============ ARROWS (before boxes) ============ -->
+    <!-- catalog -> booking : event -->
+    <path d="M 368,236 H 448" fill="none" stroke="#6d28d9" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arrow-event)"/>
+    <rect x="378" y="216" width="60" height="12" rx="2" fill="#f7f5ef"/>
+    <text x="408" y="225" fill="#6d28d9" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">MOVIE EVT</text>
+
+    <!-- booking -> payment : event (saga forward) -->
+    <path d="M 736,236 H 816" fill="none" stroke="#b8860b" stroke-width="1.6" stroke-dasharray="4,3" marker-end="url(#arrow-accent)"/>
+    <rect x="746" y="216" width="60" height="12" rx="2" fill="#f7f5ef"/>
+    <text x="776" y="225" fill="#b8860b" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">SAGA STEP</text>
+
+    <!-- payment -> booking : compensate (return, lower) -->
+    <path d="M 816,396 H 736" fill="none" stroke="#b8860b" stroke-width="1.6" stroke-dasharray="4,3" marker-end="url(#arrow-accent)"/>
+    <rect x="742" y="376" width="68" height="12" rx="2" fill="#f7f5ef"/>
+    <text x="776" y="385" fill="#b8860b" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">COMPENSATE</text>
+
+    <!-- payment -> notification : event -->
+    <path d="M 1104,236 H 1184" fill="none" stroke="#6d28d9" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arrow-event)"/>
+    <rect x="1114" y="216" width="60" height="12" rx="2" fill="#f7f5ef"/>
+    <text x="1144" y="225" fill="#6d28d9" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">EVENTS</text>
+
+    <!-- ============ COLUMN 1 — CATALOG ============ -->
+    <rect x="80" y="144" width="288" height="44" rx="6" fill="#f7f5ef"/>
+    <rect x="80" y="144" width="288" height="44" rx="6" fill="#ffffff" stroke="#1a1a2e" stroke-width="1"/>
+    <rect x="88" y="150" width="52" height="12" rx="2" fill="transparent" stroke="rgba(26,26,46,0.40)" stroke-width="0.8"/>
+    <text x="114" y="159" fill="rgba(26,26,46,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SERVICE</text>
+    <text x="224" y="180" fill="#1a1a2e" font-size="16" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Catalog</text>
+
+    <rect x="80" y="204" width="288" height="64" rx="6" fill="#ffffff" stroke="#1a1a2e" stroke-width="1"/>
+    <text x="224" y="228" fill="#1a1a2e" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Specification filter</text>
+    <text x="224" y="246" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">MovieSpecifications</text>
+    <text x="224" y="260" fill="#7a8399" font-size="8" font-family="'Geist', sans-serif" text-anchor="middle">one endpoint, every filter combination</text>
+
+    <rect x="80" y="284" width="288" height="64" rx="6" fill="rgba(26,26,46,0.02)" stroke="rgba(26,26,46,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+    <text x="224" y="308" fill="#1a1a2e" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Event publisher</text>
+    <text x="224" y="326" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">MovieEventPublisher</text>
+    <text x="224" y="340" fill="#7a8399" font-size="8" font-family="'Geist', sans-serif" text-anchor="middle">tells the world a movie changed</text>
+
+    <rect x="80" y="364" width="288" height="64" rx="6" fill="#ffffff" stroke="#1a1a2e" stroke-width="1"/>
+    <text x="224" y="388" fill="#1a1a2e" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Resumable scheduled sync</text>
+    <text x="224" y="406" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">SyncState · last_page cursor</text>
+    <text x="224" y="420" fill="#7a8399" font-size="8" font-family="'Geist', sans-serif" text-anchor="middle">crash mid-import, resume where it stopped</text>
+
+    <!-- ============ COLUMN 2 — BOOKING (focal) ============ -->
+    <rect x="448" y="144" width="288" height="44" rx="6" fill="#f7f5ef"/>
+    <rect x="448" y="144" width="288" height="44" rx="6" fill="rgba(184,134,11,0.08)" stroke="#b8860b" stroke-width="1.4"/>
+    <rect x="456" y="150" width="52" height="12" rx="2" fill="transparent" stroke="rgba(184,134,11,0.50)" stroke-width="0.8"/>
+    <text x="482" y="159" fill="#b8860b" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SERVICE</text>
+    <text x="592" y="180" fill="#1a1a2e" font-size="16" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Booking</text>
+
+    <rect x="448" y="204" width="288" height="64" rx="6" fill="rgba(184,134,11,0.08)" stroke="#b8860b" stroke-width="1.4"/>
+    <text x="592" y="228" fill="#1a1a2e" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Saga orchestrator</text>
+    <text x="592" y="246" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">BookingConfirmer</text>
+    <text x="592" y="260" fill="#7a8399" font-size="8" font-family="'Geist', sans-serif" text-anchor="middle">confirms on an event, not a call</text>
+
+    <rect x="448" y="284" width="288" height="64" rx="6" fill="#ffffff" stroke="#1a1a2e" stroke-width="1"/>
+    <text x="592" y="308" fill="#1a1a2e" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">CQRS read model</text>
+    <text x="592" y="326" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">MovieProjector → MovieProjection</text>
+    <text x="592" y="340" fill="#7a8399" font-size="8" font-family="'Geist', sans-serif" text-anchor="middle">answers even when Catalog is down</text>
+
+    <rect x="448" y="364" width="288" height="64" rx="6" fill="#ffffff" stroke="#1a1a2e" stroke-width="1"/>
+    <text x="592" y="388" fill="#1a1a2e" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Transactional outbox</text>
+    <text x="592" y="406" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">OutboxWriter · OutboxRelay</text>
+    <text x="592" y="420" fill="#7a8399" font-size="8" font-family="'Geist', sans-serif" text-anchor="middle">the row and the event share one commit</text>
+
+    <rect x="448" y="444" width="288" height="64" rx="6" fill="#ffffff" stroke="#1a1a2e" stroke-width="1"/>
+    <text x="592" y="468" fill="#1a1a2e" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Seat-hold + expiry sweeper</text>
+    <text x="592" y="486" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">BookingExpirySweeper</text>
+    <text x="592" y="500" fill="#7a8399" font-size="8" font-family="'Geist', sans-serif" text-anchor="middle">a 15-min hold, released on its own</text>
+
+    <!-- ============ COLUMN 3 — PAYMENT (focal) ============ -->
+    <rect x="816" y="144" width="288" height="44" rx="6" fill="#f7f5ef"/>
+    <rect x="816" y="144" width="288" height="44" rx="6" fill="rgba(184,134,11,0.08)" stroke="#b8860b" stroke-width="1.4"/>
+    <rect x="824" y="150" width="52" height="12" rx="2" fill="transparent" stroke="rgba(184,134,11,0.50)" stroke-width="0.8"/>
+    <text x="850" y="159" fill="#b8860b" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SERVICE</text>
+    <text x="960" y="180" fill="#1a1a2e" font-size="16" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Payment</text>
+
+    <rect x="816" y="204" width="288" height="64" rx="6" fill="#ffffff" stroke="#1a1a2e" stroke-width="1"/>
+    <text x="960" y="228" fill="#1a1a2e" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Ports &amp; adapters + strategy</text>
+    <text x="960" y="246" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">PaymentGateway · GatewaySelector</text>
+    <text x="960" y="260" fill="#7a8399" font-size="8" font-family="'Geist', sans-serif" text-anchor="middle">Stripe · Paymob · Sandbox, one port</text>
+
+    <rect x="816" y="284" width="288" height="64" rx="6" fill="#ffffff" stroke="#1a1a2e" stroke-width="1"/>
+    <text x="960" y="308" fill="#1a1a2e" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Resilience decorator</text>
+    <text x="960" y="326" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">ResilientPaymentGateway</text>
+    <text x="960" y="340" fill="#7a8399" font-size="8" font-family="'Geist', sans-serif" text-anchor="middle">breaker + retry + bulkhead, around any adapter</text>
+
+    <rect x="816" y="364" width="288" height="64" rx="6" fill="rgba(184,134,11,0.08)" stroke="#b8860b" stroke-width="1.4"/>
+    <text x="960" y="388" fill="#1a1a2e" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Compensating refund</text>
+    <text x="960" y="406" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">RefundService</text>
+    <text x="960" y="420" fill="#7a8399" font-size="8" font-family="'Geist', sans-serif" text-anchor="middle">paid but no seat → refund, automatically</text>
+
+    <rect x="816" y="444" width="288" height="64" rx="6" fill="#ffffff" stroke="#1a1a2e" stroke-width="1"/>
+    <text x="960" y="468" fill="#1a1a2e" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Idempotent webhook</text>
+    <text x="960" y="486" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">WebhookWriter · webhook_events</text>
+    <text x="960" y="500" fill="#7a8399" font-size="8" font-family="'Geist', sans-serif" text-anchor="middle">a unique key IS the dedupe</text>
+
+    <!-- ============ COLUMN 4 — NOTIFICATION ============ -->
+    <rect x="1184" y="144" width="248" height="44" rx="6" fill="#f7f5ef"/>
+    <rect x="1184" y="144" width="248" height="44" rx="6" fill="#ffffff" stroke="#1a1a2e" stroke-width="1"/>
+    <rect x="1192" y="150" width="52" height="12" rx="2" fill="transparent" stroke="rgba(26,26,46,0.40)" stroke-width="0.8"/>
+    <text x="1218" y="159" fill="rgba(26,26,46,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SERVICE</text>
+    <text x="1308" y="180" fill="#1a1a2e" font-size="16" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Notification</text>
+
+    <rect x="1184" y="204" width="248" height="64" rx="6" fill="#ffffff" stroke="#1a1a2e" stroke-width="1"/>
+    <text x="1308" y="228" fill="#1a1a2e" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Idempotent consumer</text>
+    <text x="1308" y="246" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">BookingEventListener</text>
+    <text x="1308" y="260" fill="#7a8399" font-size="8" font-family="'Geist', sans-serif" text-anchor="middle">claim-first: one email, not two</text>
+
+    <rect x="1184" y="284" width="248" height="64" rx="6" fill="#ffffff" stroke="#1a1a2e" stroke-width="1"/>
+    <text x="1308" y="308" fill="#1a1a2e" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Channel port</text>
+    <text x="1308" y="326" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">NotificationChannel ← EmailChannel</text>
+    <text x="1308" y="340" fill="#7a8399" font-size="8" font-family="'Geist', sans-serif" text-anchor="middle">SMS would be one new class</text>
+
+    <rect x="1184" y="364" width="248" height="64" rx="6" fill="rgba(26,26,46,0.02)" stroke="rgba(26,26,46,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+    <text x="1308" y="388" fill="#1a1a2e" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Machine token</text>
+    <text x="1308" y="406" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">client-credentials, not a user JWT</text>
+    <text x="1308" y="420" fill="#7a8399" font-size="8" font-family="'Geist', sans-serif" text-anchor="middle">never put a user token in a queue</text>
+
+    <!-- ============ CROSS-CUTTING BAND ============ -->
+    <rect x="80" y="636" width="248" height="88" rx="6" fill="#ffffff" stroke="#1a1a2e" stroke-width="1"/>
+    <text x="204" y="664" fill="#1a1a2e" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">API gateway</text>
+    <text x="204" y="682" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">gateway/ · :8080</text>
+    <text x="204" y="700" fill="#7a8399" font-size="8" font-family="'Geist', sans-serif" text-anchor="middle">one public door; JWT validated</text>
+    <text x="204" y="714" fill="#7a8399" font-size="8" font-family="'Geist', sans-serif" text-anchor="middle">here and again at each service</text>
+
+    <rect x="352" y="636" width="248" height="88" rx="6" fill="#ffffff" stroke="#1a1a2e" stroke-width="1"/>
+    <text x="476" y="664" fill="#1a1a2e" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Service discovery</text>
+    <text x="476" y="682" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Eureka · lb://catalog</text>
+    <text x="476" y="700" fill="#7a8399" font-size="8" font-family="'Geist', sans-serif" text-anchor="middle">resolve by name, so a</text>
+    <text x="476" y="714" fill="#7a8399" font-size="8" font-family="'Geist', sans-serif" text-anchor="middle">container can move or scale</text>
+
+    <rect x="624" y="636" width="248" height="88" rx="6" fill="rgba(184,134,11,0.08)" stroke="#b8860b" stroke-width="1.4"/>
+    <text x="748" y="664" fill="#1a1a2e" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Database per service</text>
+    <text x="748" y="682" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">4 × PostgreSQL</text>
+    <text x="748" y="700" fill="#7a8399" font-size="8" font-family="'Geist', sans-serif" text-anchor="middle">no shared schema, no cross-service</text>
+    <text x="748" y="714" fill="#7a8399" font-size="8" font-family="'Geist', sans-serif" text-anchor="middle">JOIN — this causes every pattern above</text>
+
+    <rect x="896" y="636" width="248" height="88" rx="6" fill="#ffffff" stroke="#1a1a2e" stroke-width="1"/>
+    <text x="1020" y="664" fill="#1a1a2e" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Distributed tracing</text>
+    <text x="1020" y="682" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Micrometer → Zipkin</text>
+    <text x="1020" y="700" fill="#7a8399" font-size="8" font-family="'Geist', sans-serif" text-anchor="middle">one trace id across four</text>
+    <text x="1020" y="714" fill="#7a8399" font-size="8" font-family="'Geist', sans-serif" text-anchor="middle">services, in every log line</text>
+
+    <rect x="1168" y="636" width="264" height="88" rx="6" fill="#ffffff" stroke="#1a1a2e" stroke-width="1"/>
+    <text x="1300" y="664" fill="#1a1a2e" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Coded errors</text>
+    <text x="1300" y="682" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">RFC 9457 ProblemDetail</text>
+    <text x="1300" y="700" fill="#7a8399" font-size="8" font-family="'Geist', sans-serif" text-anchor="middle">a stable `code` a sibling service</text>
+    <text x="1300" y="714" fill="#7a8399" font-size="8" font-family="'Geist', sans-serif" text-anchor="middle">can branch on, never an opaque 500</text>
+
+    <!-- ============ LEGEND ============ -->
+    <line x1="48" y1="800" x2="1432" y2="800" stroke="rgba(26,26,46,0.10)" stroke-width="0.8"/>
+    <text x="48" y="816" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+
+    <rect x="168" y="806" width="24" height="12" rx="3" fill="rgba(184,134,11,0.08)" stroke="#b8860b" stroke-width="1.4"/>
+    <text x="200" y="816" fill="#4f5d75" font-size="9" font-family="'Geist', sans-serif">the saga — and the constraint that forces it</text>
+
+    <rect x="520" y="806" width="24" height="12" rx="3" fill="#ffffff" stroke="#1a1a2e" stroke-width="1"/>
+    <text x="552" y="816" fill="#4f5d75" font-size="9" font-family="'Geist', sans-serif">a pattern, with the class that implements it</text>
+
+    <rect x="880" y="806" width="24" height="12" rx="3" fill="rgba(26,26,46,0.02)" stroke="rgba(26,26,46,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+    <text x="912" y="816" fill="#4f5d75" font-size="9" font-family="'Geist', sans-serif">async / event-driven</text>
+
+    <line x1="1120" y1="812" x2="1160" y2="812" stroke="#6d28d9" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arrow-event)"/>
+    <text x="1172" y="816" fill="#4f5d75" font-size="9" font-family="'Geist', sans-serif">event on RabbitMQ (no synchronous call)</text>
+  </svg>

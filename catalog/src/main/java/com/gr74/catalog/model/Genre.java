@@ -10,12 +10,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * A movie genre (Action, Drama, ...). The {@code id} is the TMDB genre id — <em>assigned</em>, not
- * generated (no {@code @GeneratedValue}): a stable, externally-sourced key, which is exactly why
- * Catalog is a clean service boundary.
- *
- * <p>Schema is owned by Liquibase, not Hibernate ({@code ddl-auto=validate}); this entity must stay
- * in sync with {@code db/changelog/changes/001-create-movies-genres.yaml} or startup fails.
+ * A movie genre. The {@code id} is the TMDB genre id (assigned, not generated).
  */
 @Entity
 @Table(name = "genres")

@@ -11,16 +11,7 @@ import org.springframework.context.annotation.Import;
 
 import com.gr74.catalog.service.TmdbSyncService;
 
-/**
- * Proves the enablement guard on {@link TmdbScheduledTasks}: the bean exists only when
- * {@code tmdb.enabled=true}. This is what lets the test profile ({@code enabled=false}) boot the full
- * context with no {@code TMDB_API_KEY} and no risk of a background sync firing — verified here rather
- * than relying on it implicitly.
- *
- * <p>The component is registered via {@code @Import} (not {@code withBean}) so its class-level
- * {@code @ConditionalOnProperty} is actually evaluated — programmatic bean registration bypasses the
- * condition.
- */
+/** Scheduler bean exists only when {@code tmdb.enabled=true}. */
 class TmdbScheduledTasksConditionTest {
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
@@ -40,7 +31,6 @@ class TmdbScheduledTasksConditionTest {
 
     @Test
     void schedulerBeanAbsentWhenPropertyMissing() {
-        // No havingValue match when the property is absent entirely — the guard defaults to off.
         runner.run(context -> assertThat(context).doesNotHaveBean(TmdbScheduledTasks.class));
     }
 

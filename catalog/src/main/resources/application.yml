@@ -12,7 +12,7 @@ spring:
     username: ${CATALOG_DB_USER:postgres}
     password: ${CATALOG_DB_PASSWORD:postgres}
 
-  # Liquibase owns the schema; Hibernate only VALIDATEs entities against it on boot.
+  # Liquibase owns the schema; Hibernate only validates entities against it on boot.
   liquibase:
     change-log: classpath:db/changelog/db.changelog-master.yaml
   jpa:
@@ -20,7 +20,7 @@ spring:
       ddl-auto: validate
     open-in-view: false
 
-  # RabbitMQ — Catalog PUBLISHES MovieUpserted here (CQRS read model, BUILD_PLAN 2.3). Host defaults to
+  # RabbitMQ — Catalog publishes MovieUpserted here. Host defaults to
   # localhost for `mvn spring-boot:run`; Compose overrides RABBITMQ_HOST to the `rabbitmq` container.
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
@@ -28,8 +28,8 @@ spring:
     username: ${RABBITMQ_USER:guest}
     password: ${RABBITMQ_PASSWORD:guest}
 
-  # Phase 7 (BUILD_PLAN 7.2/7.3): this service is an OAuth2 resource server — it validates the
-  # user's Bearer JWT itself (zero trust, not just the gateway). ONE issuer URI everywhere: it feeds
+  # This service is an OAuth2 resource server — it validates the
+  # user's Bearer JWT itself. ONE issuer URI everywhere: it feeds
   # BOTH the accepted `iss` claim and the derived JWKS fetch URL (see SecurityConfig), so the two can
   # never drift apart. In Compose this is `http://keycloak:8180/realms/cinema` (container DNS — the
   # `keycloak` service name); Keycloak is told to mint exactly that `iss` via KC_HOSTNAME (see
@@ -41,10 +41,9 @@ spring:
         jwt:
           issuer-uri: ${KEYCLOAK_ISSUER_URI:http://keycloak:8180/realms/cinema}
 
-# TMDB sync config (bound to TmdbProps). The access token is TMDB's v4 "API Read Access Token",
-# sent as a Bearer header — supplied via the TMDB_API_KEY env var / .env, never committed. The sync
-# walks all three movie lists, up to 10 pages per hourly tick (our own back-pressure vs TMDB's rate
-# limit); enabled by default for local/compose, disabled in the test profile so tests stay hermetic.
+# TMDB sync config (bound to TmdbProps). The access token is supplied via TMDB_API_KEY, never committed.
+# The sync walks all three movie lists, up to 10 pages per tick;
+# enabled by default for local/compose, disabled in tests.
 tmdb:
   access-token: ${TMDB_API_KEY:}
   base-url: ${TMDB_BASE_URL:https://api.themoviedb.org/3}
@@ -53,7 +52,7 @@ tmdb:
   cron: ${TMDB_SYNC_CRON:0 */20 * * * *}
   max-pages-per-run: ${TMDB_MAX_PAGES_PER_RUN:10}
 
-# OpenAPI / Swagger UI (see docs/concepts/openapi-springdoc.md). Spec at /v3/api-docs, UI at
+# OpenAPI / Swagger UI. Spec at /v3/api-docs, UI at
 # /swagger-ui.html; the gateway aggregates every service's spec into one UI at :8080. Emit OpenAPI
 # 3.1; the gateway base for "Try it out" is externalised so Compose can override the public host.
 springdoc:
@@ -72,17 +71,13 @@ eureka:
       defaultZone: ${EUREKA_SERVICE_URL:http://localhost:8761/eureka/}
 
 # Distributed tracing: sample 100% in the lab so every demo request appears
-# in Zipkin. Production runs ~0.1 (10%) — recording every trace is expensive (CPU + span storage),
-# and the sampling decision is made once at the first service and carried in the traceparent flag. The
-# endpoint defaults to the local Zipkin; Compose points it at the `zipkin` container via ZIPKIN_ENDPOINT.
+# in Zipkin. Production runs ~0.1 (10%).
+# The endpoint defaults to the local Zipkin; Compose points it at the `zipkin` container via ZIPKIN_ENDPOINT.
 management:
   tracing:
     sampling:
       probability: ${TRACING_SAMPLE_RATE:1.0}
-    # Boot 4 renamed this key: it is `management.tracing.export.zipkin.endpoint`, NOT the Boot 3
-    # `management.zipkin.tracing.endpoint`. The old key binds to nothing and the sender silently
-    # keeps its built-in default of http://localhost:9411 — which inside a container is the
-    # container itself, so every export fails with ConnectException while the network is fine.
+    # Zipkin export endpoint.
     export:
       zipkin:
         endpoint: ${ZIPKIN_ENDPOINT:http://localhost:9411/api/v2/spans}

@@ -1,4 +1,4 @@
-# Test-only config — keeps the contextLoads smoke test hermetic (no Postgres, no Eureka).
+# Test-only config — no Postgres, no Eureka.
 spring:
   datasource:
     url: jdbc:h2:mem:catalog;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
@@ -9,10 +9,7 @@ spring:
       ddl-auto: create-drop
   liquibase:
     enabled: false
-  # Phase 7: the test file SHADOWS the main application.yml (same precedent as payment's test
-  # yml repeating the autoconfigure exclusion), so the resource-server issuer URI is repeated here.
-  # The value only feeds the lazy JwtDecoder bean definition (no network at boot) and the
-  # converter — hermetic tests never call Keycloak.
+  # Repeated here for the test profile; hermetic tests never call Keycloak.
   security:
     oauth2:
       resourceserver:
@@ -23,8 +20,7 @@ eureka:
   client:
     enabled: false
 
-# Keep tests hermetic: no scheduled TMDB calls, but give the props valid (dummy) values so the
-# RestClient bean and TmdbProps still wire up in a full-context test.
+# No scheduled TMDB calls in tests, but keep valid dummy values for wiring.
 tmdb:
   enabled: false
   changes-enabled: false

@@ -1,14 +1,6 @@
-# Changeset 003 — the incremental-refresh cursor column.
+# Changeset 003 — incremental-refresh cursor column on sync_status.
 #
-# The backfill (002) only ever paged each list once, then went dormant — a movie's rating, popularity,
-# overview, etc. were frozen after the first pass. The incremental refresh closes that gap: it reads
-# TMDB's change feed (GET /movie/changes) and re-hydrates only the movies we already store that TMDB
-# edited. It needs one piece of bookkeeping the page cursor can't express — "we are fresh THROUGH this
-# UTC day" — so we add a date cursor on the CHANGES sync_status row.
-#
-# Nullable on purpose: null = "no refresh has run yet" (the first pass picks a lookback window). Only
-# the CHANGES row uses it; the list rows leave it null. ddl-auto=validate means the SyncStatus entity's
-# new lastChangesSyncedDate field must match this column at startup or the app refuses to boot.
+# Nullable: null = no refresh has run yet. Only the CHANGES row uses it.
 databaseChangeLog:
   - changeSet:
       id: 003-add-changes-cursor
@@ -17,7 +9,7 @@ databaseChangeLog:
         - addColumn:
             tableName: sync_status
             columns:
-              # UTC day the incremental refresh has caught up through; null until the first refresh.
+              # UTC day the refresh has caught up through; null until the first refresh.
               - column:
                   name: last_changes_synced_date
                   type: DATE

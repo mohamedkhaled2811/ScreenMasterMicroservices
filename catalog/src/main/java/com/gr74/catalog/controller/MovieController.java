@@ -32,17 +32,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springdoc.core.annotations.ParameterObject;
 
 /**
- * The catalogue's read endpoints.
- *
- * <p>{@code GET /movies/{id}} returns a {@link MovieDto} (full detail); {@code GET /movies} returns a
- * paged, dynamically-filtered list of lean {@link MovieSummaryDto}s. The service exposes the
- * <em>bare</em> {@code /movies} path — the {@code /api} namespace lives only at the gateway, which
- * strips it via {@code StripPrefix=1} before forwarding ({@code /api/movies} → {@code /movies}). So
- * this matches how {@code payment} exposes {@code /payments}; no edge concern leaks into the service.
- *
- * <p>A missing movie, a malformed id, or an out-of-range/unknown filter or sort param is thrown and
- * translated to an RFC 9457 {@code ProblemDetail} by {@code GlobalExceptionHandler}; these methods
- * describe only the happy path. DTOs cross the wire, not the {@link Movie} entity (project convention).
+ * Movie read endpoints: {@code GET /movies/{id}}, paged {@code GET /movies}, and {@code GET /movies/batch}.
  */
 @Slf4j
 @RestController
@@ -69,14 +59,7 @@ public class MovieController {
     }
 
     /**
-     * Dynamic, paged movie search. Any subset of the {@link MovieFilter} query params filters the
-     * result ({@code AND}-combined); {@code page}/{@code size}/{@code sort} ride on the
-     * {@link Pageable}. Defaults to 20 per page sorted by popularity (descending) when the caller
-     * sends no paging hints, so "browse the catalogue" is a bare {@code GET /movies}.
-     *
-     * <p>{@code @Valid} triggers the bean-validation constraints on {@code MovieFilter} (e.g. a rating
-     * outside {@code [0,10]}); the sort whitelist is enforced in the service. Both failure modes render
-     * as a {@code CATALOG_VALIDATION_ERROR} ProblemDetail.
+     * Dynamic, paged movie search. Any subset of filter params applies (AND-combined).
      */
     @GetMapping
     @Operation(
@@ -101,17 +84,7 @@ public class MovieController {
     }
 
     /**
-     * Batch-resolve a known set of ids to their {@link MovieSummaryDto}s in one call. This is the
-     * cross-service composition helper: Booking's "my bookings" endpoint holds a page of bookings, each
-     * carrying a {@code movieId}, and needs the titles — one {@code GET /movies/batch?ids=…} instead of
-     * N per-id calls (the network N+1 that naive composition falls into).
-     *
-     * <p><b>Why this isn't paginated</b> even though the "listings paginate, never dump" rule normally
-     * forbids a bare array: this is not a listing/browse — the caller already <em>holds the exact keys</em>
-     * and wants them resolved, the way a {@code WHERE id IN (…)} does. There's nothing to page <em>through</em>.
-     * The unbounded-dump risk is instead contained by a hard cap (max 100 ids, enforced in the service),
-     * so a caller still can't ask for the whole catalogue this way. Ids we don't have are simply omitted
-     * (no 404) — the caller merges by id and treats a miss as an unknown title.
+     * Resolve a known set of ids in one call. Not paginated; capped at 100 ids.
      */
     @GetMapping("/batch")
     @Operation(

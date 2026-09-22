@@ -32,20 +32,7 @@ import com.gr74.catalog.model.Genre;
 import com.gr74.catalog.model.Movie;
 import com.gr74.catalog.service.MovieService;
 
-/**
- * Web slice for the {@code GET /movies} dynamic filter — proves query-param binding, the paged JSON
- * envelope, and that both validation failure modes (bad sort, out-of-range param) render as a
- * {@code CATALOG_VALIDATION_ERROR} ProblemDetail. The {@link MovieService} is mocked, so this is
- * about the HTTP contract, not the query (that's covered by {@code MovieSpecificationsTest}).
- *
- * <p>Imports {@link WebPagingConfig} so the slice serializes the page as the stable {@code PagedModel}
- * envelope ({@code VIA_DTO}) — the same contract the running app uses — hence the assertions read the
- * nested {@code $.page.*} metadata, not the deprecated flat {@code $.totalElements}.
- *
- * <p>Also imports the real {@code SecurityConfig} so these cases run through the REAL
- * filter chain (a slice does not component-scan it otherwise). The search is public,
- * so every case below runs with NO token — that absence is itself the assertion.
- */
+/** Web slice for {@code GET /movies} with a mocked service. Search is public (no token). */
 @WebMvcTest(MovieController.class)
 @Import({WebPagingConfig.class, SecurityConfig.class})
 class MovieSearchControllerTest {

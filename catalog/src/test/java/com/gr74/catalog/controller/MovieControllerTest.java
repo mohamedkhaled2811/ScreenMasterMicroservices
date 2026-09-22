@@ -20,20 +20,7 @@ import com.gr74.catalog.model.Genre;
 import com.gr74.catalog.model.Movie;
 import com.gr74.catalog.service.MovieService;
 
-/**
- * Web-layer slice for {@code GET /movies/{id}}: verifies the JSON shape of the 200 and the RFC 9457
- * {@code ProblemDetail} of the 404 — without a database (the {@link MovieService} is mocked). Because
- * the table ships empty (no seed), this self-contained test is what proves the happy path; the live
- * service only serves 404s until the TMDB sync step loads rows.
- *
- * <p>{@code GlobalExceptionHandler} is a {@code @RestControllerAdvice}, so it is picked up by the
- * {@code @WebMvcTest} slice and renders the thrown {@link MovieNotFoundException}.
- *
- * <p>Imports the real {@link SecurityConfig} so these cases run through the REAL filter
- * chain (a slice does not component-scan it otherwise). The catalogue reads are public,
- * so every case below runs with NO token — and that absence is itself the assertion: browsing
- * works anonymously.
- */
+/** Web slice for {@code GET /movies/{id}} with a mocked service. Reads are public (no token). */
 @Import(SecurityConfig.class)
 @WebMvcTest(MovieController.class)
 class MovieControllerTest {

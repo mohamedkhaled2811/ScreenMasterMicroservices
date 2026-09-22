@@ -9,14 +9,7 @@ import org.springframework.data.web.config.EnableSpringDataWebSupport;
 import org.springframework.data.web.config.PageableHandlerMethodArgumentResolverCustomizer;
 
 /**
- * Repo-wide paging policy for the catalog service (see {@code docs/concepts/pagination-and-filtering.md}).
- *
- * <p>{@code pageSerializationMode = VIA_DTO} makes {@code GET /movies} serialize its {@code Page} as
- * Spring Data's stable {@code PagedModel} envelope instead of the internal {@code PageImpl} shape —
- * this silences the "please use PagedModel … VIA_DTO" instability warning the search endpoint emitted,
- * and matches booking's paging contract. The {@link PageableHandlerMethodArgumentResolverCustomizer}
- * caps {@code ?size=} so no caller can force the service to load and serialize the whole catalogue.
- * Pages stay 0-indexed (Spring's default).
+ * Paging policy for the catalog service.
  */
 @Configuration
 @EnableSpringDataWebSupport(pageSerializationMode = VIA_DTO)

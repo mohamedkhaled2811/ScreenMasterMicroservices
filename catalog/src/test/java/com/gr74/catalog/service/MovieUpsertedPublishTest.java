@@ -35,20 +35,7 @@ import com.gr74.catalog.sync.dto.TmdbListPage;
 import com.gr74.catalog.sync.dto.TmdbMovieDetails;
 
 /**
- * The publisher half of the CQRS read model (BUILD_PLAN 2.3, way B), asserted at the
- * <em>application-event</em> seam. We prove ADR 0001's core rule against the real
- * {@link TmdbSyncService} + {@link CatalogUpserter} on H2:
- * <ul>
- *   <li><b>backfill publishes nothing</b> — a bulk load must not flood the broker;</li>
- *   <li><b>the incremental refresh publishes one {@link MovieUpserted} per re-hydrated movie</b>, and</li>
- *   <li>the event's {@code updatedAt} is the movie row's real {@code @LastModifiedDate} (not null, not a
- *       publish-time stamp) — the value the consumer's ordering guard depends on.</li>
- * </ul>
- *
- * <p>Why assert at the application-event boundary rather than on {@code RabbitTemplate}: the broker send
- * is an {@code @TransactionalEventListener(AFTER_COMMIT)}, and this {@code @DataJpaTest} rolls each test
- * back, so {@code AFTER_COMMIT} never fires here. The event <em>raised inside the txn</em> is the
- * behaviour under test; the AFTER_COMMIT→broker hop is trivial glue verified live in the 2.4 demo.
+ * Proves backfill publishes nothing and refresh publishes one event per movie.
  */
 @DataJpaTest
 @Import({TmdbSyncService.class, CatalogUpserter.class, JpaAuditingConfig.class,
@@ -62,7 +49,7 @@ class MovieUpsertedPublishTest {
         }
     }
 
-    /** Captures MovieUpserted application events as CatalogUpserter raises them (inside the txn). */
+    /** Captures MovieUpserted events raised inside the transaction. */
     @Component
     static class CapturingListener {
         final List<MovieUpserted> events = new ArrayList<>();
@@ -92,8 +79,7 @@ class MovieUpsertedPublishTest {
 
     @BeforeEach
     void stubGenresAndMapper() {
-        // The Spring context (and this capturing bean) is shared across test methods — reset it so one
-        // test's events never leak into another's assertion.
+        // Shared context — reset so events never leak between tests.
         capturing.events.clear();
         given(tmdb.genres()).willReturn(List.of(new TmdbGenre(28L, "Action")));
         lenient().when(tmdb.toMovie(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
@@ -102,39 +88,38 @@ class MovieUpsertedPublishTest {
 
     @Test
     void backfillPublishesNothing() {
-        // A single complete page per list → backfill runs and COMPLETES, but must emit zero events.
+        // One complete page per list.
         given(tmdb.listPage(SyncType.POPULAR, 1)).willReturn(listPage(1, 1, 603L, 550L));
         given(tmdb.listPage(SyncType.TOP_RATED, 1)).willReturn(listPage(1, 1));
         given(tmdb.listPage(SyncType.NOW_PLAYING, 1)).willReturn(listPage(1, 1));
         given(tmdb.movieDetails(anyLong())).willAnswer(inv -> details(inv.getArgument(0), "7.5"));
-        // Pre-seed the CHANGES cursor to today so the auto-refresh that follows a completed backfill is an
-        // empty no-op — isolating this assertion to the backfill itself.
+        // Pre-seed the cursor so the follow-up refresh is a no-op.
         seedChangesCursor(TODAY);
 
         syncService.syncAll();
 
         assertThat(movieRepository.findById(603L)).isPresent();
-        assertThat(capturing.events).as("backfill must not publish MovieUpserted (ADR 0001)").isEmpty();
+        assertThat(capturing.events).as("backfill must not publish MovieUpserted").isEmpty();
     }
 
     @Test
     void refreshPublishesOnePerReHydratedMovieWithRowTimestamp() {
-        backfillSingleMovie(603L);       // 603 stored, backfill COMPLETE
-        capturing.events.clear();        // drop the empty auto-refresh from backfill setup
-        seedChangesCursor(TODAY.minusDays(1)); // window = [today, today]
+        backfillSingleMovie(603L);
+        capturing.events.clear();
+        seedChangesCursor(TODAY.minusDays(1));
 
         given(tmdb.changedMovieIds(TODAY, TODAY, 1)).willReturn(changesPage(1, 1, 603L, 999L));
         given(tmdb.movieDetails(603L)).willReturn(details(603L, "9.1"));
 
         syncService.syncAll();
 
-        // Exactly one event: for 603 (we store it). 999 is filtered out before any fetch, so no event.
+        // Exactly one event for 603; 999 is filtered out before any fetch.
         assertThat(capturing.events).hasSize(1);
         MovieUpserted event = capturing.events.get(0);
         assertThat(event.id()).isEqualTo(603L);
         assertThat(event.title()).isEqualTo("Movie 603");
         assertThat(event.eventId()).isNotBlank();
-        // updatedAt is the persisted row's @LastModifiedDate — present, and equal to what's in the DB.
+        // updatedAt is the persisted row's @LastModifiedDate.
         assertThat(event.updatedAt()).isNotNull();
         assertThat(event.updatedAt())
                 .isEqualTo(movieRepository.findById(603L).orElseThrow().getLastModifiedDate());

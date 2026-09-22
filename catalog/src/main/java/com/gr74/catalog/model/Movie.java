@@ -25,19 +25,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * A movie in the catalogue. The {@code id} is the TMDB movie id — <em>assigned</em>, not generated
- * (no {@code @GeneratedValue}): a stable, externally-sourced key that other services reference by id.
- *
- * <p>The columns mirror TMDB's {@code GET /movie/{id}} (movie-details) response so the Phase-2 sync
- * job fills them with no further migration. {@code status} is a plain {@link String}, not a JPA enum,
- * because it's a free-text upstream value (Released, Post Production, ...) and an unexpected value
- * must not break persistence.
- *
- * <p>Genres are a {@link ManyToMany} over the {@code movie_genres} join table — an intra-Catalog FK,
- * fetched eagerly-on-demand via the repository's fetch query (we run with
- * {@code open-in-view: false}, so the collection is loaded inside the service transaction, not
- * lazily during JSON serialization). The schema is owned by Liquibase ({@code ddl-auto=validate}):
- * this entity must match {@code 001-create-movies-genres.yaml} or the app refuses to boot.
+ * A movie in the catalogue. The {@code id} is the TMDB movie id (assigned, not generated).
  */
 @Entity
 @Table(name = "movies")
@@ -65,7 +53,7 @@ public class Movie {
 
     private Integer runtime;
 
-    /** TMDB free-text status (Released, Post Production, ...). Deliberately a String, not an enum. */
+    /** TMDB free-text status (Released, Post Production, ...). */
     private String status;
 
     @Column(name = "original_language")
@@ -108,32 +96,25 @@ public class Movie {
         this.title = title;
     }
 
-    /** Attach a genre to this movie (maintains the owning side of the {@code movie_genres} join). */
+    /** Attach a genre to this movie. */
     public void addGenre(Genre genre) {
         this.genres.add(genre);
     }
 
-    /** Replace this movie's genre links wholesale — used by the sync upsert when re-hydrating. */
+    /** Replace this movie's genre links wholesale. */
     public void setGenres(Set<Genre> genres) {
         this.genres = new LinkedHashSet<>(genres);
     }
 
     /**
-     * Apply the mutable TMDB-sourced detail fields in one place. The id and title are set via the
-     * constructor; everything else flows through here so there is a single, intention-revealing
-     * mutation path shared by the TMDB upsert and tests — no scattered setters, no public no-arg
-     * construction. The {@link Details} carrier keeps the call site readable
-     * ({@code movie.applyDetails(b -> b.runtime(139).voteAverage(...))}).
+     * Apply the mutable detail fields in one place.
      */
     public void applyDetails(java.util.function.Consumer<Details> mutator) {
         Details d = new Details(this);
         mutator.accept(d);
     }
 
-    /**
-     * Fluent setter facade over a {@link Movie}'s detail fields. Lives inside {@code Movie} so it can
-     * write the private fields directly while keeping them otherwise read-only to the outside world.
-     */
+    /** Fluent setter facade over a {@link Movie}'s detail fields. */
     public static final class Details {
         private final Movie m;
 

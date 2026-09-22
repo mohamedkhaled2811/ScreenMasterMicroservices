@@ -3,13 +3,7 @@ package com.gr74.catalog.exception;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
- * OpenAPI-only documentation of the error body every failing endpoint returns.
- *
- * <p>Never instantiated or returned — the real error body is a Spring
- * {@link org.springframework.http.ProblemDetail} built in {@link GlobalExceptionHandler}. This mirror
- * exists so springdoc has a schema to render, because it cannot infer the custom {@code code} member
- * (added at runtime via {@code setProperty("code", …)}). Keep the {@code code} values in sync with
- * {@link CatalogErrorCode} — the coupling is manual (see {@code docs/concepts/openapi-springdoc.md}).
+ * OpenAPI schema for the error body every failing endpoint returns. Never instantiated directly.
  *
  * @see CatalogErrorCode
  */

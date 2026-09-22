@@ -23,13 +23,7 @@ import com.gr74.catalog.model.Movie;
 import com.gr74.catalog.repository.spec.MovieSpecifications;
 
 /**
- * Persistence slice proving the dynamic filter on in-memory H2. Each test builds a {@link MovieFilter},
- * turns it into a composed {@link Specification} via {@link MovieSpecifications}, and asserts the right
- * movies come back through {@link MovieRepository#findMoviePage}. This is the read-side counterpart to
- * the monolith's {@code MovieSpecification} behaviour, verified end-to-end against a real query.
- *
- * <p>{@link JpaAuditingConfig} is imported so {@code @CreatedDate} populates the NOT NULL
- * {@code created_date} on persisted movies — {@code @DataJpaTest} doesn't load it automatically.
+ * Persistence slice for the dynamic filter on H2.
  */
 @DataJpaTest
 @Import(JpaAuditingConfig.class)

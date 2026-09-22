@@ -7,16 +7,7 @@ import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 
 /**
- * Builds the {@link RestClient} the TMDB sync uses, pre-baked with TMDB's base URL and the v4 bearer
- * token so call sites only specify the path (e.g. {@code .uri("/movie/{id}", id)}).
- *
- * <p>The token is read from {@link TmdbProps#accessToken()} ({@code TMDB_API_KEY} env var). We set it
- * as a default {@code Authorization: Bearer ...} header here, once, rather than on every request —
- * the modern TMDB auth style (v4), preferred over the legacy {@code ?api_key=} query param.
- *
- * <p>This is a dedicated {@code @Bean} (not a field-built client) so it's a managed singleton the
- * {@code TmdbApiClient} can inject, and so a test can swap in a {@code MockRestServiceServer}-backed
- * client if ever needed. See {@code docs/concepts/spring-web-annotations.md} (RestClient).
+ * Builds the {@link RestClient} the TMDB sync uses, with base URL and bearer token pre-configured.
  */
 @Configuration
 public class TmdbRestClientConfig {

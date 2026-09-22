@@ -2,10 +2,7 @@ package com.gr74.catalog.dto;
 
 import com.gr74.catalog.model.Genre;
 
-/**
- * Wire type for a genre — a DTO, not the {@link Genre} entity, so the JSON contract stays decoupled
- * from the persistence model (project convention: DTOs cross the wire).
- */
+/** Wire type for a genre. */
 public record GenreDto(Long id, String name) {
 
     public static GenreDto from(Genre genre) {

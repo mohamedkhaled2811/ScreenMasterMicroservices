@@ -17,19 +17,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * Bookkeeping for the resumable TMDB sync — one row per {@link SyncType}. The sync reads this to know
- * where it left off ({@link #lastPage}) and how far there is to go ({@link #totalPages}); a crash or
- * rate-limit pause therefore resumes the walk rather than restarting it.
- *
- * <p>Unlike {@link Movie}/{@link Genre}, the {@code id} here is <em>generated</em> (an internal
- * surrogate) — there's no external id to assign. {@code syncType} and {@code state} are
- * {@code @Enumerated(STRING)}: the enum <em>name</em> is persisted so reordering constants can't
- * corrupt rows (the fragile-ordinal trap the schema doc flags in the monolith).
- *
- * <p>State transitions go through intention-revealing methods ({@link #markRunning()},
- * {@link #recordPageSynced(int, int)}, {@link #markCompleted()}, {@link #markFailed(String)}) rather
- * than raw setters, so the valid lifecycle lives in one place. Schema owned by Liquibase
- * (changeset 002); this entity must match it under {@code ddl-auto=validate}.
+ * Bookkeeping for the resumable TMDB sync — one row per {@link SyncType}.
  */
 @Entity
 @Table(name = "sync_status")
@@ -62,15 +50,12 @@ public class SyncStatus {
     private Instant lastSyncedAt;
 
     /**
-     * The incremental-refresh cursor (UTC day): the catalog is fresh with respect to TMDB's change
-     * feed <em>through</em> this date. Only meaningful on the {@link SyncType#CHANGES} row; null until
-     * the first refresh runs, after which each refreshed day advances it. The page-walk fields above
-     * are unused on that row.
+     * Incremental-refresh cursor (UTC day). Only used on the {@link SyncType#CHANGES} row.
      */
     @Column(name = "last_changes_synced_date")
     private LocalDate lastChangesSyncedDate;
 
-    /** Start a fresh bookkeeping row for a type (nothing synced yet, RUNNING). */
+    /** Start a fresh bookkeeping row for a type. */
     public SyncStatus(SyncType syncType) {
         this.syncType = syncType;
         this.lastPage = 0;
@@ -84,21 +69,21 @@ public class SyncStatus {
         this.errorMessage = null;
     }
 
-    /** Record that a page was fully synced — advance the cursor and learn the total page count. */
+    /** Record that a page was synced. */
     public void recordPageSynced(int page, int totalPages) {
         this.lastPage = page;
         this.totalPages = totalPages;
         this.lastSyncedAt = Instant.now();
     }
 
-    /** The walk reached the final page: the catalog is fresh for this type. */
+    /** The walk reached the final page. */
     public void markCompleted() {
         this.state = SyncState.COMPLETED;
         this.errorMessage = null;
         this.lastSyncedAt = Instant.now();
     }
 
-    /** The walk errored: record why so the next tick resumes from {@link #lastPage}. */
+    /** The walk errored: record why. */
     public void markFailed(String error) {
         this.state = SyncState.FAILED;
         this.errorMessage = error == null ? "unknown error" : error.substring(0, Math.min(error.length(), 1000));
@@ -111,9 +96,7 @@ public class SyncStatus {
     }
 
     /**
-     * Advance the incremental-refresh cursor to a freshly-refreshed UTC day (see
-     * {@link #lastChangesSyncedDate}). Touches {@code lastSyncedAt} too so the row reflects the most
-     * recent refresh activity. Used only on the {@link SyncType#CHANGES} row.
+     * Advance the incremental-refresh cursor to a freshly-refreshed UTC day.
      */
     public void recordChangesSynced(LocalDate through) {
         this.lastChangesSyncedDate = through;

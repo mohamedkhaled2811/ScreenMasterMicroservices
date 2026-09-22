@@ -3,14 +3,7 @@ package com.gr74.catalog;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
-/**
- * Smoke test: proves the catalog application context wires up cleanly.
- *
- * <p>Kept hermetic by {@code src/test/resources/application.yml}: Eureka registration is disabled
- * and the datasource points at in-memory H2 (with Liquibase off, Hibernate owning the test schema),
- * so the test needs neither a running Eureka nor a Postgres. Random port avoids clashing with a
- * catalog instance already bound to 8081 locally.
- */
+/** Smoke test: catalog context wires up (H2, no Eureka). */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class CatalogApplicationTests {
 

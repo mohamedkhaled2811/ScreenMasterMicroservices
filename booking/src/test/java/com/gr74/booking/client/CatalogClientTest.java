@@ -29,14 +29,7 @@ import com.gr74.booking.exception.CatalogUnavailableException;
 import com.gr74.booking.exception.MovieNotInCatalogException;
 
 /**
- * Unit test for {@link CatalogClient} with no network: a {@link MockRestServiceServer} bound to the
- * client's {@link RestClient} plays Catalog. This is the test that pins the 5C contract — the three
- * outcomes of validating a {@code movieId} across the service boundary must map to three distinct
- * results, because a bad id and a Catalog outage are different problems the saga later branches on.
- *
- * <p>The base URL here is a plain {@code http://catalog} stand-in for {@code lb://catalog} (the load
- * balancer isn't exercised in a unit test — resolution is a production concern proven live), so the
- * expected request path is the resolved {@code /movies/{id}} the client builds.
+ * {@link CatalogClient} against a mocked Catalog: movie validation and title/projection reads.
  */
 class CatalogClientTest {
 
@@ -88,8 +81,7 @@ class CatalogClientTest {
 
     @Test
     void unexpected4xxBecomesCatalogUnavailable() {
-        // A non-404 client error (e.g. Catalog rejects a malformed id as 400) isn't "no such movie" —
-        // we can't trust it as a definitive answer, so it's an availability problem, not a bad id.
+        // A non-404 client error is an availability problem, not a bad id.
         server.expect(requestTo(BASE + "/movies/603"))
                 .andRespond(withStatus(HttpStatus.BAD_REQUEST));
 
@@ -104,7 +96,7 @@ class CatalogClientTest {
 
     @Test
     void titlesByIdsBuildsMapFromOneBatchCall() {
-        // One call for the whole set (the N+1 fix), hitting /movies/batch with the ids as query params.
+        // One call for the whole set, hitting /movies/batch with the ids as query params.
         server.expect(ExpectedCount.once(), requestToUriTemplate(BASE + "/movies/batch?ids=603&ids=550"))
                 .andExpect(method(HttpMethod.GET))
                 .andExpect(queryParam("ids", "603", "550"))
@@ -112,7 +104,7 @@ class CatalogClientTest {
                         "[{\"id\":603,\"title\":\"The Matrix\"},{\"id\":550,\"title\":\"Fight Club\"}]",
                         MediaType.APPLICATION_JSON));
 
-        // A LinkedHashSet keeps the query-param order deterministic for the URI match above.
+        // A LinkedHashSet keeps the query-param order deterministic.
         Map<Long, String> titles = client.titlesByIds(new java.util.LinkedHashSet<>(java.util.List.of(603L, 550L)));
 
         assertThat(titles).containsEntry(603L, "The Matrix").containsEntry(550L, "Fight Club");
@@ -121,7 +113,7 @@ class CatalogClientTest {
 
     @Test
     void titlesByIdsDegradesToEmptyMapWhenCatalogIsDown() {
-        // The read path must NOT throw — a Catalog outage returns no titles so "my bookings" still answers.
+        // The read path must not throw — an outage returns no titles.
         server.expect(requestTo(BASE + "/movies/batch?ids=603")).andRespond(withServerError());
 
         Map<Long, String> titles = client.titlesByIds(Set.of(603L));
@@ -132,14 +124,12 @@ class CatalogClientTest {
 
     @Test
     void titlesByIdsShortCircuitsOnEmptyInputWithNoCall() {
-        // No ids → no network call at all (server.verify() would fail if an unexpected request fired).
+        // No ids means no network call.
         assertThat(client.titlesByIds(Set.of())).isEmpty();
         server.verify();
     }
 
-    // ---- projectionById (the way-B lazy-backfill cache-fill) -------------------------------------
-    // Distinct from titlesByIds: it writes into a persistent cache, so it must tell 404 (safe to treat as
-    // "unknown") apart from unavailable (must NOT be cached — would poison the cache).
+    // ---- projectionById (lazy-backfill cache fill) ---------------------------------------------
 
     @Test
     void projectionByIdReturnsTitleAndPosterOn200() {
@@ -149,7 +139,7 @@ class CatalogClientTest {
                         "{\"id\":603,\"title\":\"The Matrix\",\"posterPath\":\"/matrix.jpg\"}",
                         MediaType.APPLICATION_JSON));
 
-        // Both projected columns come back from ONE fetch — the poster is what the ticket email renders.
+        // One fetch fills both projected columns.
         assertThat(client.projectionById(603L)).get()
                 .extracting(CatalogClient.MovieProjectionData::title, CatalogClient.MovieProjectionData::posterPath)
                 .containsExactly("The Matrix", "/matrix.jpg");
@@ -158,8 +148,7 @@ class CatalogClientTest {
 
     @Test
     void projectionByIdKeepsTitleWhenTheMovieHasNoPoster() {
-        // TMDB genuinely lacks artwork for some titles. A null poster must NOT suppress the title —
-        // the ticket renders without the image band rather than without the film's name.
+        // A null poster must not suppress the title.
         server.expect(requestTo(BASE + "/movies/604"))
                 .andRespond(withSuccess("{\"id\":604,\"title\":\"Obscure Film\"}",
                         MediaType.APPLICATION_JSON));
@@ -172,7 +161,7 @@ class CatalogClientTest {
 
     @Test
     void projectionByIdReturnsEmptyOn404() {
-        // A definitive "no such movie" — empty, NOT an exception (the caller serves null and won't retry).
+        // A definitive "no such movie" — empty, not an exception.
         server.expect(requestTo(BASE + "/movies/999999")).andRespond(withResourceNotFound());
 
         assertThat(client.projectionById(999_999L)).isEmpty();
@@ -181,7 +170,7 @@ class CatalogClientTest {
 
     @Test
     void projectionByIdThrowsOnUnavailableSoTheCacheIsNotPoisoned() {
-        // A 5xx is an outage, not a bad id — throw so the caller writes NOTHING and retries next read.
+        // A 5xx is an outage — throw so the caller writes nothing and retries next read.
         server.expect(requestTo(BASE + "/movies/603")).andRespond(withServerError());
 
         assertThatThrownBy(() -> client.projectionById(603L))

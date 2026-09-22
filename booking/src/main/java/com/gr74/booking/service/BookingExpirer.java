@@ -14,22 +14,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * The transactional half of hold expiry: flips every lapsed PENDING booking to EXPIRED.
- *
- * <p><b>Seats are freed by the status flip itself.</b> {@code findSeatIdsHeldForShowtime} only
- * counts PENDING/CONFIRMED, so EXPIRED already releases the seats; the {@code booking_seats}
- * rows stay as the audit trail. And the flip is conditional on still-PENDING — the same guard as
- * the confirm — so a payment confirming inside the hold window wins even if the sweep runs in the
- * same instant: whichever statement matches first takes the row out of PENDING and the other
- * updates zero rows. The database decides the race, not code order.
- *
- * <p><b>Why this is its own bean.</b> {@code @Transactional} is applied by a proxy wrapping the
- * bean, so it only takes effect on calls arriving from <em>outside</em>. When this method lived on
- * {@link BookingExpirySweeper} the scheduled {@code tick()} reached it by plain self-invocation,
- * skipping the proxy entirely — the conditional UPDATE then ran with no transaction and threw
- * {@code TransactionRequiredException} on every tick, so no hold was ever expired. Splitting the
- * scheduler from the work makes the proxy boundary structural instead of implicit; the same reason
- * {@link MovieBackfiller} is separate from {@link MovieReadModel}.
+ * Flips every lapsed PENDING booking to EXPIRED. Seats are freed by the status flip itself;
+ * the flip is conditional on still-PENDING so a concurrent confirm wins the race at the database.
+ * Separate bean from the sweeper so the transactional proxy applies.
  */
 @Slf4j
 @Service
@@ -38,11 +25,7 @@ public class BookingExpirer {
 
     private final BookingRepository bookings;
 
-    /**
-     * Expire every PENDING booking past {@code now}. Direct-invocation testable with a frozen
-     * clock; returns how many holds were actually flipped (already-EXPIRED rows a concurrent
-     * confirm stole contribute zero).
-     */
+    /** Expire every PENDING booking past {@code now}; returns how many holds were flipped. */
     @Transactional
     public int expireDueBookings(Instant now) {
         List<Booking> lapsed = bookings.findByStatusAndExpiresAtBefore(BookingStatus.PENDING, now);

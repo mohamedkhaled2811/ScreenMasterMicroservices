@@ -27,23 +27,9 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * A user's reservation of one or more seats for a showtime.
- *
- * <p><b>Two cross-service references, both plain ids, no FK</b> (schema §8.2):
- * <ul>
- *   <li>{@code userId} — Identity owns users. A {@link String} because it holds the Keycloak {@code sub}
- *       (a UUID) in Phase 7; today it's the {@code X-User-Id} header value.</li>
- *   <li>{@code movieId} — <em>snapshotted</em> from the showtime at create time. Booking copies it so
- *       "my bookings" can name the movie without re-joining the showtime, and the title is then resolved
- *       live from Catalog by id (the M2 composition). Frozen ids are cheap; the mutable title stays fresh.</li>
- * </ul>
- * {@code showtimeId} is an intra-Booking FK to {@code showtimes.id} (migration 007). Deleting a
- * showtime that still has bookings is rejected ({@code ON DELETE NO ACTION}). {@code totalAmount} is a
- * snapshot of the total at booking time — never recomputed from live prices.
- *
- * <p>Enums are {@code @Enumerated(STRING)} (never ordinal — §2.4 fix). The {@code bookingReference} is
- * unique. Schema owned by Liquibase ({@code ddl-auto=validate}); must match {@code 003-create-bookings.yaml}
- * + {@code 004-alter-bookings-user-id-varchar.yaml}. There is no Payment call here — the saga is Phase 3.
+ * A user's reservation of one or more seats for a showtime. {@code userId} and {@code movieId}
+ * are plain ids (no FKs); {@code totalAmount} and {@code currency} are snapshotted at booking time.
+ * Enums persist as {@code STRING}; schema is owned by Liquibase.
  */
 @Entity
 @Table(
@@ -61,14 +47,14 @@ public class Booking {
     @Column(name = "booking_reference", nullable = false, unique = true, length = 20)
     private String bookingReference;
 
-    /** Cross-service reference to Identity's user — the Keycloak {@code sub} (UUID string) from Phase 7. */
+    /** Owner's user id (Identity's Keycloak {@code sub}). */
     @Column(name = "user_id", nullable = false, length = 36)
     private String userId;
 
     @Column(name = "showtime_id", nullable = false)
     private Long showtimeId;
 
-    /** Snapshot of the showtime's {@code movieId} at create time — the cross-service ref to Catalog. */
+    /** Showtime's {@code movieId} copied at create time, so bookings read standalone. */
     @Column(name = "movie_id", nullable = false)
     private Long movieId;
 
@@ -77,13 +63,8 @@ public class Booking {
     private BookingStatus status;
 
     /**
-     * Mirror of Payment's answer for this booking — <b>displayed, never a decision input</b>.
-     *
-     * <p>Nothing is ever decided from this field: the seat guard looks at {@code status} only, and
-     * the saga's confirm/mirror paths write it as a side effect, never read it as a condition. A
-     * booking can sit at {@code PENDING}/{@code FAILED} while the user retries, and a late failure
-     * arriving after {@code PAID} is dropped rather than mirrored. Kept so "my bookings" can show
-     * "last attempt failed" without calling Payment.
+     * Display-only mirror of Payment's answer; never read for decisions (the seat guard looks at
+     * {@code status} only). A late failure arriving after {@code PAID} is dropped, not mirrored.
      */
     @Enumerated(EnumType.STRING) // never ordinal
     @Column(name = "payment_status", nullable = false, length = 20)
@@ -92,30 +73,17 @@ public class Booking {
     @Column(name = "total_amount", nullable = false)
     private BigDecimal totalAmount;
 
-    /**
-     * ISO-4217 code, snapshotted from the theater at booking time (changeset 009).
-     *
-     * <p>Frozen alongside {@code totalAmount} for the same reason: the amount charged must not move
-     * because someone edited the theater afterwards. Payment reads this pair to decide which gateways
-     * can settle the booking — Paymob takes EGP, Stripe test mode takes USD.
-     */
+    /** ISO-4217 code snapshotted from the theater at booking time, alongside {@code totalAmount}. */
     @Column(nullable = false, length = 3)
     private String currency;
 
-    /** The 15-min hold deadline; the Phase-3 sweeper frees seats past this. */
+    /** Hold deadline; expired holds free their seats via a status flip to {@code EXPIRED}. */
     @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;
 
     /**
-     * The reserved seats. Cascade + orphan-removal so a booking owns its line items: persisting the
-     * booking persists its seats.
-     *
-     * <p><b>Never cleared as compensation.</b> An earlier draft of this comment anticipated
-     * {@code seats.clear()} when a hold lapsed — that is the wrong move: the double-booking guard
-     * ({@code findSeatIdsHeldForShowtime}) is status-based, so flipping the booking to
-     * {@code EXPIRED} already releases the seats to every future booking check, and clearing the
-     * rows would buy nothing while destroying the audit trail of who held A-7 and lost it. The
-     * rows stay; the status flip is the release.
+     * Reserved seats owned by this booking. Flipping the booking to {@code EXPIRED} releases the
+     * seats; rows are kept as the audit trail.
      */
     @OneToMany(mappedBy = "booking", cascade = CascadeType.ALL, orphanRemoval = true)
     private final List<BookingSeat> seats = new ArrayList<>();
@@ -137,11 +105,11 @@ public class Booking {
         this.totalAmount = totalAmount;
         this.currency = currency;
         this.expiresAt = expiresAt;
-        this.status = BookingStatus.PENDING;        // a new booking always starts holding its seats
-        this.paymentStatus = PaymentStatus.PENDING; // no Payment call yet — the saga sets this in Phase 3
+        this.status = BookingStatus.PENDING;        // new bookings start holding their seats
+        this.paymentStatus = PaymentStatus.PENDING; // no Payment outcome yet
     }
 
-    /** Add a seat to this booking, keeping both sides of the relationship in sync. */
+    /** Add a seat, keeping both sides of the relationship in sync. */
     public void addSeat(BookingSeat seat) {
         seats.add(seat);
         seat.assignTo(this);

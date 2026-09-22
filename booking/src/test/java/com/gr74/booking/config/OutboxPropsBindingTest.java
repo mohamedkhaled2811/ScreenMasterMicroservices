@@ -7,13 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 /**
- * Proves {@code @ConfigurationPropertiesScan} on {@code BookingApplication} really binds the
- * {@code booking.outbox.*} prefix — a silently-unbound props record is a defect (the relay would
- * read fallbacks forever without anyone noticing).
- *
- * <p>Overrides the two values so this test proves <em>binding</em>, not just that the record's
- * default-fallback constructor fires on absent properties. Everything else is the hermetic test
- * context (H2, Eureka off — see {@code src/test/resources/application.yml}).
+ * Binds the {@code booking.outbox.*} properties via {@code @ConfigurationPropertiesScan}.
  */
 @SpringBootTest(properties = {
         "booking.outbox.relay-interval-millis=1500",

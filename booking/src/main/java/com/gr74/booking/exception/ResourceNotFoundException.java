@@ -1,13 +1,7 @@
 package com.gr74.booking.exception;
 
 /**
- * Thrown when an inventory or scheduling resource is looked up by an id that has no row. The specific
- * {@link BookingErrorCode} (theater / screen / seat / seat-type / showtime not found) is supplied by
- * the caller, so one class covers every "parent doesn't exist" case in this part without a subclass
- * per entity. All map to HTTP 404 via {@link GlobalExceptionHandler}.
- *
- * <p>Factory methods keep the call sites intention-revealing and the messages consistent
- * ({@code ResourceNotFoundException.theater(id)}).
+ * Lookup by unknown id; the caller supplies the specific code. All map to 404.
  */
 public class ResourceNotFoundException extends BookingException {
 

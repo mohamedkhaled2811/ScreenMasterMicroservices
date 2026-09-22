@@ -30,15 +30,7 @@ import com.gr74.booking.repository.spec.SeatTypeSpecifications;
 import com.gr74.booking.repository.spec.TheaterSpecifications;
 
 /**
- * Persistence slice proving the dynamic, paged filters for the inventory listings on in-memory H2 —
- * the booking counterpart to catalog's {@code MovieSpecificationsTest}. Each test builds a filter,
- * composes it into a {@code Specification}, and asserts the right rows come back through a real paged
- * query. The seat cases also prove the two-step {@link SeatRepository#findSeatPage} fetches
- * {@code seatType} (readable after {@code em.clear()} under {@code open-in-view: false}) and preserves
- * the requested sort order.
- *
- * <p>{@link JpaAuditingConfig} is imported so {@code @CreatedDate} populates the NOT NULL
- * {@code created_date} — {@code @DataJpaTest} doesn't load it automatically.
+ * Dynamic paged filters for the inventory listings on H2.
  */
 @DataJpaTest
 @Import(JpaAuditingConfig.class)

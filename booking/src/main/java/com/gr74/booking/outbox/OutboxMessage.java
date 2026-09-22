@@ -16,20 +16,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * One business fact waiting for the broker — the transactional outbox (BUILD_PLAN 4.1/4.2, see
- * {@code docs/concepts/transactional-outbox.md}).
- *
- * <p>The row is written <b>in the same transaction as the state change it announces</b> (a booking
- * going {@code CONFIRMED} and its {@code BookingConfirmed} row are one commit), so the dual-write
- * problem — state committed but event lost, or event published but state rolled back — cannot
- * happen. A scheduled relay ({@link OutboxRelay}) publishes pending rows and marks them, which is
- * what makes delivery at-least-once: publish-then-mark means a crash between the two re-publishes
- * (safe, consumers are idempotent), while mark-then-publish could lose the event forever. For a
- * lost {@code BookingConfirmationRejected} that loss is a stranded customer refund — the exact gap
- * {@code BookingEventPublisher} carried through Phase 3, now closed.
- *
- * <p>Mirrors {@code payment}'s {@code OutboxMessage} file-for-file (no shared module — the same
- * deliberate duplication as the routing-key constants in {@code RabbitConfig}).
+ * One business fact waiting for the broker, written in the same transaction as the state change it announces.
  */
 @Entity
 @Table(name = "outbox")
@@ -41,43 +28,35 @@ public class OutboxMessage {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** BOOKING_CONFIRMED | BOOKING_CONFIRMATION_REJECTED — what happened, in our vocabulary. */
+    /** BOOKING_CONFIRMED | BOOKING_CONFIRMATION_REJECTED — what happened. */
     @Enumerated(EnumType.STRING) // never ordinal
     @Column(name = "event_type", nullable = false, updatable = false, length = 60)
     private OutboxEventType eventType;
 
-    /** The business row this announces ({@code bookings.id}) — a logical ref, deliberately no FK. */
+    /** The business row this announces ({@code bookings.id}); a logical ref, no FK. */
     @Column(name = "aggregate_id", nullable = false, updatable = false)
     private Long aggregateId;
 
-    /** Topic routing key, e.g. {@code booking-confirmed-key} — the contract consumers bind to. */
+    /** Topic routing key, e.g. {@code booking-confirmed-key}. */
     @Column(name = "routing_key", nullable = false, updatable = false, length = 120)
     private String routingKey;
 
-    /** The event JSON exactly as it must travel on the wire. Never an entity. */
+    /** The event JSON exactly as it travels on the wire. Never an entity. */
     @Column(nullable = false, updatable = false, columnDefinition = "TEXT")
     private String payload;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
-    /** Null while pending; the relay sets it after publishing. Indexed for the drain query. */
+    /** Null while pending; set by the relay after publishing. */
     @Column(name = "published_at")
     private Instant publishedAt;
 
-    /**
-     * The 32-hex W3C trace id active when the row was written — persisted so the async relay can
-     * carry the original trace across the commit boundary. Null when no
-     * trace was live (a test, a scheduled path), which is fine: the relay simply publishes without
-     * a {@code traceparent} header.
-     */
+    /** W3C trace id active when the row was written; null when written outside a trace. */
     @Column(name = "trace_id", updatable = false, length = 32)
     private String traceId;
 
-    /**
-     * The 16-hex id of the span that wrote the row. On the wire it becomes the traceparent's
-     * PARENT span id, so the consumer's restored span is a child of the span that caused this event.
-     */
+    /** Span id of the writer; becomes the traceparent's parent span id on the wire. */
     @Column(name = "span_id", updatable = false, length = 16)
     private String spanId;
 
@@ -85,11 +64,7 @@ public class OutboxMessage {
         this(eventType, aggregateId, routingKey, payload, null, null);
     }
 
-    /**
-     * The production constructor: captures the trace context that was live when the business change
-     * committed, so the relay can re-create it on the consumer's thread. The four-arg form above is
-     * for rows genuinely written outside a trace (tests, backfills) and stores {@code null}.
-     */
+    /** Production constructor: captures the live trace context for the relay to propagate. */
     public OutboxMessage(OutboxEventType eventType, Long aggregateId, String routingKey, String payload,
             String traceId, String spanId) {
         this.eventType = eventType;
@@ -101,7 +76,7 @@ public class OutboxMessage {
         this.createdAt = Instant.now();
     }
 
-    /** Mark this row published — called only AFTER the broker accepted it, never before. */
+    /** Marks the row published; called only after the broker accepts it. */
     public void markPublished() {
         this.publishedAt = Instant.now();
     }

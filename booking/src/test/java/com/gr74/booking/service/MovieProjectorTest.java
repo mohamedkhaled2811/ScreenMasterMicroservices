@@ -14,18 +14,7 @@ import com.gr74.booking.model.MovieProjection;
 import com.gr74.booking.repository.MovieProjectionRepository;
 
 /**
- * The consumer's core behaviour, tested by <b>direct invocation</b> of {@link MovieProjector} on H2 —
- * no broker. This deliberately does <em>not</em> exercise the exchange/queue/binding/routing-key/converter
- * wiring (a typo'd routing key would pass every test here); that seam is covered once, manually, in the
- * 2.4 live demo (sync a change → watch {@code movie_projections} update via the RabbitMQ console + logs).
- *
- * <p>What it proves — the three things that are actually ours:
- * <ol>
- *   <li>redelivery is idempotent (same event twice → one row, unchanged the second time);</li>
- *   <li>the ordering guard drops a strictly-older event (a late/duplicate old message can't overwrite a
- *       newer cached title), and applies a strictly-newer one;</li>
- *   <li>a lazy-backfilled row (null {@code updatedAt} baseline) is overwritten by the first real event.</li>
- * </ol>
+ * Movie projection consumer behaviour by direct invocation on H2, without a broker.
  */
 @DataJpaTest
 @Import(MovieProjector.class)

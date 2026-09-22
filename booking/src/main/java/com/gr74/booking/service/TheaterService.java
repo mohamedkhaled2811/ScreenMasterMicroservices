@@ -40,18 +40,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Write + read business logic for the inventory tree (theaters → screens → seats) and the seat-type
- * lookup. This is the "inventory service inside Booking" — the immutable-facts layer the Phase-3 saga
- * reads once and snapshots. No saga concerns here; just CRUD with parent-existence and uniqueness
- * guards.
- *
- * <p>Two-layer uniqueness (same lesson as {@code payment}'s idempotency): a pre-check
- * ({@code existsBy…}) gives a friendly {@code BOOKING_DUPLICATE} in the common case, and the DB's
- * {@code UNIQUE} constraint is the real guard for the concurrent-duplicate race — a
- * {@code DataIntegrityViolationException} from a lost race is translated to the same 409 by
- * {@code GlobalExceptionHandler}. Every mutating method is {@code @Transactional}; reads are
- * {@code readOnly} so the deliberate fetch (e.g. seats-with-seat-type) happens inside an open session
- * ({@code open-in-view: false}).
+ * Business logic for the inventory tree (theaters → screens → seats) and seat types.
+ * Pre-checks give friendly 409s; DB unique constraints guard the concurrent race.
  */
 @Slf4j
 @Service
@@ -59,10 +49,7 @@ import lombok.extern.slf4j.Slf4j;
 public class TheaterService {
 
     /**
-     * The only entity properties each listing may be sorted by. A whitelist (not a free-for-all) keeps
-     * the sort clause safe and the contract explicit — an unknown or injected sort field is rejected as
-     * {@code BOOKING_VALIDATION_ERROR} rather than passed to Hibernate (which would surface as an opaque
-     * 500). Same lesson as catalog's {@code MovieService.SORTABLE_FIELDS}.
+     * Sortable fields per listing. Unknown sort fields are rejected as a coded 400.
      */
     private static final Set<String> THEATER_SORTABLE = Set.of("name", "location", "createdDate");
     private static final Set<String> SCREEN_SORTABLE = Set.of("name", "screenType", "createdDate");
@@ -76,11 +63,7 @@ public class TheaterService {
 
     // ---- Theaters -----------------------------------------------------------------------------
 
-    /**
-     * Page through theaters matching the (possibly empty) filter. The sort is validated against
-     * {@link #THEATER_SORTABLE} before the query so an unknown sort field is a coded 400, not a leaked
-     * persistence error. An empty filter yields an unrestricted-but-paged query.
-     */
+    /** Page through theaters matching the (possibly empty) filter. */
     @Transactional(readOnly = true)
     public Page<Theater> listTheaters(TheaterFilter filter, Pageable pageable) {
         validateSort(pageable.getSort(), THEATER_SORTABLE);
@@ -108,11 +91,7 @@ public class TheaterService {
 
     // ---- Screens ------------------------------------------------------------------------------
 
-    /**
-     * Page through a theater's screens matching the filter. The parent theater must exist (coded 404
-     * otherwise); the {@code inTheater} scope is always applied so a caller only ever sees one theater's
-     * screens.
-     */
+    /** Page through one theater's screens. The parent theater must exist. */
     @Transactional(readOnly = true)
     public Page<Screen> listScreens(long theaterId, ScreenFilter filter, Pageable pageable) {
         requireTheater(theaterId);
@@ -141,7 +120,7 @@ public class TheaterService {
 
     // ---- Seat types ---------------------------------------------------------------------------
 
-    /** Page through seat types matching the filter (no exemption from paging — per the convention). */
+    /** Page through seat types matching the filter. */
     @Transactional(readOnly = true)
     public Page<SeatType> listSeatTypes(SeatTypeFilter filter, Pageable pageable) {
         validateSort(pageable.getSort(), SEAT_TYPE_SORTABLE);
@@ -167,11 +146,7 @@ public class TheaterService {
 
     // ---- Seats --------------------------------------------------------------------------------
 
-    /**
-     * Page through a screen's seats matching the filter. The parent screen must exist (coded 404); the
-     * {@code onScreen} scope is always applied. Uses {@link SeatRepository#findSeatPage} so each seat's
-     * {@code seatType} is fetched for the {@code SeatResponse} mapper under {@code open-in-view: false}.
-     */
+    /** Page through one screen's seats, fetching each seat's type. */
     @Transactional(readOnly = true)
     public Page<Seat> listSeats(long screenId, SeatFilter filter, Pageable pageable) {
         requireScreen(screenId);
@@ -197,9 +172,8 @@ public class TheaterService {
     }
 
     /**
-     * Bulk-create an {@code rows × seatsPerRow} grid on a screen (plan option 5B). Rows are labelled
-     * A, B, C, …; positions that already exist are <em>skipped</em>, not rejected, so re-running the
-     * generator (or extending a grid) is idempotent. Returns only the seats actually created.
+     * Bulk-create a rows × seatsPerRow grid. Rows are labelled A, B, C…; existing positions
+     * are skipped so re-running is idempotent. Returns only seats actually created.
      */
     @Transactional
     public List<Seat> generateSeatGrid(long screenId, GenerateSeatGridRequest request) {
@@ -239,7 +213,7 @@ public class TheaterService {
                 .orElseThrow(() -> ResourceNotFoundException.theater(theaterId));
     }
 
-    /** Load a screen or raise the coded 404. Reused by {@code ShowtimeService} to validate the FK. */
+    /** Load a screen or raise the coded 404. */
     @Transactional(readOnly = true)
     public Screen requireScreen(long screenId) {
         return screenRepository.findById(screenId)
@@ -251,7 +225,7 @@ public class TheaterService {
                 .orElseThrow(() -> ResourceNotFoundException.seatType(seatTypeId));
     }
 
-    /** Reject any requested sort property not in the resource's whitelist as a coded validation error. */
+    /** Reject any sort property not in the whitelist. */
     private void validateSort(Sort sort, Set<String> sortable) {
         for (Sort.Order order : sort) {
             if (!sortable.contains(order.getProperty())) {

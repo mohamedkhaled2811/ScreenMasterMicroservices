@@ -1,15 +1,5 @@
-# Changeset 004 — widen bookings.user_id from BIGINT to VARCHAR(36).
-#
-# Why: user_id is a cross-service reference to Identity's user (no FK — same shape as showtime.movie_id
-# referencing Catalog). Identity is Keycloak (Phase 7), whose user id — the JWT `sub` claim — is a UUID
-# STRING, not a number. 003 typed the column BIGINT before that was pinned down; this corrects it to
-# VARCHAR(36) (a UUID is 36 chars) so the id we store today (an X-User-Id header value, the pre-Keycloak
-# stand-in) and the id we'll store in Phase 7 (jwt.getSubject()) are the SAME column — Phase 7 becomes a
-# no-op on the schema instead of a breaking BIGINT->VARCHAR migration.
-#
-# A NEW changeset rather than editing 003: shipped changesets are immutable (a DB that already applied 003
-# must migrate forward, not have history rewritten). The bookings table is still empty at this point
-# (creation is Phase 2 part 2 onward), so there is nothing to back-fill — a plain type change is safe.
+# Changeset 004 — bookings.user_id BIGINT -> VARCHAR(36) (Keycloak sub is a UUID string).
+# New changeset (shipped changesets are immutable); table is still empty so no back-fill needed.
 databaseChangeLog:
   - changeSet:
       id: 004-alter-bookings-user-id-varchar
@@ -19,7 +9,7 @@ databaseChangeLog:
             tableName: bookings
             columnName: user_id
             newDataType: VARCHAR(36)
-        # modifyDataType does not carry the NOT NULL constraint across on every database, so re-assert it.
+        # Re-assert NOT NULL (modifyDataType does not carry it on every database).
         - addNotNullConstraint:
             tableName: bookings
             columnName: user_id

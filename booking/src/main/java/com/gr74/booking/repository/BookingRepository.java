@@ -18,31 +18,18 @@ import com.gr74.booking.model.PaymentStatus;
 
 /**
  * Spring Data repository for {@link Booking}.
- *
- * <p>{@link #findByUserId} backs the "my bookings" read (the M2 composition): it pages a user's own
- * bookings; the service then resolves each row's snapshotted {@code movieId} to a title via Catalog.
- * {@link #findSeatIdsHeldForShowtime} is the <em>local</em> double-booking guard — the one invariant
- * that must stay strongly consistent within Booking (you can't sell the same seat twice), enforced in
- * application code plus the {@code uq_booking_seats_booking_seat} unique constraint as the backstop.
  */
 public interface BookingRepository extends JpaRepository<Booking, Long>, JpaSpecificationExecutor<Booking> {
 
-    /** Page a user's bookings. Identity comes from the resolver ({@code @CurrentUser}), never the URL. */
+    /** Page a user's bookings. */
     Page<Booking> findByUserId(String userId, Pageable pageable);
 
-    /**
-     * Used before deleting a showtime: if any booking row still references it, the delete must be
-     * rejected. The FK is the real guard; this is the friendly pre-check.
-     */
+    /** Pre-check before deleting a showtime: reject the delete if any booking references it. */
     boolean existsByShowtimeId(Long showtimeId);
 
     /**
-     * Of the given seat ids, which are already held by an <em>active</em> booking for this showtime?
-     * "Active" = a status that still reserves the seat ({@code PENDING} or {@code CONFIRMED}); a
-     * {@code CANCELLED}/{@code EXPIRED} booking has released its seats and must not block a rebook. An
-     * empty result means all requested seats are free. This is a read-side pre-check for a friendly 409;
-     * the unique constraint on {@code (booking_id, seat_id)} plus the Phase-3 seat-hold logic are the
-     * hard backstop against a race.
+     * Of the given seat ids, return those already held by an active ({@code PENDING}/{@code CONFIRMED})
+     * booking for this showtime. Empty means all requested seats are free.
      */
     @Query("""
             select bs.seatId
@@ -57,16 +44,8 @@ public interface BookingRepository extends JpaRepository<Booking, Long>, JpaSpec
             @Param("activeStatuses") Collection<BookingStatus> activeStatuses);
 
     /**
-     * The saga's confirm — <b>one conditional UPDATE, never read-then-write</b> (BUILD_PLAN 3.3).
-     *
-     * <p>The race between this and the expiry sweeper is decided by the database, not by code
-     * order: a payment landing at 20:15:59.9 matches all three guards and flips the row, while the
-     * sweeper ticking at 20:16 finds no PENDING row and moves nothing. Enum values ride as
-     * parameters so the JPQL stays portable (runs on the H2 {@code @DataJpaTest} suite).
-     *
-     * @return 1 when the booking was still PENDING with a live hold (confirmed now), 0 when it was
-     *         already CONFIRMED/EXPIRED/CANCELLED or the hold had lapsed — the caller re-reads to
-     *         tell those apart
+     * Confirm via one conditional UPDATE (never read-then-write): the race with expiry is decided by
+     * the database. Returns 1 when a live PENDING row was confirmed, 0 otherwise.
      */
     @Modifying(clearAutomatically = true)
     @Query("""
@@ -79,15 +58,8 @@ public interface BookingRepository extends JpaRepository<Booking, Long>, JpaSpec
             @Param("paid") PaymentStatus paid);
 
     /**
-     * The sweeper's (and the confirmer's late-payment path's) expiry — same
-     * {@code status = PENDING} guard as the confirm, so a concurrent confirm wins: whichever
-     * statement matches first flips the row out of PENDING and the other updates zero rows.
-     *
-     * <p>Flipping the status <em>is</em> freeing the seats — {@code findSeatIdsHeldForShowtime}
-     * only counts PENDING/CONFIRMED, so EXPIRED releases them to every future booking check. The
-     * {@code booking_seats} rows are deliberately kept as the audit trail.
-     *
-     * @return 1 when a live PENDING row was expired, 0 when it was already gone
+     * Expire a still-PENDING hold via one conditional UPDATE. Flipping the status frees the seats;
+     * kept rows serve as the audit trail. Returns 1 when a live row was expired, 0 otherwise.
      */
     @Modifying(clearAutomatically = true)
     @Query("""
@@ -99,11 +71,8 @@ public interface BookingRepository extends JpaRepository<Booking, Long>, JpaSpec
             @Param("pending") BookingStatus pending, @Param("expired") BookingStatus expired);
 
     /**
-     * Mirror a gateway failure onto the read-model field — display only. Guarded to still-PENDING
-     * so a late failure can never overwrite a PAID (the out-of-order case: FAILED arriving after
-     * SUCCEEDED is dropped here, matching Payment's own terminal-state guard).
-     *
-     * @return 1 when the mirror landed, 0 when the booking had already left PENDING
+     * Mirror a payment failure onto the display-only field. Guarded to still-PENDING so a late
+     * failure never overwrites a PAID. Returns 1 when the mirror landed, 0 otherwise.
      */
     @Modifying(clearAutomatically = true)
     @Query("""

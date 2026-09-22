@@ -7,9 +7,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 /**
- * Body of {@code POST /theaters/{theaterId}/screens}. The owning theater comes from the path, not the
- * body, so it can't disagree with the URL. {@code screenType} binds directly to the {@link ScreenType}
- * enum — an unknown value is rejected by Jackson as a {@code BOOKING_VALIDATION_ERROR} (400).
+ * Body of {@code POST /theaters/{theaterId}/screens}. The owning theater comes from the path.
  */
 public record CreateScreenRequest(
 

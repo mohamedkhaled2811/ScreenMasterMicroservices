@@ -22,15 +22,7 @@ import com.gr74.booking.model.MovieProjection;
 import com.gr74.booking.repository.MovieProjectionRepository;
 
 /**
- * The read side of way B, on H2 with {@link CatalogClient} mocked (the lazy-backfill boundary). Proves the
- * three behaviours that make way B both useful and safe:
- * <ol>
- *   <li>a cached title is served by the local join with <b>no Catalog call</b> (the whole point — this is
- *       what survives a Catalog outage);</li>
- *   <li>a miss is lazily backfilled from Catalog and <b>cached</b> (so the next read is local);</li>
- *   <li>a miss <em>while Catalog is unavailable</em> serves a null title and <b>writes nothing</b> — the
- *       cache-poisoning guard, so the miss retries on the next read instead of a placeholder hiding it.</li>
- * </ol>
+ * Read side of the local movie title cache, with the Catalog client mocked.
  */
 @DataJpaTest
 @Import({MovieReadModel.class, MovieBackfiller.class})
@@ -65,8 +57,7 @@ class MovieReadModelTest {
         // Cached for next time (updatedAt null: from a fetch, not an event).
         MovieProjection cached = repository.findById(550L).orElseThrow();
         assertThat(cached.getTitle()).isEqualTo("Fight Club");
-        // The poster is cached by the SAME backfill — one fetch fills both columns, so the ticket
-        // email's artwork never costs a second Catalog call.
+        // The same backfill also caches the poster.
         assertThat(cached.getPosterPath()).isEqualTo("/fightclub.jpg");
         assertThat(cached.getUpdatedAt()).isNull();
     }
@@ -77,7 +68,7 @@ class MovieReadModelTest {
 
         Map<Long, String> titles = readModel.titlesByIds(Set.of(777L));
 
-        // No entry (caller renders null) AND crucially nothing was written — the miss will retry next read.
+        // No entry and nothing written — the miss retries on the next read.
         assertThat(titles).doesNotContainKey(777L);
         assertThat(repository.findById(777L)).isEmpty();
     }

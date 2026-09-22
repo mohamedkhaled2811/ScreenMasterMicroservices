@@ -28,26 +28,14 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * A scheduled screening: a movie shown on a {@link Screen} at a date + time, for a {@code basePrice}.
- *
- * <p><b>This is where the cross-service cut lives.</b> In the monolith {@code Showtime} had a JPA
- * {@code @ManyToOne} to {@code Movie}; Catalog now owns movies in its own database, so here
- * {@code movieId} is a plain {@code Long} column with <em>no</em> relationship and <em>no</em> FK
- * (schema doc §8.2). Referential integrity for {@code movieId} is the application's job now — we
- * validate it with a synchronous Catalog call at create time (plan option 5C), but the database
- * itself does not enforce it.
- *
- * <p>The {@link Screen} link, by contrast, is a real intra-Booking {@code @ManyToOne(LAZY)} FK. The
- * slot {@code (screen, movieId, showDate, showTime)} is unique ({@code uq_showtimes_slot}).
- * {@code status} is a {@link ShowtimeStatus} stored as a {@code String}. Schema owned by Liquibase
- * ({@code ddl-auto=validate}); must match {@code 002-create-showtimes.yaml}.
+ * A scheduled screening of a movie on a {@link Screen}. {@code movieId} is a plain id with no FK
+ * (Catalog owns movies); {@code screen} is a real intra-service FK. The slot
+ * {@code (screen, movieId, showDate, showTime)} is unique.
  */
 @Entity
 @Table(
         name = "showtimes",
-        // Mirrors the Liquibase uq_showtimes_slot so Hibernate's schema (@DataJpaTest) enforces the
-        // same "one movie per screen per date+time" slot invariant. movie_id is part of the unique key
-        // but NOT a FK — the cross-service cut.
+        // Declared here too so the @DataJpaTest schema enforces the same slot invariant.
         uniqueConstraints = @UniqueConstraint(
                 name = "uq_showtimes_slot",
                 columnNames = {"screen_id", "movie_id", "show_date", "show_time"}))
@@ -60,10 +48,7 @@ public class Showtime {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /**
-     * Cross-service reference to Catalog's movie — a bare id, not a {@code @ManyToOne}. This is the FK
-     * that was cut when movies moved to their own service.
-     */
+    /** Catalog movie id (plain column, no relationship and no FK). */
     @Column(name = "movie_id", nullable = false)
     private Long movieId;
 

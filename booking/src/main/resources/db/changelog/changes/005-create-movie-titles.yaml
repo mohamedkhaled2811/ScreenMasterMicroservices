@@ -1,20 +1,5 @@
-# Changeset 005 — create movie_titles: Booking's local read model of Catalog movie titles.
-#
-# This is the WRITE side of way B (BUILD_PLAN 2.3, CQRS read model). Booking keeps its own tiny copy of
-# "movie id -> title" so "my bookings?source=readmodel" can name each movie by a LOCAL join, without
-# calling Catalog at read time — which is what lets that endpoint keep answering when Catalog is down.
-# It is eventually consistent: it lags the real Catalog by however long the MovieUpserted event takes to
-# arrive. See docs/concepts/cqrs-read-model.md and docs/adr/0001-....
-#
-#   id          the TMDB movie id — an ASSIGNED PK (no auto-increment), the same key Catalog owns and the
-#               value snapshotted onto bookings.movie_id. Cross-service reference by id, no FK.
-#   title       the cached title, kept fresh by the MovieUpserted consumer (last-writer-wins by id).
-#   updated_at  the source row's @LastModifiedDate as carried on the event. The consumer's ORDERING GUARD
-#               compares against it: an event whose updated_at <= the stored one is dropped, so a
-#               redelivered older event can't overwrite a newer cached title. Nullable because a row
-#               created by LAZY BACKFILL (a Catalog fetch on cache miss, not an event) has no event
-#               timestamp — a null stored value means "no guard baseline yet", and the first event that
-#               carries a real timestamp wins.
+# Changeset 005 — movie_titles: local cache of Catalog movie id -> title.
+# updated_at carries the source row timestamp for the ordering guard; null means backfilled by fetch.
 databaseChangeLog:
   - changeSet:
       id: 005-create-movie-titles

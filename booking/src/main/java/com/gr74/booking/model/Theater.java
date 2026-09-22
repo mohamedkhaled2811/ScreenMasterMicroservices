@@ -19,21 +19,14 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * A cinema building — the root of the inventory tree (theater → screens → seats). Its {@code id} is
- * <em>generated</em> ({@code IDENTITY}), not assigned: unlike Catalog's TMDB-sourced ids, these rows
- * are minted by us.
- *
- * <p>The association to screens is deliberately <b>not</b> mapped here (no {@code @OneToMany}): with
- * {@code open-in-view: false} a lazy collection would be unreadable after the transaction, and we
- * don't need to navigate theater→screens in memory — the {@code ScreenRepository} queries screens by
- * {@code theaterId} instead. The FK lives on {@link Screen}. Schema is owned by Liquibase
- * ({@code ddl-auto=validate}); this entity must match {@code 001-create-inventory.yaml} or startup fails.
+ * A cinema building, root of theater -> screens -> seats. Not mapped to screens (screens are
+ * queried by {@code theaterId} instead). Schema is owned by Liquibase.
  */
 @Entity
 @Table(name = "theaters")
-@EntityListeners(AuditingEntityListener.class) // populates the @CreatedDate / @LastModifiedDate fields
+@EntityListeners(AuditingEntityListener.class)
 @Getter
-@NoArgsConstructor(access = AccessLevel.PROTECTED) // JPA needs a no-arg ctor; nobody else should use it
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Theater {
 
     @Id
@@ -46,15 +39,8 @@ public class Theater {
     private String location;
 
     /**
-     * ISO-4217 code every price under this theater is denominated in.
-     *
-     * <p>Currency lives here rather than on the showtime or seat type because a theater sits in one
-     * country and bills in one currency: one column, no per-row duplication, and no way for two seats
-     * in the same room to disagree. A booking <em>snapshots</em> it (like the price and movie id), so
-     * editing a theater never moves an existing charge.
-     *
-     * <p>It matters because Payment picks a gateway from it — Paymob settles EGP, Stripe test mode
-     * settles USD — so a booking's currency decides which gateways can take it (changeset 009).
+     * ISO-4217 code for every price under this theater. Bookings snapshot it, so editing a theater
+     * never moves an existing charge.
      */
     @Column(nullable = false, length = 3)
     private String currency;

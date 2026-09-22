@@ -6,9 +6,7 @@ import com.gr74.booking.controller.dto.SeatTypeFilter;
 import com.gr74.booking.model.SeatType;
 
 /**
- * Composable {@link Specification} fragments for querying {@link SeatType} dynamically. One optional
- * {@code name} filter; same no-op-when-absent idiom as the other spec classes. See
- * {@code docs/concepts/pagination-and-filtering.md}.
+ * Composable {@link Specification} fragments for {@link SeatType} queries. Absent fields are no-ops.
  */
 public final class SeatTypeSpecifications {
 

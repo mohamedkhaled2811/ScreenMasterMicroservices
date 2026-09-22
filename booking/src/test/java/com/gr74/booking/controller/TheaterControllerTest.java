@@ -42,18 +42,10 @@ import com.gr74.booking.model.Theater;
 import com.gr74.booking.service.TheaterService;
 
 /**
- * Web-layer slice for {@link TheaterController}: verifies the JSON shape of the happy path and the RFC
- * 9457 {@code ProblemDetail} (with the stable {@code code}) of each failure — without a database (the
- * {@link TheaterService} is mocked). {@code GlobalExceptionHandler} is a {@code @RestControllerAdvice},
- * so the slice picks it up and renders the thrown exceptions.
- *
- * <p>Imports the real {@link SecurityConfig} so every case runs through the REAL filter
- * chain. Reads take any authenticated token; every write needs {@code ROLE_ADMIN} —
- * hence the {@code adminToken()}/{@code userToken()} post-processors below, and the explicit
- * 401-without-token / 403-as-USER cases proving the fence (not just the happy path) is wired.
+ * Web-layer slice for {@link TheaterController}: JSON shapes and coded ProblemDetails, service mocked.
  */
 @WebMvcTest(TheaterController.class)
-// brings in VIA_DTO serialization + the max-page-size cap for the slice, plus the real chain
+// brings in VIA_DTO serialization + the max-page-size cap, plus the real filter chain
 @Import({WebPagingConfig.class, SecurityConfig.class})
 class TheaterControllerTest {
 
@@ -132,8 +124,7 @@ class TheaterControllerTest {
 
     @Test
     void badCurrencyReturns400ProblemDetail() throws Exception {
-        // Currency is not free text: Payment routes gateways on it, so "egp" or "EGPP" would mean no
-        // gateway could settle this theater's bookings. Reject at the edge, with a coded error.
+        // Currency must be a valid ISO code; reject anything else at the edge.
         mockMvc.perform(post(THEATERS_PATH)
                         .with(adminToken())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -226,7 +217,7 @@ class TheaterControllerTest {
 
         mockMvc.perform(get(THEATERS_PATH).with(userToken()))
                 .andExpect(status().isOk())
-                // VIA_DTO envelope: content array + a nested page metadata object (the stable contract).
+                // VIA_DTO envelope: content array + nested page metadata.
                 .andExpect(jsonPath("$.content[0].name").value(DOWNTOWN_IMAX))
                 .andExpect(jsonPath("$.page.size").value(20))
                 .andExpect(jsonPath("$.page.number").value(0))

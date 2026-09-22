@@ -37,36 +37,16 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * Bookings: the write side (create) and the read side ("my bookings").
- *
- * <p>Both live here because they are one aggregate in one service — Booking. The read side was briefly a
- * separate {@code MyBookingsService} bean, but it is a single repository call plus a title lookup, and a
- * bean boundary inside the same module bought nothing. The distributed-systems boundary that <em>does</em>
- * matter is the one to Catalog, and that is expressed by {@link CatalogClient} / {@link MovieReadModel},
- * not by splitting this class.
- *
- * <h2>The write side</h2>
- * Creates bookings — the <em>minimal</em> write, deliberately without the saga.
- *
- * <p>This is BUILD_PLAN 2.2's option 4A: a real {@code POST /bookings} so "my bookings" reads rows a
- * user actually created, and a head start on Phase 3.1 ("Booking core: create PENDING, hold seats").
- * What it does: validate the showtime and seats, run the <b>local double-booking guard</b>, snapshot the
- * per-seat price and the showtime's {@code movieId}, and persist a {@code PENDING} booking with a 15-min
- * hold. What it deliberately does <b>not</b> do: call Payment or compensate — that orchestration is the
- * Phase-3 saga, which will wrap this create rather than replace it.
- *
- * <p>The double-booking guard is the one invariant that must stay strongly consistent: a pre-check
- * ({@link BookingRepository#findSeatIdsHeldForShowtime}) gives a friendly 409, and the
- * {@code uq_booking_seats_booking_seat} unique constraint plus real seat-hold logic (Phase 3) are the
- * backstop against the concurrent race the pre-check can't see. Pricing is derived server-side
- * ({@code showtime.basePrice × seatType.priceMultiplier}) and frozen onto each line item — a client
- * never names its own price.
+ * Creates a PENDING booking with a 15-minute hold; pricing is derived server-side
+ * and frozen onto each line item. A pre-check gives a friendly 409, and the DB
+ * unique constraint is the backstop for the concurrent race.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class BookingService {
 
-    /** How long a created booking holds its seats before the Phase-3 sweeper may expire it. */
+    /** How long a created booking holds its seats before the sweeper may expire it. */
     private static final Duration HOLD_WINDOW = Duration.ofMinutes(15);
 
     /** Statuses that still reserve a seat — used by the double-booking guard. */
@@ -80,15 +60,8 @@ public class BookingService {
     private final MovieReadModel movieReadModel;
 
     /**
-     * The narrow read the Payment service uses before opening a checkout session (BUILD_PLAN 3.1).
-     *
-     * <p>It exists so Payment never has to trust a client for the amount: a browser that could name its
-     * own price could buy a 300 EGP ticket for 1. Booking owns pricing, so Booking answers.
-     *
-     * <p>Deliberately returns the whole {@link Booking} rather than pre-judging payability here. The
-     * <em>decision</em> ("is this payable?") belongs to Payment's guards; Booking's job is to state the
-     * facts — status, owner, hold deadline, amount, currency. Keeping the judgement out of this method
-     * is what stops the two services' rules drifting apart.
+     * The narrow read Payment uses before opening a checkout session, so it never trusts
+     * a client for the amount. Returns the facts; payability is decided by Payment.
      */
     @Transactional(readOnly = true)
     public Booking findForPayability(long bookingId) {
@@ -99,14 +72,12 @@ public class BookingService {
     @Transactional
     @Observed(name = "booking.create", contextualName = "create-booking")
     public Booking create(String userId, CreateBookingRequest request) {
-        // 1) The showtime must exist — it carries the screen (seats must belong to it) and the movieId
-        //    we snapshot onto the booking, plus the basePrice the per-seat price is derived from.
-        // Fetch-joined with its screen and theater: the theater carries the CURRENCY we snapshot onto
-        // the booking, and both associations are LAZY under open-in-view: false.
+        // 1) The showtime must exist — it carries the screen, movieId, basePrice, and currency.
+        // Fetch-joined with screen and theater (LAZY under open-in-view: false).
         Showtime showtime = showtimeRepository.findWithScreenAndTheaterById(request.showtimeId())
                 .orElseThrow(() -> ResourceNotFoundException.showtime(request.showtimeId()));
 
-        // 2) Load the requested seats WITH their seat type (for pricing), de-duping the input first.
+        // 2) Load requested seats with their seat type, de-duping the input first.
         List<Long> seatIds = request.seatIds().stream().distinct().toList();
         List<Seat> seats = seatRepository.findWithSeatTypeByIdIn(seatIds);
         if (seats.size() != seatIds.size()) {
@@ -116,7 +87,7 @@ public class BookingService {
             throw ResourceNotFoundException.seat(missing);
         }
 
-        // 3) Every seat must belong to THIS showtime's screen — you can't reserve a seat from another room.
+        // 3) Every seat must belong to this showtime's screen.
         long screenId = showtime.getScreen().getId();
         Seat wrongScreen = seats.stream()
                 .filter(s -> !s.getScreen().getId().equals(screenId))
@@ -128,7 +99,7 @@ public class BookingService {
                             + " (the showtime's screen).");
         }
 
-        // 4) Local double-booking guard: reject if any requested seat is already held for this showtime.
+        // 4) Double-booking guard: reject seats already held for this showtime.
         List<Long> alreadyHeld =
                 bookingRepository.findSeatIdsHeldForShowtime(showtime.getId(), seatIds, ACTIVE_STATUSES);
         if (!alreadyHeld.isEmpty()) {
@@ -136,8 +107,7 @@ public class BookingService {
                     "Seat(s) " + alreadyHeld + " already held for showtime id=" + showtime.getId());
         }
 
-        // 5) Price each seat (basePrice × its seat-type multiplier), snapshotting the frozen line items,
-        //    and sum the total — all derived server-side, never from the request.
+        // 5) Price each seat server-side and sum the total.
         List<BookingSeat> lineItems = seats.stream()
                 .map(seat -> new BookingSeat(
                         seat.getId(),
@@ -148,10 +118,8 @@ public class BookingService {
                 .map(BookingSeat::getSeatPrice)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        // 6) Assemble the PENDING booking with a 15-min hold; snapshot movieId from the showtime.
+        // 6) Assemble the PENDING booking with a 15-min hold; snapshot movieId and currency.
         Instant expiresAt = clock.instant().plus(HOLD_WINDOW);
-        // The currency is snapshotted alongside the total, from the theater this showtime runs in —
-        // frozen for the same reason the price is: editing a theater must not move an existing charge.
         String currency = showtime.getScreen().getTheater().getCurrency();
         Booking booking = new Booking(newReference(), userId, showtime.getId(), showtime.getMovieId(),
                 total, currency, expiresAt);
@@ -165,25 +133,9 @@ public class BookingService {
         return saved;
     }
 
-    // ===== Read side: "my bookings" (the M2 cross-service query) =====
-
     /**
-     * The M2 lesson made concrete: "show me my bookings, with the movie title for each."
-     *
-     * <p>The monolith did this with a single {@code JOIN booking → showtime → movie}. After decomposition
-     * the title lives in another service's database, so this method <b>hand-writes that JOIN over the
-     * network</b>:
-     * <ol>
-     *   <li>read the user's own bookings (paged) from booking-db;</li>
-     *   <li>collect the page's <em>distinct</em> {@code movieId}s (snapshotted onto each booking at create);</li>
-     *   <li>resolve them to titles in <b>one</b> call — not one call per row (the network N+1 that naive
-     *       composition falls into);</li>
-     *   <li>merge the title into each row, {@code null} on a miss.</li>
-     * </ol>
-     *
-     * <p><b>Two resolution strategies, chosen per request</b> ({@code ?source=}) so both are demoable
-     * side-by-side (BUILD_PLAN 2.4). The bookings query and the {@link MyBookingDto} shape are identical;
-     * only where the title comes from differs — see {@link MovieDataSource} and {@link #resolveTitles}.
+     * List the user's bookings with each movie title. Titles resolve in one batch call
+     * per page (never one call per row); a miss renders as {@code null}.
      */
     @Transactional(readOnly = true)
     public Page<MyBookingDto> myBookings(String userId, Pageable pageable, MovieDataSource source) {
@@ -198,13 +150,8 @@ public class BookingService {
     }
 
     /**
-     * Way A resolves live from Catalog (one batch call); way B resolves from the local read model.
-     *
-     * <p>Way A <b>degrades</b>: if Catalog is down it returns no titles, so the list still answers with
-     * {@code movieTitle: null} instead of a 503 — the partial-failure trade this path exists to make you
-     * feel. Way B reads Booking's own {@code movie_projections} table, lazy-backfilling a cache miss, so a
-     * Catalog outage doesn't stop already-cached titles from rendering — at the price of eventual
-     * consistency (a rename lags until the event lands).
+     * Resolve titles live from Catalog or from the local read model. Composition degrades
+     * to null titles when Catalog is down; the read model serves cached titles instead.
      */
     private Map<Long, String> resolveTitles(MovieDataSource source, Set<Long> movieIds) {
         return switch (source) {
@@ -213,7 +160,7 @@ public class BookingService {
         };
     }
 
-    /** A human-facing "BK-XXXXXXXX" handle. Uniqueness is backed by the DB constraint on the column. */
+    /** Human-facing "BK-XXXXXXXX" handle; uniqueness backed by the DB constraint. */
     private static String newReference() {
         return "BK-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
     }

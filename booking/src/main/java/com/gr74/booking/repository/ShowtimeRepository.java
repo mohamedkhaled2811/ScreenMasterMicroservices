@@ -13,12 +13,7 @@ import org.springframework.data.repository.query.Param;
 import com.gr74.booking.model.Showtime;
 
 /**
- * Spring Data repository for {@link Showtime}.
- *
- * <p>Reads mirror the monolith's showtime endpoints: all showtimes for a movie, only the upcoming ones
- * (on or after a given date), and all for a screen. {@code movieId} is the cross-service-cut column, so
- * these queries filter on a bare id — no join to Catalog. {@code existsBy...} pre-checks the
- * {@code uq_showtimes_slot} constraint (screen + movie + date + time) before insert.
+ * Spring Data repository for {@link Showtime}. {@code movieId} filters on a bare id (no join to Catalog).
  */
 public interface ShowtimeRepository extends JpaRepository<Showtime, Long> {
 
@@ -33,13 +28,8 @@ public interface ShowtimeRepository extends JpaRepository<Showtime, Long> {
             Long screenId, Long movieId, LocalDate showDate, LocalTime showTime);
 
     /**
-     * A showtime with its screen <em>and</em> that screen's theater already fetched.
-     *
-     * <p>Needed by the booking write path, which must read {@code theater.currency} to snapshot it onto
-     * the booking. Both associations are {@code LAZY} and we run {@code open-in-view: false}, so
-     * touching them outside this fetch join would throw {@code LazyInitializationException} — an
-     * explicit join is the honest fix, not widening the mapping to EAGER (which would pay the cost on
-     * every other showtime read too).
+     * A showtime with its screen and that screen's theater already fetched (needed to snapshot
+     * {@code theater.currency} onto the booking).
      */
     @Query("""
             select s from Showtime s

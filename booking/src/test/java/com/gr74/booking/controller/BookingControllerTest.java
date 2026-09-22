@@ -39,15 +39,7 @@ import com.gr74.booking.service.BookingService;
 import com.gr74.booking.service.MovieDataSource;
 
 /**
- * Web-layer slice for {@link BookingController}. Imports {@link WebMvcConfig} so the real
- * {@link CurrentUserArgumentResolver} is registered, and the real {@link SecurityConfig} so every
- * case runs through the REAL filter chain (a slice does not component-scan it otherwise).
- *
- * <p>Identity is the JWT {@code sub}, never the old {@code X-User-Id} header. The
- * {@code jwt()} post-processor forges the token (subject = the user); the hermetic suite never
- * calls Keycloak because the forged authentication never reaches the {@code JwtDecoder}. Cases
- * below pin: the {@code sub} reaches the service, a missing token is a coded 401 (not a 500, not a
- * silent null), and a forged {@code X-User-Id} header is IGNORED — it cannot spoof the user.
+ * Web-layer slice for {@link BookingController}: identity from the JWT sub, service mocked.
  */
 @WebMvcTest(BookingController.class)
 @Import({WebMvcConfig.class, WebPagingConfig.class, SecurityConfig.class})
@@ -95,7 +87,6 @@ class BookingControllerTest {
     @Test
     void spoofedUserHeaderIsIgnoredAndCannotImpersonate() throws Exception {
         // The attacker holds a valid token for USER but sends the victim's id in the dead header.
-        // The booking must be created for the TOKEN holder (USER) — the header changes nothing.
         given(bookingService.create(eq(USER), any(CreateBookingRequest.class))).willReturn(sampleBooking());
 
         mockMvc.perform(post("/bookings")
@@ -110,8 +101,7 @@ class BookingControllerTest {
 
     @Test
     void nonJwtPrincipalIsRejectedWith401() throws Exception {
-        // Strict JWT-only seam: even an AUTHENTICATED non-JWT principal resolves to nobody.
-        // (@WithMockUser builds a plain UsernamePasswordAuthenticationToken — no `sub` to read.)
+        // Even an authenticated non-JWT principal resolves to nobody.
         mockMvc.perform(post("/bookings")
                         .with(user("someone"))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -139,7 +129,7 @@ class BookingControllerTest {
 
         mockMvc.perform(get("/bookings/my").with(jwt().jwt(jwt -> jwt.subject(USER))))
                 .andExpect(status().isOk())
-                // VIA_DTO PagedModel envelope: content[] + a nested page{} object.
+                // VIA_DTO PagedModel envelope: content[] + nested page{}.
                 .andExpect(jsonPath("$.content[0].movieTitle").value("The Matrix"))
                 .andExpect(jsonPath("$.content[0].bookingReference").value("BK-ABCD1234"))
                 .andExpect(jsonPath("$.page.totalElements").value(1));
@@ -183,7 +173,7 @@ class BookingControllerTest {
                 .andExpect(jsonPath("$.code").value("BOOKING_VALIDATION_ERROR"));
     }
 
-    /** A persisted-looking booking with one seat; ids stamped via reflection (no real transaction). */
+    /** A booking with one seat; ids stamped via reflection (no real transaction). */
     private static Booking sampleBooking() {
         Booking booking = new Booking("BK-ABCD1234", USER, 1L, 603L, new BigDecimal("25.00"), "EGP", Instant.parse("2026-07-08T12:15:00Z"));
         ReflectionTestUtils.setField(booking, "id", 100L);

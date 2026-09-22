@@ -9,9 +9,7 @@ import com.gr74.booking.model.Showtime;
 import com.gr74.booking.model.ShowtimeStatus;
 
 /**
- * Response shape for a showtime. Exposes {@code movieId} (the cross-service reference — no title here;
- * resolving the title against Catalog is the job of parts 2/3, which is exactly where the "missing
- * JOIN" is meant to bite) and the owning {@code screenId}, rather than nested entities.
+ * Response for a showtime, carrying the movie id and owning screen id.
  */
 public record ShowtimeResponse(
         Long id,

@@ -17,16 +17,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * One reserved seat within a {@link Booking} — a line item.
- *
- * <p>{@code seatId} is an intra-Booking reference to the reserved {@code Seat}, kept a plain column (the
- * seat catalogue is stable; a relation isn't needed to hold a reservation). The {@code seatPrice} and
- * {@code seatTypeName} are <em>snapshots</em> taken at booking time (schema §8.2): the price is
- * {@code showtime.basePrice × seatType.priceMultiplier} frozen at purchase, so a later multiplier change
- * never rewrites an existing booking's line item, and the type name is copied so the booking reads
- * standalone. {@code (booking, seat)} is unique — a seat appears at most once per booking.
- *
- * <p>Schema owned by Liquibase ({@code ddl-auto=validate}); must match {@code 003-create-booking-seats}.
+ * One reserved seat within a {@link Booking}. {@code seatPrice} and {@code seatTypeName} are
+ * snapshotted at booking time. {@code (booking, seat)} is unique.
  */
 @Entity
 @Table(
@@ -61,7 +53,7 @@ public class BookingSeat {
         this.seatTypeName = seatTypeName;
     }
 
-    /** Set the owning booking — called by {@link Booking#addSeat(BookingSeat)} to keep both sides in sync. */
+    /** Set the owning booking (called by {@link Booking#addSeat(BookingSeat)}). */
     void assignTo(Booking booking) {
         this.booking = booking;
     }

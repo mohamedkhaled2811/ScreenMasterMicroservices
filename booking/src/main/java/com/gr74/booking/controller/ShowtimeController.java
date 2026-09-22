@@ -30,21 +30,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * REST surface for showtimes — the Scheduling context absorbed into Booking.
- *
- * <p>Bare paths ({@code /showtimes/...}); the gateway strips the {@code /api} prefix. Reads mirror the
- * monolith's showtime endpoints (by id, by movie, upcoming-by-movie, by screen). {@code POST /showtimes}
- * validates the movie against Catalog synchronously — a bad {@code movieId} comes back
- * as {@code BOOKING_MOVIE_NOT_FOUND} (404) and a Catalog outage as {@code BOOKING_CATALOG_UNAVAILABLE}
- * (503), both rendered by {@code GlobalExceptionHandler}. DTOs cross the wire, not entities.
- *
- * <p>A {@link Clock} is injected (rather than calling {@code LocalDate.now()} directly) so "upcoming"
- * has a testable notion of "today" — a test can pin the clock.
- *
- * <p><b>Authorization:</b> reads need any authenticated token; creating or
- * deleting a showtime needs the {@code ADMIN} realm role ({@code @PreAuthorize} below — the check
- * lives next to the thing it protects). The coarse "authenticated by default" rule is in
- * {@code SecurityConfig}.
+ * REST endpoints for showtimes: schedule, read, and delete.
  */
 @Slf4j
 @RestController

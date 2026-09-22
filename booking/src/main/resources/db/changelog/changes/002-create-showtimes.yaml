@@ -1,14 +1,4 @@
-# Changeset 002 — showtimes: the Scheduling context, absorbed into Booking.
-#
-# THE CROSS-SERVICE CUT LIVES HERE. In the monolith Showtime had a real FK to Movie; Catalog now owns
-# movies in its own database, so `movie_id` is a PLAIN INDEXED COLUMN with NO foreign key (schema doc
-# §8.2). Referential integrity for movie_id is now the application's job, not the DB's — a showtime can
-# point at a movie id that doesn't exist in Catalog, and nothing here rejects it. (Per plan option 5C
-# we validate movie_id with a synchronous Catalog call at create time; the DB itself does not enforce
-# it — that's the point of the cut, and the index just keeps "showtimes for movie X" fast.)
-#
-# `screen_id`, by contrast, is a real FK — Screen lives inside booking-db too, so that reference stays
-# strongly consistent. ddl-auto=validate ties the Showtime entity to this table at startup.
+# Changeset 002 — showtimes. movie_id is a plain indexed column (no FK); screen_id is a real FK.
 databaseChangeLog:
   - changeSet:
       id: 002-create-showtimes
@@ -24,13 +14,13 @@ databaseChangeLog:
                   constraints:
                     primaryKey: true
                     nullable: false
-              # Cross-service reference to Catalog's movie. NO foreign key — the cut. Indexed below.
+              # Cross-service reference to Catalog's movie (no FK); indexed below.
               - column:
                   name: movie_id
                   type: BIGINT
                   constraints:
                     nullable: false
-              # Intra-Booking reference — a real FK (Screen is in booking-db).
+              # Intra-database reference to screens (real FK below).
               - column:
                   name: screen_id
                   type: BIGINT
@@ -46,15 +36,13 @@ databaseChangeLog:
                   type: TIME
                   constraints:
                     nullable: false
-              # The per-seat price is base_price * seat_type.price_multiplier — the pricing rule the
-              # Phase-3 saga snapshots onto each booking_seat.
+              # Per-seat price = base_price * seat_type.price_multiplier.
               - column:
                   name: base_price
                   type: NUMERIC(10, 2)
                   constraints:
                     nullable: false
-              # ShowtimeStatus enum stored as STRING (schema §2.4 — was already STRING in the monolith,
-              # kept). SCHEDULED / CANCELLED / COMPLETED / SOLD_OUT.
+              # ShowtimeStatus enum stored as STRING.
               - column:
                   name: status
                   type: VARCHAR(20)
@@ -68,8 +56,7 @@ databaseChangeLog:
               - column:
                   name: last_modified_date
                   type: TIMESTAMP WITH TIME ZONE
-        # One movie can't be booked into the same screen at the same date+time twice (the monolith's
-        # slot-uniqueness invariant).
+        # One movie can't occupy the same screen at the same date+time twice.
         - addUniqueConstraint:
             tableName: showtimes
             columnNames: screen_id, movie_id, show_date, show_time
@@ -80,8 +67,7 @@ databaseChangeLog:
             baseColumnNames: screen_id
             referencedTableName: screens
             referencedColumnNames: id
-        # Not a FK — just an index so "GET /showtimes/movie/{id}" doesn't table-scan. Referential
-        # integrity for movie_id is enforced in the service (5C), never here.
+        # Index (not FK) for "showtimes for movie X".
         - createIndex:
             indexName: idx_showtimes_movie_id
             tableName: showtimes

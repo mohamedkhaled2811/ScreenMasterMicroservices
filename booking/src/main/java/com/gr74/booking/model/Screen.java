@@ -25,21 +25,13 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * A screen (auditorium) inside a {@link Theater}. Its name is unique <em>within</em> its theater
- * (two theaters can each have a "Screen 1"), enforced by the {@code uq_screens_name_theater}
- * constraint.
- *
- * <p>The {@link Theater} link is a {@code @ManyToOne(LAZY)} FK — an intra-Booking reference, so it
- * stays a real FK (unlike the cross-service {@code movieId} cut on {@link Showtime}). It is fetched
- * lazily; because we run {@code open-in-view: false}, any code that needs the theater must load it
- * inside a transaction (the service does, when it validates the parent exists). {@code screenType} is
- * a {@link ScreenType} stored as a {@code String} — the schema-§9 fix for the monolith's ordinal enum.
+ * A screen (auditorium) inside a {@link Theater}. Name is unique within its theater.
+ * {@code screenType} persists as {@code STRING}.
  */
 @Entity
 @Table(
         name = "screens",
-        // Mirrors the Liquibase uq_screens_name_theater — declared here too so Hibernate's schema (used
-        // by @DataJpaTest) enforces the same invariant the production DB does.
+        // Declared here too so the @DataJpaTest schema enforces the same invariant.
         uniqueConstraints = @UniqueConstraint(
                 name = "uq_screens_name_theater", columnNames = {"name", "theater_id"}))
 @EntityListeners(AuditingEntityListener.class)
@@ -54,7 +46,7 @@ public class Screen {
     @Column(nullable = false)
     private String name;
 
-    @Enumerated(EnumType.STRING) // never ordinal — schema §9 fix
+    @Enumerated(EnumType.STRING) // persisted as STRING, never ordinal
     @Column(name = "screen_type", nullable = false)
     private ScreenType screenType;
 

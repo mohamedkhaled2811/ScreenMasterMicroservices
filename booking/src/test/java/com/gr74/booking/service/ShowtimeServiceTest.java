@@ -33,10 +33,7 @@ import com.gr74.booking.model.Theater;
 import com.gr74.booking.repository.ShowtimeRepository;
 
 /**
- * Unit test for the {@link ShowtimeService} create flow — the orchestration that realizes plan option
- * 5C. The point of these cases is the <em>ordering and isolation</em> of the two validation boundaries:
- * the intra-Booking screen check, then the cross-service Catalog check, then the slot pre-check — and
- * that a failure at either boundary short-circuits before anything is written.
+ * Create-flow validation ordering for showtimes: screen check, then Catalog check, then slot check.
  */
 @ExtendWith(MockitoExtension.class)
 class ShowtimeServiceTest {
@@ -72,7 +69,7 @@ class ShowtimeServiceTest {
         Showtime created = showtimeService.create(REQUEST);
 
         assertThat(created.getMovieId()).isEqualTo(603L);
-        // The cross-service validation actually happened (5C).
+        // The Catalog validation happened.
         verify(catalogClient).verifyMovieExists(603L);
         verify(showtimeRepository).save(any(Showtime.class));
     }

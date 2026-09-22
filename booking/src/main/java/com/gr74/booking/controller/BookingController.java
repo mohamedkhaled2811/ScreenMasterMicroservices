@@ -38,19 +38,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springdoc.core.annotations.ParameterObject;
 
 /**
- * REST surface for bookings.
- *
- * <p>Two endpoints, both keyed on the authenticated caller ({@code @CurrentUser} — the JWT
- * {@code sub}; identity never rides in the URL or the body):
- * <ul>
- *   <li>{@code POST /bookings} — create a {@code PENDING} booking holding its seats (no Payment yet).
- *       Price and movie are derived and snapshotted server-side.</li>
- *   <li>{@code GET /bookings/my} — a paged list of the caller's bookings, each merged with its movie title.
- *       {@code ?source=} selects how the title is resolved: {@code composition} (default — live from
- *       Catalog, degrades to {@code null} if Catalog is down) or {@code readmodel} (Booking's local
- *       title cache, survives a Catalog outage for cached movies).</li>
- * </ul>
- * Bare paths ({@code /bookings/...}); the gateway strips the {@code /api} prefix. DTOs cross the wire.
+ * REST endpoints for bookings: create a PENDING seat hold and list the caller's bookings.
  */
 @Slf4j
 @RestController
@@ -59,7 +47,7 @@ import org.springdoc.core.annotations.ParameterObject;
 @Tag(name = "Bookings", description = "Create bookings and list your own (with movie titles composed from Catalog).")
 public class BookingController {
 
-    /** The only fields {@code GET /bookings/my} may be sorted by — a whitelist keeps the sort safe. */
+    /** Sortable fields for {@code GET /bookings/my}. */
     private static final Set<String> MY_BOOKINGS_SORTABLE =
             Set.of("createdDate", "expiresAt", "totalAmount", "status");
 
@@ -111,19 +99,7 @@ public class BookingController {
     }
 
     /**
-     * The facts the Payment service needs before opening a checkout session.
-     *
-     * <p><b>Internal, service-to-service — authenticated with the USER's token, not a machine
-     * token</b>. {@code POST /payments} arrives at Payment with the user's
-     * Bearer token and Payment relays that same token here, so Booking sees the <em>user</em> — and
-     * Payment's "caller owns this booking" comparison runs against a verified identity instead of
-     * Payment's word about who's calling. The endpoint reports facts (status, owner, hold deadline,
-     * amount, currency) and deliberately makes no payability <em>judgement</em> — those guards live
-     * in Payment, and splitting them across both services is how the two sets of rules would drift.
-     *
-     * <p>Note there is no {@code @CurrentUser} here: the caller is a service relaying a user, not a
-     * person hitting this endpoint directly, and it is Payment that compares {@code userId} against
-     * its own request's user.
+     * Payability facts for the Payment service (internal service-to-service read).
      */
     @GetMapping("/{bookingId}/payability")
     @Operation(summary = "Booking facts for the payment service (internal)",
@@ -148,7 +124,7 @@ public class BookingController {
         return response;
     }
 
-    /** Reject a sort on a field outside the whitelist as a coded 400 (never a leaked 500). */
+    /** Reject a sort on a non-whitelisted field with a coded 400. */
     private void validateSort(Sort sort) {
         for (Sort.Order order : sort) {
             if (!MY_BOOKINGS_SORTABLE.contains(order.getProperty())) {
@@ -158,12 +134,7 @@ public class BookingController {
         }
     }
 
-    /**
-     * Parse the {@code source} param to a {@link MovieDataSource} (case-insensitively), rendering an unknown
-     * value as a coded 400 — the same discipline as the sort whitelist, never a leaked 500. We bind it as
-     * a String and parse here (rather than letting Spring bind the enum) precisely so a bad value becomes
-     * our {@code BOOKING_VALIDATION_ERROR} ProblemDetail instead of a generic framework type-mismatch 400.
-     */
+    /** Parse the {@code source} param, rejecting unknown values with a coded 400. */
     private MovieDataSource parseSource(String source) {
         try {
             return MovieDataSource.valueOf(source.toUpperCase(java.util.Locale.ROOT));

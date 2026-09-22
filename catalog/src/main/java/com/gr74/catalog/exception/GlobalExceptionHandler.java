@@ -21,18 +21,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Turns every error this service produces into an RFC 9457 {@code ProblemDetail}
- * ({@code application/problem+json}) carrying a stable, machine-readable {@code code}.
- *
- * <p>Why this exists: without a single advice, a bad request falls back to Spring's default body
- * which has no field a caller can branch on. By extending {@link ResponseEntityExceptionHandler} we
- * reuse Spring's own handling of framework errors (bean validation, missing/typed params) and only
- * add the {@code code} property, so <em>every</em> error — ours or the framework's — speaks the same
- * contract. See {@code docs/concepts/error-handling-problemdetail.md}; {@code payment/} is the
- * reference implementation.
- *
- * <p>The {@code code} comes from {@link CatalogErrorCode}; the HTTP status is taken from the code so
- * the two can never drift apart.
+ * Renders every error as an RFC 9457 {@code ProblemDetail} with a stable {@code code}.
  */
 @Slf4j
 @RestControllerAdvice
@@ -45,9 +34,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     private static final String VALIDATION_FAILED_LOG = "Validation failed: {}";
 
     /**
-     * Any error we raised deliberately (e.g. {@link MovieNotFoundException}). The carried
-     * {@link CatalogErrorCode} drives both the HTTP status and the {@code code}, so a new failure
-     * mode is one enum constant plus a throw — no change here.
+     * Any deliberately raised error (e.g. {@link MovieNotFoundException}).
      */
     @ExceptionHandler(CatalogException.class)
     public ProblemDetail handleCatalogException(CatalogException ex) {
@@ -60,11 +47,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return problemDetail(code, ex.getMessage());
     }
 
-    /**
-     * A path variable / request param could not be converted to the expected type — here, a movie id
-     * that isn't a {@code Long} (e.g. {@code GET /movies/abc}). Treated as the caller's validation
-     * error.
-     */
+    /** A path variable / request param with an invalid type (e.g. {@code GET /movies/abc}). */
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ProblemDetail handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
         String detail = "Parameter '" + ex.getName() + "' has an invalid value: " + ex.getValue();
@@ -72,17 +55,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return problemDetail(CatalogErrorCode.CATALOG_VALIDATION_ERROR, detail);
     }
 
-    /**
-     * A {@code @PreAuthorize} (or any method-security rule) denied the call.
-     *
-     * <p><b>Why this handler must exist:</b> a method-security denial is thrown from the controller
-     * proxy <em>inside</em> the {@code DispatcherServlet} — <em>after</em> the security filter
-     * chain (and its {@code AccessDeniedHandler}) has already run. The filter-chain handler can
-     * never see it, so without this method the denial falls through to the catch-all below as an
-     * opaque 500. Catalog has no role-gated endpoint <em>today</em>, but the first
-     * {@code @PreAuthorize} added without this handler would silently 500 instead of 403 — the
-     * handler is the fence post, planted before the fence needs it.
-     */
+    /** A method-security denial (e.g. missing role). Rendered as 403, not 500. */
     @ExceptionHandler(AuthorizationDeniedException.class)
     public ProblemDetail handleAuthorizationDenied(AuthorizationDeniedException ex) {
         log.warn("Access denied: {}", ex.getMessage());
@@ -90,11 +63,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 "Insufficient permissions for this resource");
     }
 
-    /**
-     * Last line of defence: anything we did not anticipate becomes a 500 with the generic
-     * {@code CATALOG_INTERNAL_ERROR} code and a safe message — we never leak the exception text to
-     * the caller, but we log the full detail for ourselves.
-     */
+    /** Fallback: anything unanticipated becomes a 500 without leaking internals. */
     @ExceptionHandler(Exception.class)
     public ProblemDetail handleUnexpected(Exception ex) {
         log.error("Unhandled exception in catalog service", ex);
@@ -102,11 +71,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 "An unexpected error occurred");
     }
 
-    /**
-     * Bean-validation failures on {@code @Valid @RequestBody} (relevant once write paths exist).
-     * Spring raises this before our code runs; we override its hook so the response gets a
-     * {@code code} too, with the field violations folded into the detail.
-     */
+    /** Bean-validation failures on {@code @Valid @RequestBody}. */
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(
             MethodArgumentNotValidException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
@@ -121,10 +86,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.status(body.getStatus()).body(body);
     }
 
-    /**
-     * Method-level constraint failures on controller parameters (Spring 6.1+ raises this for non-body
-     * params). Same {@code code}, same shape.
-     */
+    /** Method-level constraint failures on controller parameters. */
     @Override
     protected ResponseEntity<Object> handleHandlerMethodValidationException(
             HandlerMethodValidationException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
@@ -139,7 +101,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.status(body.getStatus()).body(body);
     }
 
-    /** Build a {@code ProblemDetail} with the status from the code and the {@code code} attached. */
+    /** Build a {@code ProblemDetail} with the status from the code. */
     private ProblemDetail problemDetail(CatalogErrorCode code, String detail) {
         HttpStatus status = code.status();
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);

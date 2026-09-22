@@ -10,11 +10,7 @@ import com.gr74.catalog.model.SyncState;
 import com.gr74.catalog.model.SyncStatus;
 import com.gr74.catalog.model.SyncType;
 
-/**
- * Persistence slice for {@link SyncStatus} on in-memory H2. Proves the STRING-enum mapping and the
- * lifecycle transitions round-trip, and that {@link SyncStatusRepository#findBySyncType} resolves the
- * row the resumable sync keys off.
- */
+/** Persistence slice for {@link SyncStatus} on H2. */
 @DataJpaTest
 class SyncStatusRepositoryTest {
 

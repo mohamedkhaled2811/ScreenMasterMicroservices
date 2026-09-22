@@ -26,23 +26,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * The transactional write side of the TMDB sync — kept as a <em>separate</em> bean from
- * {@code TmdbSyncService} on purpose. The sync's per-page work must commit in its own transaction so
- * that a crash mid-walk leaves an advanced, consistent cursor (the next tick resumes cleanly). If the
- * {@code @Transactional} methods lived on the orchestrating service, the orchestrator calling its own
- * method would bypass Spring's proxy (self-invocation) and silently lose the transaction. Putting
- * them on this collaborator means every call crosses the proxy, so the boundaries are real.
- *
- * <p>All upserts are idempotent by construction: PKs are assigned TMDB ids, so {@code save()} on an
- * existing id is an UPDATE — re-syncing the same page updates rows, never duplicates them.
- *
- * <p><b>It is also the publisher of {@link MovieUpserted}</b> — but only on the <em>incremental-refresh</em>
- * path ({@link #refreshMovies}), never on backfill ({@link #upsertPage}). See ADR 0001: backfill is a bulk
- * load, so flooding the broker with one event per movie in the whole catalogue on first boot is pure noise;
- * the event stream means "a movie moved while a consumer was live". We raise an in-JVM
- * {@link ApplicationEventPublisher} event <em>inside</em> the transaction and let
- * {@link com.gr74.catalog.event.MovieEventPublisher} do the actual broker send <em>after commit</em>, so we
- * never announce a change that then rolled back.
+ * Transactional write side of the TMDB sync. Publishes {@link MovieUpserted} on refresh only.
  */
 @Slf4j
 @Component
@@ -65,11 +49,7 @@ public class CatalogUpserter {
     }
 
     /**
-     * Hydrate and upsert every movie on a TMDB list page, then advance the {@link SyncStatus} cursor —
-     * all in one transaction. Each movie's full details are fetched via {@code GET /movie/{id}}; its
-     * genres are resolved to already-persisted {@link Genre} rows (a movie referencing an unknown
-     * genre id is skipped for that link, not invented). A single movie that fails to fetch is logged
-     * and skipped so one bad id doesn't sink the page.
+     * Hydrate and upsert every movie on a TMDB list page, then advance the cursor.
      *
      * @return the number of movies upserted on this page
      */
@@ -77,9 +57,7 @@ public class CatalogUpserter {
     public int upsertPage(SyncStatus status, List<Long> movieIds, int page, int totalPages) {
         int upserted = 0;
         for (Long movieId : movieIds) {
-            // Skip a single unfetchable movie rather than failing the whole page — the page cursor still
-            // advances, and the missing movie is picked up on the next full pass. NOTE: backfill does NOT
-            // publish MovieUpserted (ADR 0001) — the returned Movie is only used to count here.
+            // Skip a single unfetchable movie rather than failing the whole page.
             if (hydrateOne(movieId, "%s page %d".formatted(status.getSyncType(), page)) != null) {
                 upserted++;
             }
@@ -93,17 +71,11 @@ public class CatalogUpserter {
     }
 
     /**
-     * Re-hydrate a batch of already-known movies from TMDB and advance the incremental-refresh cursor —
-     * all in one transaction. This is the freshness counterpart to {@link #upsertPage}: the caller has
-     * already filtered the change feed down to ids we store (see
-     * {@code MovieRepository.findExistingIds}), so every fetch here updates an existing row (the upsert
-     * is an UPDATE because the PK is the TMDB id). A single unfetchable movie is skipped so one bad id
-     * doesn't sink the batch; the cursor still advances, since at-least-once + idempotent upserts make a
-     * later re-pass of the same day harmless.
+     * Re-hydrate a batch of already-known movies and advance the refresh cursor.
      *
-     * @param status   the managed {@link SyncType#CHANGES} bookkeeping row
+     * @param status   the {@link SyncType#CHANGES} bookkeeping row
      * @param movieIds the stored ids that changed on {@code through}
-     * @param through  the UTC day this batch refreshed — the cursor advances to it on commit
+     * @param through  the UTC day this batch refreshed
      * @return the number of movies refreshed
      */
     @Transactional
@@ -113,11 +85,7 @@ public class CatalogUpserter {
             Movie saved = hydrateOne(movieId, "changes " + through);
             if (saved != null) {
                 refreshed++;
-                // Publisher side of the CQRS read model (ADR 0001). Raise an in-JVM event now, inside the
-                // txn; MovieEventPublisher sends it to RabbitMQ AFTER_COMMIT so a rolled-back refresh
-                // never announces a phantom change. updatedAt is the ROW's @LastModifiedDate (Catalog's
-                // clock, per-row monotonic) — the consumer's ordering guard depends on that, not on a
-                // publish-time stamp. Backfill (upsertPage) deliberately publishes nothing.
+                // Published AFTER_COMMIT by MovieEventPublisher; backfill publishes nothing.
                 events.publishEvent(new MovieUpserted(
                         saved.getId(), saved.getTitle(), saved.getPosterPath(),
                         saved.getLastModifiedDate(), UUID.randomUUID().toString()));
@@ -131,14 +99,7 @@ public class CatalogUpserter {
     }
 
     /**
-     * Fetch one movie's full details and upsert it (an UPDATE when the id already exists, since the PK
-     * is the TMDB id). Returns the persisted {@link Movie} on success; logs and returns {@code null} for
-     * a single unfetchable movie so the caller can keep going. {@code context} is just for the warn log.
-     *
-     * <p>We {@code saveAndFlush} so the {@code @LastModifiedDate} auditing listener runs <em>now</em> and
-     * the returned entity carries the fresh timestamp — {@link #refreshMovies} publishes it as the event's
-     * {@code updatedAt}, and the consumer's ordering guard is only correct if that value is the real
-     * per-row last-modified time.
+     * Fetch one movie's details and upsert it. Returns null for an unfetchable movie.
      */
     private Movie hydrateOne(Long movieId, String context) {
         try {

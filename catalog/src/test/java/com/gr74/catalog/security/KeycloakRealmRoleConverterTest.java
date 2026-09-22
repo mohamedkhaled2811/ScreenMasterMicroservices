@@ -13,16 +13,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 
 import java.util.Collection;
 
-/**
- * Pins the one Keycloak mapping that silently breaks everything when wrong: Spring Security's default converter reads {@code scope}, NOT Keycloak's
- * {@code realm_access.roles} — so without {@link KeycloakRealmRoleConverter} every
- * {@code hasRole('ADMIN')} evaluates false with no error anywhere. A token carrying
- * {@code realm_access.roles=["ADMIN"]} MUST yield {@code ROLE_ADMIN} here, or the admin surface is
- * dead and nothing will say why.
- *
- * <p>Pure unit test (no context, no Keycloak): the JWTs are forged by hand, which is exactly the
- * point — the converter must depend only on the claim shape, never on a live IdP.
- */
+/** Unit test for {@link KeycloakRealmRoleConverter} with hand-forged JWTs. */
 class KeycloakRealmRoleConverterTest {
 
     private final KeycloakRealmRoleConverter converter = new KeycloakRealmRoleConverter();

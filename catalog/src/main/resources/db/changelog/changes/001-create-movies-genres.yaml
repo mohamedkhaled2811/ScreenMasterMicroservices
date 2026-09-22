@@ -1,16 +1,8 @@
-# Changeset 001 — the catalog's movies/genres schema.
+# Changeset 001 — movies/genres schema.
 #
-# Catalog owns this slice outright (database-per-service), so the three tables and the FKs between
-# them live wholly inside catalog-db — the "no cross-service FK" rule is about FKs that cross a
-# SERVICE boundary, not these. The PKs are ASSIGNED (TMDB's ids), not generated: the id is stable and
-# externally sourced, which is exactly why §2.1 of the schema doc flags Catalog as a clean boundary.
+# PKs are assigned TMDB ids, not generated.
 #
-# The columns mirror TMDB's GET /movie/{id} (movie-details) response 1:1 so the Phase-2 sync job can
-# fill them with no further migration. ddl-auto=validate means the Movie/Genre entities must match
-# this table exactly at startup, or the app refuses to boot.
-#
-# NOTE: the monolith's table was misspelled `geners`; we own the boundary now, so it is `genres` here
-# (schema doc §9 cleanup). The table ships EMPTY — rows are loaded by the TMDB sync step (next phase).
+# The table ships EMPTY — rows are loaded by the TMDB sync.
 databaseChangeLog:
   - changeSet:
       id: 001-create-genres
@@ -59,8 +51,7 @@ databaseChangeLog:
               - column:
                   name: overview
                   type: TEXT
-              # TMDB's short promotional one-liner (distinct from the plot `overview`); often empty
-              # upstream, so nullable.
+              # TMDB short tagline; often empty upstream, so nullable.
               - column:
                   name: tagline
                   type: VARCHAR(1000)
@@ -70,8 +61,7 @@ databaseChangeLog:
               - column:
                   name: runtime
                   type: INT
-              # TMDB free-text status (Released, Post Production, ...) — a plain VARCHAR, NOT a JPA
-              # enum, so an unexpected upstream value can't break persistence.
+              # Free-text status (Released, Post Production, ...) — plain VARCHAR, not an enum.
               - column:
                   name: status
                   type: VARCHAR(40)
@@ -99,7 +89,7 @@ databaseChangeLog:
                   defaultValueBoolean: false
                   constraints:
                     nullable: false
-              # Our auditing (BaseEntity-style), filled by Spring Data JPA auditing, not TMDB.
+              # Auditing fields, filled by JPA auditing.
               - column:
                   name: created_date
                   type: TIMESTAMP WITH TIME ZONE
@@ -114,8 +104,7 @@ databaseChangeLog:
       author: mohamed
       changes:
         - createTable:
-            # Join table for Movie <-> Genre (@ManyToMany). Composite PK (movie_id, genre_id) makes a
-            # movie/genre pairing unique; both columns FK into the intra-Catalog tables above.
+            # Join table for Movie <-> Genre. Composite PK keeps pairings unique.
             tableName: movie_genres
             columns:
               - column:

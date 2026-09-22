@@ -34,17 +34,7 @@ import com.gr74.catalog.sync.dto.TmdbGenre;
 import com.gr74.catalog.sync.dto.TmdbListPage;
 import com.gr74.catalog.sync.dto.TmdbMovieDetails;
 
-/**
- * Integration slice for the <em>incremental</em> change-feed refresh — the freshness half of the sync.
- * The real {@link TmdbSyncService} + {@link CatalogUpserter} + repositories run against H2 with only
- * the network boundary ({@link TmdbApiClient}) mocked, so we prove against persisted rows that the
- * refresh (a) only runs once backfill is complete, (b) re-hydrates only the movies we already store,
- * and (c) advances the date cursor.
- *
- * <p>The service's clock is {@code systemUTC}, so rather than pin wall-clock time we seed the
- * {@code CHANGES} cursor to <em>yesterday</em> — that makes the refresh window exactly
- * {@code [today, today]} deterministically, whatever the real date is.
- */
+/** Refresh slice: real services + repositories on H2, mocked TMDB client. */
 @DataJpaTest
 @Import({TmdbSyncService.class, CatalogUpserter.class, JpaAuditingConfig.class,
         TmdbChangesSyncTest.TestConfig.class})
@@ -134,12 +124,7 @@ class TmdbChangesSyncTest {
         assertThat(changes.getLastChangesSyncedDate()).isEqualTo(TODAY);
     }
 
-    /**
-     * Backfill a single movie so all three lists are COMPLETED (the gate for the refresh). Backfill
-     * completing means this same tick also runs a refresh — so we pre-seed the cursor to today first,
-     * making that first auto-refresh an empty no-op. Each test then re-seeds to yesterday to make the
-     * window it asserts on deterministic.
-     */
+    /** Backfill one movie so backfill completes; pre-seed cursor to keep the first refresh a no-op. */
     private void backfillSingleMovie() {
         seedChangesCursor(TODAY);
         given(tmdb.listPage(SyncType.POPULAR, 1)).willReturn(listPage(1, 1, 603L));

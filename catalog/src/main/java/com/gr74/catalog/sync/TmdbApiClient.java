@@ -25,13 +25,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Thin, single-responsibility wrapper over TMDB's HTTP API: it makes the call, translates any
- * failure into a coded {@link TmdbSyncException}, and maps TMDB's wire types to <em>our</em> domain
- * (entities and genre carriers). It holds no sync state — the resumable walk lives in
- * {@code TmdbSyncService}; this class is just "talk to TMDB and hand back domain objects".
- *
- * <p>Separating the I/O here keeps the sync service unit-testable: a test mocks this client and never
- * touches the network. See {@code docs/concepts/spring-web-annotations.md} (RestClient).
+ * Thin wrapper over TMDB's HTTP API. Holds no sync state.
  */
 @Slf4j
 @Component
@@ -73,10 +67,7 @@ public class TmdbApiClient {
     }
 
     /**
-     * Fetch one page of the change feed ({@code GET /movie/changes?start_date=&end_date=&page=}) — the
-     * ids of movies TMDB edited inside the {@code [start, end]} UTC window. The dates are inclusive on
-     * TMDB's side; the caller walks one narrow window at a time so the cursor stays resumable. Both
-     * bounds are formatted {@code yyyy-MM-dd}. An empty body yields no ids rather than failing.
+     * Fetch one page of the change feed ({@code GET /movie/changes?start_date=&end_date=&page=}).
      */
     public TmdbChangesPage changedMovieIds(LocalDate start, LocalDate end, int page) {
         try {
@@ -116,10 +107,7 @@ public class TmdbApiClient {
     }
 
     /**
-     * Map a TMDB details payload onto a {@link Movie} entity. The caller supplies the already-persisted
-     * {@link Genre} entities (looked up by id) so this builds the {@code movie_genres} links against
-     * managed rows — it does not invent genres. {@code release_date} is often an empty string upstream
-     * for unreleased films; we treat blank/unparseable as {@code null} rather than failing the sync.
+     * Map a TMDB details payload onto a {@link Movie} entity.
      */
     public Movie toMovie(TmdbMovieDetails d, Set<Genre> resolvedGenres) {
         Movie movie = new Movie(d.id(), d.title());

@@ -7,16 +7,7 @@ import java.util.List;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-/**
- * Inbound wire type for TMDB's {@code GET /movie/{id}} (movie-details) response — the full record the
- * sync hydrates each movie from. Only the fields the {@code movies} table needs are mapped; TMDB
- * sends far more, so {@code @JsonIgnoreProperties(ignoreUnknown = true)} keeps an upstream addition
- * from breaking deserialization (a resilience choice — we don't control TMDB's payload).
- *
- * <p>This is an <em>inbound</em> DTO (TMDB → us), distinct from the outbound {@code MovieDto} we
- * serve. {@code release_date} can be an empty string upstream for unreleased films; a custom-free
- * mapping treats it as {@code null} in {@link com.gr74.catalog.sync.TmdbApiClient}.
- */
+/** Inbound wire type for TMDB's {@code GET /movie/{id}}. Unknown fields are ignored. */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record TmdbMovieDetails(
         Long id,

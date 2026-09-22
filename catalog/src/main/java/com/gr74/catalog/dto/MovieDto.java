@@ -7,12 +7,7 @@ import java.util.List;
 import com.gr74.catalog.model.Movie;
 
 /**
- * Response for {@code GET /movies/{id}} — a DTO, not the {@link Movie} entity, so the JSON contract
- * stays decoupled from the persistence model (project convention: DTOs cross the wire). Auditing
- * fields ({@code createdDate}/{@code lastModifiedDate}) are internal and deliberately not exposed.
- *
- * <p>This is the shape Booking will consume in Phase 2 when it composes movie titles into "my
- * bookings" — it keys off {@code id} and {@code title}; the rest renders a movie page.
+ * Response for {@code GET /movies/{id}} — full movie detail.
  */
 public record MovieDto(
         Long id,

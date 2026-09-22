@@ -1,37 +1,9 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ScreenMaster — System Architecture</title>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<style>
-  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-  :root{--paper:#f7f5ef;--ink:#1a1a2e;--muted:#4f5d75;--accent:#b8860b;
-    --sans:'Geist',system-ui,sans-serif;--serif:'Instrument Serif',serif;--mono:'Geist Mono',ui-monospace,monospace}
-  body{font-family:var(--sans);background:var(--paper);color:var(--ink);min-height:100vh;
-    display:flex;align-items:center;justify-content:center;padding:3rem 2rem}
-  .frame{max-width:1480px;width:100%}
-  .eyebrow{font-family:var(--mono);font-size:.66rem;font-weight:500;letter-spacing:.18em;
-    text-transform:uppercase;color:var(--muted);margin-bottom:.5rem}
-  h1{font-family:var(--serif);font-size:clamp(1.5rem,2.4vw + .75rem,2.1rem);font-weight:400;
-    letter-spacing:-.02em;line-height:1.15;margin-bottom:.4rem}
-  .sub{font-size:.9rem;color:var(--muted);margin-bottom:1.6rem;max-width:62ch}
-  svg{width:100%;min-width:1100px;display:block}
-  footer{margin-top:1.5rem;padding-top:.75rem;border-top:1px solid rgba(26,26,46,0.12);
-    font-family:var(--mono);font-size:.62rem;letter-spacing:.1em;color:var(--muted);text-transform:uppercase}
-</style>
-</head>
-<body>
-<div class="frame">
-  <p class="eyebrow">Architecture · ScreenMaster</p>
-  <h1>ScreenMaster — System Architecture</h1>
-  <p class="sub">One public front door, four services, a database each. Solid lines are synchronous REST; dashed purple lines are events on RabbitMQ — the difference is what keeps a slow Payment from taking Catalog down with it.</p>
-
-  <svg viewBox="0 0 1560 1180" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="high-system-title high-system-desc">
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1560 1180" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="high-system-title high-system-desc">
     <title id="high-system-title">ScreenMaster — System Architecture</title>
     <desc id="high-system-desc">A browser calls an API gateway that validates a Keycloak JWT and routes to four Spring services — Catalog, Booking, Payment and Notification — each owning its own PostgreSQL database. Booking calls Catalog and Payment reads Booking's payability over REST, while Catalog, Booking and Payment publish events to a RabbitMQ topic exchange that Notification consumes, and Booking confirms a booking off Payment's payment.succeeded event rather than a synchronous call. All services register with Eureka, and Zipkin traces every hop.</desc>
     <defs>
+      <style>@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap');</style>
       <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
       <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#b8860b"/></marker>
       <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
@@ -242,8 +214,3 @@
       <line x1="1128" y1="904" x2="1152" y2="904" stroke="#b8860b" stroke-width="1.4"/>
       <text x="1160" y="908" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">PUBLIC EDGE</text>
   </svg>
-
-  <footer>ScreenMaster Microservices · docs/diagrams/high-system</footer>
-</div>
-</body>
-</html>

@@ -26,13 +26,7 @@ import com.gr74.catalog.model.Movie;
 import com.gr74.catalog.model.SyncType;
 import com.gr74.catalog.sync.dto.TmdbMovieDetails;
 
-/**
- * Unit test for {@link TmdbApiClient} with no network: a {@link MockRestServiceServer} bound to the
- * client's {@link RestClient} serves captured TMDB JSON fixtures. Proves three things the sync relies
- * on: the v4 Bearer header is sent, TMDB's snake_case payloads deserialize into our DTOs, and a
- * details payload maps onto a {@link Movie} entity (including the empty-string {@code release_date}
- * tolerance). Upstream failures must surface as a coded {@link TmdbSyncException}.
- */
+/** Unit test for {@link TmdbApiClient} with mocked HTTP (no network). */
 class TmdbApiClientTest {
 
     private static final String BASE = "https://api.themoviedb.org/3";

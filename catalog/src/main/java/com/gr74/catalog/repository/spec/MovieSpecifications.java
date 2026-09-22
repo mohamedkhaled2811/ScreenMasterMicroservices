@@ -12,29 +12,14 @@ import com.gr74.catalog.model.Movie;
 import jakarta.persistence.criteria.JoinType;
 
 /**
- * Composable {@link Specification} fragments for querying {@link Movie} dynamically — the clean
- * rebuild of the monolith's {@code MovieSpecification} (schema doc §1).
- *
- * <p>Each method returns one predicate; {@link #from(MovieFilter)} {@code AND}-combines them. This is
- * why "filter by whatever the user sends" doesn't explode into a repository method per combination:
- * an absent field contributes an always-true {@code noOp()} fragment, so an empty filter yields an
- * unrestricted (but still paged) query and any subset of fields composes cleanly.
- *
- * <p>The whole thing is built from the JPA Criteria API, so it's type-safe and database-agnostic —
- * no string concatenation, nothing the caller can inject into. See
- * {@code docs/concepts/jpa-and-hibernate.md} (JPA Specifications).
+ * Composable {@link Specification} fragments for dynamic movie queries. Absent fields are no-ops.
  */
 public final class MovieSpecifications {
 
     private MovieSpecifications() {
     }
 
-    /**
-     * Build the combined specification for a filter. Each fragment is always-true (a "conjunction"
-     * no-op) when its field is absent, so {@link Specification#allOf} {@code AND}-combines them
-     * uniformly — an empty filter yields an unrestricted (but still paged) query. We return a no-op
-     * rather than {@code null} because this Spring Data version rejects {@code null} members.
-     */
+    /** Build the combined specification for a filter (AND-combined). */
     public static Specification<Movie> from(MovieFilter f) {
         return Specification.allOf(
                 titleContains(f.title()),
@@ -47,7 +32,7 @@ public final class MovieSpecifications {
                 idIn(f.ids()));
     }
 
-    /** An always-true predicate: the identity element for {@code AND}, used when a field is absent. */
+    /** Always-true predicate, used when a field is absent. */
     private static Specification<Movie> noOp() {
         return (root, query, cb) -> cb.conjunction();
     }
@@ -62,10 +47,7 @@ public final class MovieSpecifications {
     }
 
     /**
-     * Restrict to movies linked to {@code genreId} via the {@code movie_genres} join. The join is
-     * {@code LEFT} so it never silently drops a movie that has no genres on an unrelated predicate;
-     * combined with the equality below it still filters correctly. Distinct-ness isn't needed here
-     * because we filter on a single genre id (a movie joins that genre at most once).
+     * Restrict to movies linked to {@code genreId}. No-op if absent.
      */
     public static Specification<Movie> hasGenre(Long genreId) {
         if (genreId == null) {
@@ -117,11 +99,7 @@ public final class MovieSpecifications {
     }
 
     /**
-     * Restrict to movies whose id is in {@code ids} ({@code id IN (…)}); no-op if null/empty. Backs the
-     * batch-by-id lookup — a caller that already holds a known set of ids (Booking resolving titles for
-     * a page of bookings) fetches them all in one query instead of N. An empty set is a no-op, not an
-     * {@code IN ()} (which some databases reject), so callers should short-circuit before hitting the
-     * query anyway.
+     * Restrict to the given ids ({@code id IN (…)}); no-op if empty. Backs batch lookup.
      */
     public static Specification<Movie> idIn(Collection<Long> ids) {
         if (ids == null || ids.isEmpty()) {

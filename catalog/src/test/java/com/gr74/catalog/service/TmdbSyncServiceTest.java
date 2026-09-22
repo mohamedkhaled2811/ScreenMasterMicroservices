@@ -27,16 +27,7 @@ import com.gr74.catalog.sync.dto.TmdbGenre;
 import com.gr74.catalog.sync.dto.TmdbListPage;
 import com.gr74.catalog.sync.dto.TmdbMovieDetails;
 
-/**
- * Integration slice for the resumable sync: the <em>real</em> {@link TmdbSyncService} +
- * {@link CatalogUpserter} + repositories run against H2, with only the network boundary
- * ({@link TmdbApiClient}) mocked. This proves the three properties the design promises end-to-end —
- * idempotency, failure-records-resume-point, and resume — against actual persisted rows, not mocks.
- *
- * <p>{@code @DataJpaTest} only scans repositories, so the service beans, the auditing config, and a
- * test {@link TmdbProps} are imported explicitly. {@code maxPagesPerRun=2} keeps the walk small and
- * makes the per-tick page bound observable.
- */
+/** Sync slice: real services + repositories on H2, mocked TMDB client. */
 @DataJpaTest
 @Import({TmdbSyncService.class, CatalogUpserter.class, JpaAuditingConfig.class,
         TmdbSyncServiceTest.TestConfig.class})

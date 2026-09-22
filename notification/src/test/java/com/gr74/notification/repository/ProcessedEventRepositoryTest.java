@@ -13,14 +13,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 
 import com.gr74.notification.model.ProcessedEvent;
 
-/**
- * The dedupe table's persistence contract.
- *
- * <p>Runs on H2 with Hibernate generating the schema (see {@code src/test/resources/application.yml}),
- * so it proves the <em>entity</em> agrees with itself. The Liquibase changeset is the production
- * schema, and {@code ddl-auto=validate} is what proves the two agree — that check runs on a real
- * Postgres boot, not here.
- */
+/** Persistence contract for the processed-events dedupe table. */
 @DataJpaTest
 class ProcessedEventRepositoryTest {
 

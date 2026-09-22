@@ -35,19 +35,7 @@ import com.gr74.notification.config.NotificationProps;
 import com.gr74.notification.exception.NotificationSendException;
 import com.gr74.notification.messaging.TicketSeat;
 
-/**
- * What can actually break in {@link EmailChannel}: <b>the templates</b>.
- *
- * <p>{@code JavaMailSender} is Spring's and works; SMTP is a protocol. The thing that silently fails
- * in production is a template variable that was renamed on one side and not the other — Thymeleaf
- * renders a missing variable as <em>empty</em> rather than throwing, so the failure mode is a
- * customer receiving a ticket with a blank seat number, and nothing in any log. So these tests render
- * the REAL templates with a real Thymeleaf engine and assert the facts appear in the output.
- *
- * <p>The mail sender is mocked: the point is what we hand to it, not that JavaMail can open a socket.
- * No Mailpit, no GreenMail — an integration test against a mail server would prove Spring's code, not
- * ours, and would be the slowest test in the suite.
- */
+/** Renders the real templates and asserts ticket facts appear in the output. */
 @ExtendWith(MockitoExtension.class)
 class EmailChannelTest {
 

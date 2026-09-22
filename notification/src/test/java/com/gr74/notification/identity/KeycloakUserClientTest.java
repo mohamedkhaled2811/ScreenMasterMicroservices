@@ -28,24 +28,7 @@ import com.gr74.notification.exception.NotificationErrorCode;
 import com.gr74.notification.exception.NotificationException;
 import com.gr74.notification.security.MachineTokenProvider;
 
-/**
- * The recipient lookup — the one synchronous cross-service call left on the consume path, and the
- * first caller of {@link MachineTokenProvider}.
- *
- * <p>What matters here is the <b>error mapping</b>, because the two failure kinds need opposite
- * handling downstream:
- * <ul>
- *   <li>a user with <em>no email</em> can never succeed on retry → it must dead-letter, not loop;</li>
- *   <li>Keycloak being <em>unreachable</em> will succeed later → it must retry.</li>
- * </ul>
- * Collapsing those two into one exception is how you get either a hot loop on bad data or a silently
- * dropped ticket on a blip.
- *
- * <p>Note what is <b>not</b> tested here: the {@code @Cacheable}. Spring's cache is a proxy applied
- * to the bean, so a unit-constructed instance has no caching at all — asserting on it here would be
- * asserting on nothing. The cache's configuration lives in {@code CacheConfig} and is Spring's code;
- * what would actually break is the cache <em>name</em> mismatching, which fails loudly at startup.
- */
+/** Maps Keycloak lookup results to retryable or non-retryable failures. */
 @ExtendWith(MockitoExtension.class)
 class KeycloakUserClientTest {
 

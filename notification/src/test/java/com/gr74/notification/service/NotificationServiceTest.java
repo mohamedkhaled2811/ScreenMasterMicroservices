@@ -32,27 +32,7 @@ import com.gr74.notification.messaging.TicketSeat;
 import com.gr74.notification.model.ProcessedEvent;
 import com.gr74.notification.repository.ProcessedEventRepository;
 
-/**
- * The idempotent consumer's contract, tested by <b>direct invocation</b> of
- * {@link NotificationService} on H2 — no broker and no mail server (the {@code BookingConfirmerTest}
- * idiom). What it proves:
- * <ol>
- *   <li>a first delivery claims the event AND sends, with the ticket facts on the message;</li>
- *   <li>a redelivery of the SAME eventId sends <b>zero</b> further emails — the property that used
- *       to be about a log line and is now about a real, non-idempotent side effect;</li>
- *   <li>a failing channel propagates, so the claim rolls back and the broker can redeliver;</li>
- *   <li>both event types render their own template.</li>
- * </ol>
- *
- * <p><b>Why a recording stub rather than a Mockito mock for the channel.</b> The central assertion
- * is "exactly one send across two deliveries", and a list of what was actually sent states that
- * directly — including <em>what</em> was in the message, which a {@code verify(times(1))} does not
- * show when it fails. The Keycloak lookup IS a mock: it is a network call with no behaviour worth
- * reproducing here.
- *
- * <p>The concurrent-claim path (a {@code DataIntegrityViolationException} before any row exists
- * locally) is covered separately by {@link NotificationServiceConcurrentClaimTest}.
- */
+/** Direct-invocation tests for idempotent claim-and-send behavior. */
 @DataJpaTest
 @Import({NotificationService.class, NotificationServiceTest.StubChannelConfig.class})
 class NotificationServiceTest {
@@ -180,8 +160,7 @@ class NotificationServiceTest {
         boolean redelivery = service.processBookingConfirmed(event);
 
         assertThat(redelivery).isFalse();
-        // THE POINT OF THE WHOLE PHASE: two deliveries, one email. Sending is not idempotent, so the
-        // claim is the only thing standing between a redelivery and a customer's duplicate ticket.
+        // Two deliveries result in one email.
         assertThat(channel.sent).hasSize(1);
     }
 

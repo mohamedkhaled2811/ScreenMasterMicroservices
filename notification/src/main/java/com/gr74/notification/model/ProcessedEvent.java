@@ -11,18 +11,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-/**
- * The idempotent-consumer dedupe row — one entry per event id this service has already processed.
- *
- * <p><b>{@code eventId} is an ASSIGNED PK</b> — the <em>inbound</em> event's id (Booking's outbox row
- * id), never one we mint. No {@code @GeneratedValue}: the whole point is that a redelivered event
- * carries the same id as its first delivery, so the insert collides and the PK constraint rejects the
- * duplicate. That constraint IS the dedupe — there is no read-then-insert, so two concurrent consumer
- * instances racing the same event cannot both pass a check and both send.
- *
- * <p>Schema owned by Liquibase ({@code ddl-auto=validate}); must match
- * {@code 001-create-processed-events.yaml}.
- */
+/** Dedupe row for the idempotent consumer; the event id is the assigned PK so redelivery collides. */
 @Entity
 @Table(name = "processed_events")
 @Getter

@@ -3,59 +3,26 @@ package com.gr74.notification.exception;
 import org.springframework.http.HttpStatus;
 
 /**
- * The machine-readable error contract for this service.
- *
- * <p>Notification is a consumer-only service: it has no business controllers, so most of these
- * constants travel as an HTTP {@code code} only through the security filter chain (rendered by
- * {@code SecurityProblemSupport} — there is deliberately no {@code @RestControllerAdvice}, nothing
- * would use it) — and as log-line codes on the consumer path. The enum exists to keep the repo's
- * standing convention ("every service has an {@code exception/} package with a coded base
- * exception") honest, and so that the moment this service grows an HTTP surface, the coded-error
- * contract is already in place. Mirror of {@code payment/exception/PaymentErrorCode}.
- *
- * <p>Each constant pins the HTTP status it maps to so the status and the code can never drift apart.
+ * Machine-readable error codes and their HTTP statuses.
  */
 public enum NotificationErrorCode {
 
-    /**
-     * No (or an invalid) Bearer token on an HTTP call. Rendered by the security filter chain via
-     * {@code SecurityProblemSupport} — kept distinct from {@link #NOTIFICATION_FORBIDDEN} on
-     * purpose: "log in" and "ask an admin" are different answers.
-     */
+    /** Missing or invalid Bearer token. */
     NOTIFICATION_UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "Authentication required"),
 
-    /**
-     * A valid token without the role the endpoint needs. Same filter-chain rendering as
-     * {@link #NOTIFICATION_UNAUTHORIZED}.
-     */
+    /** Valid token without the required role. */
     NOTIFICATION_FORBIDDEN(HttpStatus.FORBIDDEN, "Access denied"),
 
-    /**
-     * Keycloak refused the service's own client-credentials grant (wrong secret, unknown client,
-     * IdP down) — thrown by {@code MachineTokenProvider} when the machine token cannot be
-     * obtained. The consumer treats it as retryable (the message stays queued); it is never an
-     * HTTP status on its own, only ever a log-line/queue-retry code.
-     */
+    /** Keycloak grant failed; retryable on the consumer path. */
     NOTIFICATION_IDENTITY_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Identity provider unavailable"),
 
-    /**
-     * The message could not be delivered — SMTP refused it, the mail host was unreachable, or the
-     * template failed to render. Thrown by a {@code NotificationChannel} and deliberately allowed to
-     * propagate out of {@code NotificationService}: that rolls the idempotency claim back with the
-     * transaction, so the broker redelivers and the retry can succeed. Like
-     * {@link #NOTIFICATION_IDENTITY_UNAVAILABLE}, it is a queue-retry code rather than an HTTP status.
-     */
+    /** Delivery failed; propagates so the broker redelivers. */
     NOTIFICATION_SEND_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "Notification delivery failed"),
 
-    /**
-     * Keycloak knows the {@code sub} but the user has no email address on file, so there is nowhere
-     * to send the ticket. Unlike every other code here this is NOT retryable — redelivering cannot
-     * conjure an address — so the consumer lets it exhaust its attempts and dead-letter, where it is
-     * inspectable, rather than looping forever.
-     */
+    /** User has no email address; not retryable, dead-letters. */
     NOTIFICATION_RECIPIENT_UNKNOWN(HttpStatus.UNPROCESSABLE_ENTITY, "No email address for user"),
 
-    /** A fallback for anything we did not anticipate — never leak internals to the caller. */
+    /** Fallback; never leak internals. */
     NOTIFICATION_INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Internal error");
 
     private final HttpStatus status;
@@ -70,7 +37,7 @@ public enum NotificationErrorCode {
         return status;
     }
 
-    /** Short, human-readable summary used as the {@code ProblemDetail} title. */
+    /** Short summary used as the ProblemDetail title. */
     public String title() {
         return title;
     }

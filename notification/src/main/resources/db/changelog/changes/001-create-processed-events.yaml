@@ -1,19 +1,5 @@
-# Changeset 001 — processed_events: the idempotent-consumer dedupe table (BUILD_PLAN 4.3).
-#
-# The consumer-side half of at-least-once delivery. RabbitMQ guarantees a redelivered message is
-# delivered again, so Notification must make "send the email" happen at most once per event. It does
-# that by making the INSERT of this row THE CLAIM: processing claims the eventId first, and only a
-# successful insert proceeds to send. A redelivery (or a concurrent second consumer — the
-# --scale notification=2 demo) re-inserts the SAME eventId, the PK constraint rejects it, and the
-# send is skipped. See docs/concepts/idempotent-consumer.md.
-#
-# Design notes:
-# - event_id is the INBOUND event's id (Booking's outbox row id) — an ASSIGNED PK, deliberately NO
-#   auto-increment, so a redelivered event collides with its own first claim instead of minting a
-#   new row. A stable event id across redeliveries is a precondition of consumer dedupe.
-# - event_type names the event this row deduped (BOOKING_CONFIRMED | BOOKING_CONFIRMATION_REJECTED)
-#   — pure forensics, so the dedupe row tells you what it deduped.
-# - processed_at is when THIS consumer claimed the event (its clock, not the publisher's).
+# processed_events dedupe table: one row per consumed event id.
+# Assigned event_id PK rejects redeliveries; event_type and processed_at are forensics.
 databaseChangeLog:
   - changeSet:
       id: 001-create-processed-events

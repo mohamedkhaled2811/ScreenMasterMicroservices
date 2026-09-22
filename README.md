@@ -1,6 +1,15 @@
-# ScreenMaster — Microservices
+<p align="center">
+  <img src="docs/images/screen_master_logo.svg" alt="ScreenMaster" width="400">
+</p>
 
-[![CI](https://github.com/mohamedkhaled2811/ScreenMasterMicroservices/actions/workflows/ci.yml/badge.svg)](https://github.com/mohamedkhaled2811/ScreenMasterMicroservices/actions/workflows/ci.yml)
+<h1 align="center">ScreenMaster — Microservices</h1>
+
+<p align="center">
+  <a href="https://github.com/mohamedkhaled2811/ScreenMasterMicroservices/actions/workflows/ci.yml"><img src="https://github.com/mohamedkhaled2811/ScreenMasterMicroservices/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/Java-21-b8860b" alt="Java 21">
+  <img src="https://img.shields.io/badge/Spring%20Boot-4.1-b8860b" alt="Spring Boot 4.1">
+  <img src="https://img.shields.io/badge/Docker%20Compose-ready-b8860b" alt="Docker Compose">
+</p>
 
 A cinema booking system, split into microservices — and a **place to read real microservices patterns in working code** instead of in toy examples.
 
@@ -158,9 +167,6 @@ No transaction spanned those two databases. The failure was undone by a new, opp
 |---|---|
 | A pattern explained | [`docs/concepts/`](docs/concepts/) |
 | One service in depth | [`booking/README.md`](booking/README.md) · [`payment/README.md`](payment/README.md) · [`notification/README.md`](notification/README.md) |
-| Why the system splits this way | [`docs/ARCHITECTURE_AND_SCHEMA.md`](docs/ARCHITECTURE_AND_SCHEMA.md) |
-| What was built, in order | [`docs/BUILD_PLAN.md`](docs/BUILD_PLAN.md) |
-| The theory behind it all | [`docs/microservices-interview-field-guide.md`](docs/microservices-interview-field-guide.md) |
 | The diagrams | [`docs/diagrams/`](docs/diagrams/) and each service's `docs/diagrams/` |
 
 ---

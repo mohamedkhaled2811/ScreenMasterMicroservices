@@ -1,0 +1,1788 @@
+{
+  "info": {
+    "name": "ScreenMaster Microservices",
+    "description": "Every endpoint across catalog / booking / payment, driven through the gateway on :8080.\n\nThe folders are ordered as a runnable walkthrough: **0 Health** to check the stack is up, **1 Catalog** to find a real movieId, **2 Inventory** to build theater -> screen -> seats, **3 Showtimes** to schedule one, **4 Bookings** to reserve seats, **5 Payments** to open a checkout session (hosted checkout \u2014 the gateway's webhook, not a redirect, decides the outcome).\n\nCreate requests capture their generated ids into collection variables (seatTypeId, theaterId, screenId, showtimeId, bookingId, ...), so if you run the folders top to bottom nothing needs to be pasted by hand.\n\nAll requests go through the gateway, which strips the /api prefix before forwarding (/api/showtimes -> /showtimes on booking). Set baseUrl to a service port directly (e.g. http://localhost:8082) if you want to bypass the gateway \u2014 drop /api from the path if you do.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "apiBase",
+      "value": "{{baseUrl}}/api",
+      "type": "string"
+    },
+    {
+      "key": "movieId",
+      "value": "550",
+      "type": "string"
+    },
+    {
+      "key": "seatTypeId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "theaterId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "screenId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "seatId1",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "seatId2",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "showtimeId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "bookingId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "bookingTotal",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "bookingCurrency",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "paymentId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "attemptId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "checkoutUrl",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "keycloakUrl",
+      "value": "http://localhost:8180",
+      "type": "string"
+    },
+    {
+      "key": "userToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "adminToken",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "A Auth (Keycloak) \u2014 run one of these first",
+      "description": "Mints tokens via Direct Access Grant and saves them to {{userToken}} / {{adminToken}}, which the other folders send as Bearer auth. Run 'alice' for the USER surface, 'admin' for the ADMIN writes (inventory, showtimes, refunds).",
+      "item": [
+        {
+          "name": "Token as alice (USER)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "password",
+                  "type": "text"
+                },
+                {
+                  "key": "client_id",
+                  "value": "cinema-dev-cli",
+                  "type": "text"
+                },
+                {
+                  "key": "username",
+                  "value": "alice",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "password",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": "{{keycloakUrl}}/realms/cinema/protocol/openid-connect/token",
+            "description": "Direct Access Grant against the dev client (curl equivalent: ./scripts/get-token.sh alice). Auto-saves the token to {{userToken}}."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"got a token\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json()).to.have.property(\"access_token\");",
+                  "});",
+                  "const t = pm.response.json().access_token;",
+                  "pm.collectionVariables.set(\"userToken\", t);",
+                  "// Decode the payload so the realm roles + email are visible in the console.",
+                  "const c = JSON.parse(atob(t.split(\".\")[1].replace(/-/g,\"+\").replace(/_/g,\"/\")));",
+                  "console.log(\"sub:\", c.sub, \"| email:\", c.email, \"| roles:\", (c.realm_access||{}).roles);"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Token as admin (USER + ADMIN)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "password",
+                  "type": "text"
+                },
+                {
+                  "key": "client_id",
+                  "value": "cinema-dev-cli",
+                  "type": "text"
+                },
+                {
+                  "key": "username",
+                  "value": "admin",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "password",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": "{{keycloakUrl}}/realms/cinema/protocol/openid-connect/token",
+            "description": "Direct Access Grant against the dev client (curl equivalent: ./scripts/get-token.sh admin). Auto-saves the token to {{adminToken}}."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"got a token\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json()).to.have.property(\"access_token\");",
+                  "});",
+                  "const t = pm.response.json().access_token;",
+                  "pm.collectionVariables.set(\"adminToken\", t);",
+                  "// Decode the payload so the realm roles + email are visible in the console.",
+                  "const c = JSON.parse(atob(t.split(\".\")[1].replace(/-/g,\"+\").replace(/_/g,\"/\")));",
+                  "console.log(\"sub:\", c.sub, \"| email:\", c.email, \"| roles:\", (c.realm_access||{}).roles);"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "0 Health & discovery",
+      "description": "Confirm the stack is up before anything else. If Eureka has no registrations, the gateway's lb:// routes 503 and every other folder fails.",
+      "item": [
+        {
+          "name": "Eureka dashboard",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8761/eureka/apps",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8761",
+              "path": [
+                "eureka",
+                "apps"
+              ]
+            },
+            "description": "Registered instances. Expect catalog, booking, payment, gateway. A service missing here is why the gateway 503s for it."
+          }
+        },
+        {
+          "name": "Gateway health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/actuator/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "health"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Aggregated OpenAPI spec (booking)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/booking/v3/api-docs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "booking",
+                "v3",
+                "api-docs"
+              ]
+            },
+            "description": "The raw spec the Swagger UI dropdown fetches. Same for /catalog/v3/api-docs and /payment/v3/api-docs."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1 Catalog",
+      "description": "Movies live here, and only here. Booking stores a movieId but never joins to this table \u2014 a showtime's movieId is validated over HTTP at creation time.",
+      "item": [
+        {
+          "name": "Search movies (paged)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "const first = (body.content || [])[0];",
+                  "if (first) {",
+                  "    pm.collectionVariables.set('movieId', first.id);",
+                  "    console.log('movieId ->', first.id, first.title);",
+                  "} else {",
+                  "    console.warn('Catalog returned no movies. Has the TMDB sync run?');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{apiBase}}/movies?page=0&size=10&sort=title,asc",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "movies"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "10"
+                },
+                {
+                  "key": "sort",
+                  "value": "title,asc"
+                },
+                {
+                  "key": "title",
+                  "value": "fight",
+                  "disabled": true
+                },
+                {
+                  "key": "genreId",
+                  "value": "18",
+                  "disabled": true
+                },
+                {
+                  "key": "language",
+                  "value": "en",
+                  "disabled": true
+                },
+                {
+                  "key": "releaseYearFrom",
+                  "value": "1990",
+                  "disabled": true
+                },
+                {
+                  "key": "releaseYearTo",
+                  "value": "2025",
+                  "disabled": true
+                },
+                {
+                  "key": "minRating",
+                  "value": "7.5",
+                  "disabled": true
+                },
+                {
+                  "key": "adult",
+                  "value": "false",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Paged + dynamically filtered. Every filter param is optional and absent means 'no-op' \u2014 enable the disabled ones to narrow. The test script captures the first result's id into {{movieId}} so the showtime folder has a movie that really exists.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get movie by id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{apiBase}}/movies/{{movieId}}",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "movies",
+                "{{movieId}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Batch movies by ids",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{apiBase}}/movies/batch?ids={{movieId}}",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "movies",
+                "batch"
+              ],
+              "query": [
+                {
+                  "key": "ids",
+                  "value": "{{movieId}}"
+                }
+              ]
+            },
+            "description": "The endpoint API composition uses: one call for N ids instead of N calls (the N+1 fix). Booking's GET /bookings/my?source=composition hits this.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2 Inventory (build the cinema)",
+      "description": "Run these in order \u2014 the tree is theater -> screen -> seats, and a seat type must exist before seats can reference it. Creating a child before its parent returns 404.",
+      "item": [
+        {
+          "name": "Create seat type",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    pm.collectionVariables.set('seatTypeId', pm.response.json().id);",
+                  "} else if (pm.response.code === 409) {",
+                  "    console.warn('Seat type name already exists \u2014 reuse it via GET /seat-types.');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Standard\",\n  \"priceMultiplier\": 1.00\n}"
+            },
+            "url": {
+              "raw": "{{apiBase}}/seat-types",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "seat-types"
+              ]
+            },
+            "description": "priceMultiplier must be > 0 with at most 2 integer digits and 2 decimals. A seat's final price = showtime basePrice x this multiplier. 409 BOOKING_DUPLICATE if the name is taken.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List seat types (paged)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{apiBase}}/seat-types?page=0&size=20&sort=name,asc",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "seat-types"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                },
+                {
+                  "key": "sort",
+                  "value": "name,asc"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create theater",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    pm.collectionVariables.set('theaterId', pm.response.json().id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman Cineplex\",\n  \"location\": \"Cairo, Nasr City\"\n}"
+            },
+            "url": {
+              "raw": "{{apiBase}}/theaters",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "theaters"
+              ]
+            },
+            "description": "name is required, max 150 chars, and unique (409 BOOKING_DUPLICATE on a repeat). location is optional, max 255.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List theaters (paged)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{apiBase}}/theaters?page=0&size=20&sort=name,asc",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "theaters"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                },
+                {
+                  "key": "sort",
+                  "value": "name,asc"
+                }
+              ]
+            },
+            "description": "PagedModel envelope: { content: [...], page: { size, number, totalElements, totalPages } }. Sorting on a non-whitelisted field is a 400 BOOKING_VALIDATION_ERROR, not a 500.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create screen under theater",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    pm.collectionVariables.set('screenId', pm.response.json().id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Screen 1\",\n  \"screenType\": \"FRONT_SCREEN\"\n}"
+            },
+            "url": {
+              "raw": "{{apiBase}}/theaters/{{theaterId}}/screens",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "theaters",
+                "{{theaterId}}",
+                "screens"
+              ]
+            },
+            "description": "screenType is one of FRONT_SCREEN, REAR_PROJECTION, SCREEN_3D (persisted as a string, never an ordinal). Screen names are unique per theater.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List a theater's screens (paged)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{apiBase}}/theaters/{{theaterId}}/screens?page=0&size=20&sort=name,asc",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "theaters",
+                "{{theaterId}}",
+                "screens"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                },
+                {
+                  "key": "sort",
+                  "value": "name,asc"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Generate seat grid (bulk, idempotent)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rows\": 5,\n  \"seatsPerRow\": 10,\n  \"seatTypeId\": {{seatTypeId}}\n}"
+            },
+            "url": {
+              "raw": "{{apiBase}}/screens/{{screenId}}/seats/grid",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "screens",
+                "{{screenId}}",
+                "seats",
+                "grid"
+              ]
+            },
+            "description": "Creates rows x seatsPerRow seats (rows labelled A..Z, so rows <= 26; seatsPerRow <= 100). Idempotent: re-running skips seats that already exist and returns ONLY the seats created this call \u2014 a plain array, not the paged envelope, so a repeat run legitimately returns [].",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create a single seat",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"seatRow\": \"Z\",\n  \"seatNumber\": 1,\n  \"seatTypeId\": {{seatTypeId}}\n}"
+            },
+            "url": {
+              "raw": "{{apiBase}}/screens/{{screenId}}/seats",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "screens",
+                "{{screenId}}",
+                "seats"
+              ]
+            },
+            "description": "The one-off alternative to the grid. (row + number) is unique per screen \u2014 409 BOOKING_DUPLICATE otherwise.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List a screen's seats (paged)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const seats = pm.response.json().content || [];",
+                  "if (seats.length >= 2) {",
+                  "    pm.collectionVariables.set('seatId1', seats[0].id);",
+                  "    pm.collectionVariables.set('seatId2', seats[1].id);",
+                  "    console.log('Booking seats ->', seats[0].id, seats[1].id);",
+                  "} else {",
+                  "    console.warn('Fewer than 2 seats on this screen \u2014 run the seat grid request first.');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{apiBase}}/screens/{{screenId}}/seats?page=0&size=50&sort=seatRow,asc&sort=seatNumber,asc",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "screens",
+                "{{screenId}}",
+                "seats"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "50"
+                },
+                {
+                  "key": "sort",
+                  "value": "seatRow,asc"
+                },
+                {
+                  "key": "sort",
+                  "value": "seatNumber,asc"
+                }
+              ]
+            },
+            "description": "Captures the first two seat ids into {{seatId1}} / {{seatId2}} for the booking request.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete seat",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{apiBase}}/seats/{{seatId2}}",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "seats",
+                "{{seatId2}}"
+              ]
+            },
+            "description": "204 on success. Careful: this deletes the seat the booking folder wants.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete screen",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{apiBase}}/screens/{{screenId}}",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "screens",
+                "{{screenId}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete theater",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{apiBase}}/theaters/{{theaterId}}",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "theaters",
+                "{{theaterId}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete seat type",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{apiBase}}/seat-types/{{seatTypeId}}",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "seat-types",
+                "{{seatTypeId}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3 Showtimes",
+      "description": "A showtime binds a movie (owned by Catalog) to a screen (owned by Booking) at a date/time. Creating one calls Catalog synchronously to prove the movieId exists \u2014 deliberate temporal coupling, so Catalog being down means 503 BOOKING_CATALOG_UNAVAILABLE.",
+      "item": [
+        {
+          "name": "Create showtime",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Schedule for tomorrow so the 'upcoming' query returns it.",
+                  "const d = new Date();",
+                  "d.setDate(d.getDate() + 1);",
+                  "pm.collectionVariables.set('showDate', d.toISOString().slice(0, 10));"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    pm.collectionVariables.set('showtimeId', pm.response.json().id);",
+                  "} else if (pm.response.code === 404) {",
+                  "    console.warn('404 \u2014 either the screenId is wrong, or Catalog says movieId ' +",
+                  "        pm.collectionVariables.get('movieId') + ' does not exist. Run 1 Catalog first.');",
+                  "} else if (pm.response.code === 503) {",
+                  "    console.warn('503 BOOKING_CATALOG_UNAVAILABLE \u2014 Catalog is unreachable. Retryable.');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"movieId\": {{movieId}},\n  \"screenId\": {{screenId}},\n  \"showDate\": \"{{showDate}}\",\n  \"showTime\": \"19:30\",\n  \"basePrice\": 120.00\n}"
+            },
+            "url": {
+              "raw": "{{apiBase}}/showtimes",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "showtimes"
+              ]
+            },
+            "description": "showDate is ISO yyyy-MM-dd (the pre-request script sets it to tomorrow). showTime is strictly HH:mm \u2014 '19:30:00' will not parse. basePrice must be > 0.\n\nFailure modes: 404 BOOKING_SCREEN_NOT_FOUND (bad screen), 404 BOOKING_MOVIE_NOT_FOUND (Catalog has no such movie), 503 BOOKING_CATALOG_UNAVAILABLE (Catalog unreachable).",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get showtime by id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{apiBase}}/showtimes/{{showtimeId}}",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "showtimes",
+                "{{showtimeId}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List showtimes for a movie",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{apiBase}}/showtimes/movie/{{movieId}}",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "showtimes",
+                "movie",
+                "{{movieId}}"
+              ]
+            },
+            "description": "Plain array, not paged (an exception to the usual listing rule, documented on the endpoint).",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List upcoming showtimes for a movie",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{apiBase}}/showtimes/movie/upcoming/{{movieId}}",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "showtimes",
+                "movie",
+                "upcoming",
+                "{{movieId}}"
+              ]
+            },
+            "description": "Today onward. This is the customer-facing one.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List showtimes on a screen",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{apiBase}}/showtimes/screen/{{screenId}}",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "showtimes",
+                "screen",
+                "{{screenId}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete showtime",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{apiBase}}/showtimes/{{showtimeId}}",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "showtimes",
+                "{{showtimeId}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4 Bookings",
+      "description": "Reserving seats. The caller is identified by the verified JWT 'sub', never by the request body \u2014 the @CurrentUser seam that replaced the old X-User-Id header in Phase 7.",
+      "item": [
+        {
+          "name": "Create booking",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const b = pm.response.json();",
+                  "    pm.collectionVariables.set('bookingId', b.id);",
+                  "    pm.collectionVariables.set('bookingTotal', b.totalAmount);",
+                  "    console.log('Booking', b.id, 'status', b.status, 'total', b.totalAmount);",
+                  "} else if (pm.response.code === 409) {",
+                  "    console.warn('409 BOOKING_DUPLICATE \u2014 a seat is already held. Pick different seat ids.');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"showtimeId\": {{showtimeId}},\n  \"seatIds\": [{{seatId1}}, {{seatId2}}]\n}"
+            },
+            "url": {
+              "raw": "{{apiBase}}/bookings",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "bookings"
+              ]
+            },
+            "description": "Creates a PENDING booking with a 15-minute hold. seatIds must be non-empty and every seat must belong to the showtime's screen.\n\nPrice is derived server-side (basePrice x the seat type's multiplier) and snapshotted onto the booking \u2014 the booking keeps what it cost at purchase time even if the showtime is repriced later. No payment is taken here.\n\nFailure modes: 400 (bad body, seat not on this screen), 401 BOOKING_UNAUTHORIZED (no token), 404 (showtime or seat gone), 409 BOOKING_DUPLICATE (seat already held). The booking is owned by the JWT sub \u2014 no user id in the body.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Booking payability facts",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const p = pm.response.json();",
+                  "    pm.collectionVariables.set('bookingCurrency', p.currency);",
+                  "    console.log('Booking', p.status, '| total', p.totalAmount, p.currency, '| hold until', p.expiresAt);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{apiBase}}/bookings/{{bookingId}}/payability",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "bookings",
+                "{{bookingId}}",
+                "payability"
+              ]
+            },
+            "description": "The exact read Payment's BookingClient consumes when you POST /payments: status, hold deadline (expiresAt), total amount + currency. It deliberately makes NO payability judgement \u2014 it reports facts and Payment's guards decide. Needs any authenticated token (Payment relays the user token here); compare totalAmount to {{bookingTotal}} \u2014 they must match because the price was snapshotted at booking time.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "My bookings \u2014 API composition (live from Catalog)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{apiBase}}/bookings/my?source=composition&page=0&size=10&sort=createdDate,desc",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "bookings",
+                "my"
+              ],
+              "query": [
+                {
+                  "key": "source",
+                  "value": "composition"
+                },
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "10"
+                },
+                {
+                  "key": "sort",
+                  "value": "createdDate,desc"
+                }
+              ]
+            },
+            "description": "Movie titles resolved LIVE from Catalog on every request. Always fresh \u2014 but stop the catalog container and the title degrades to null while the rest of the booking still returns.\n\nSortable fields: createdDate, expiresAt, totalAmount, status. Anything else is a 400, not a 500.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "My bookings \u2014 read model (local cache)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{apiBase}}/bookings/my?source=readmodel&page=0&size=10&sort=createdDate,desc",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "bookings",
+                "my"
+              ],
+              "query": [
+                {
+                  "key": "source",
+                  "value": "readmodel"
+                },
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "10"
+                },
+                {
+                  "key": "sort",
+                  "value": "createdDate,desc"
+                }
+              ]
+            },
+            "description": "The same response, sourced from Booking's local movie_projections cache (kept fresh by events, lazily backfilled on a miss). Survives Catalog being down for already-cached movies, at the cost of eventual consistency \u2014 a rename in Catalog lags until the event lands.\n\nThe pair of these two requests IS the cross-service-query lesson: run both, then stop catalog and run both again.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create booking \u2014 missing token (401)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"showtimeId\": {{showtimeId}},\n  \"seatIds\": [{{seatId1}}]\n}"
+            },
+            "url": {
+              "raw": "{{apiBase}}/bookings",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "bookings"
+              ]
+            },
+            "description": "Deliberate failure. Returns application/problem+json (RFC 9457) with code = BOOKING_VALIDATION_ERROR. Worth running once to see the error envelope every service shares.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401 without a token\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5 Payments",
+      "description": "Hosted checkout, not a charge. POST /payments validates the booking (exists, yours, PENDING, hold not lapsed, not already paid \u2014 six guards) and returns a checkout URL to send the user to. The amount is read from Booking over HTTP, NEVER accepted from the client. The gateway's webhook (BUILD_PLAN 3.2, not built yet) is the only path to PAID \u2014 until it lands, every payment in this walkthrough stays PENDING, which is the expected end state today. Pay again after a lapsed session and the same payment gets a NEW attempt; the booking is never charged twice.",
+      "item": [
+        {
+          "name": "List usable gateways",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{apiBase}}/payments/gateways",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "payments",
+                "gateways"
+              ],
+              "query": [
+                {
+                  "key": "currency",
+                  "value": "{{bookingCurrency}}",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "What a client builds its picker from. A gateway with no configured credentials is ABSENT entirely, never listed-but-broken \u2014 expect at least SANDBOX; STRIPE and PAYMOB appear only when their creds are in .env. Enable the currency param to filter to gateways that can actually settle it \u2014 Paymob (EGP) disappears for a USD booking, so a user is never offered a gateway that will reject them after the redirect.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create checkout session (sandbox)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201 || pm.response.code === 200) {",
+                  "    const s = pm.response.json();",
+                  "    pm.collectionVariables.set('paymentId', s.paymentId);",
+                  "    pm.collectionVariables.set('attemptId', s.attemptId);",
+                  "    pm.collectionVariables.set('checkoutUrl', s.checkoutUrl);",
+                  "    console.log((pm.response.code === 201 ? 'New session' : 'Reused session') + ': payment ' + s.paymentId + ', attempt ' + s.attemptId + ', ' + s.amount + ' ' + s.currency + ', expires ' + s.expiresAt);",
+                  "} else if (pm.response.code === 409) {",
+                  "    console.warn('409 \u2014 wrong state, hold lapsed, or already paid. Check GET /bookings/{{bookingId}}/payability.');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookingId\": {{bookingId}},\n  \"gateway\": \"SANDBOX\"\n}"
+            },
+            "url": {
+              "raw": "{{apiBase}}/payments",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "payments"
+              ]
+            },
+            "description": "201 = a new attempt and gateway session; 200 = an existing live session was reused. The amount is NOT in the body \u2014 Payment reads it from Booking, so a browser cannot name its own price. expiresAt is the GATEWAY session deadline (ask for a new link when it lapses), not the booking's hold (start over when that lapses).\n\nFailure modes: 400 PAYMENT_VALIDATION_ERROR / PAYMENT_GATEWAY_NOT_AVAILABLE / PAYMENT_CURRENCY_NOT_SUPPORTED, 403 PAYMENT_FORBIDDEN, 404 PAYMENT_BOOKING_NOT_FOUND, 409 PAYMENT_BOOKING_NOT_PAYABLE / PAYMENT_BOOKING_EXPIRED / PAYMENT_ALREADY_PAID, 503 PAYMENT_GATEWAY_UNAVAILABLE (attempt left PENDING for reconciliation) / PAYMENT_BOOKING_SERVICE_UNAVAILABLE.\n\nThe sandbox checkoutUrl is a placeholder (nothing hosts it) and nothing completes a sandbox payment until the webhook endpoint (3.2) exists \u2014 expect PENDING forever, today.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create checkout session (Paymob, real sandbox)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201 || pm.response.code === 200) {",
+                  "    const s = pm.response.json();",
+                  "    console.log('Paymob iframe -> ' + s.checkoutUrl);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookingId\": {{bookingId}},\n  \"gateway\": \"PAYMOB\"\n}"
+            },
+            "url": {
+              "raw": "{{apiBase}}/payments",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "payments"
+              ]
+            },
+            "description": "The real thing: checkoutUrl is Paymob's hosted iframe (accept.paymob.com/api/acceptance/iframes/{id}?payment_token=...) \u2014 open it in a browser and pay with the sandbox test card. Requires PAYMOB_API_KEY / INTEGRATION_ID / IFRAME_ID in .env (absent from this response = 400 PAYMENT_GATEWAY_NOT_AVAILABLE, by design) and the booking's currency must be EGP.\n\nCompleting the iframe makes Paymob POST an HMAC-signed webhook to /api/payments/webhooks/paymob \u2014 which does not exist until BUILD_PLAN 3.2 \u2014 so the payment stays PENDING here too. This request exists to prove the real gateway round-trip up to the callback.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create \u2014 again while live (session reuse)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookingId\": {{bookingId}},\n  \"gateway\": \"SANDBOX\"\n}"
+            },
+            "url": {
+              "raw": "{{apiBase}}/payments",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "payments"
+              ]
+            },
+            "description": "The successor to the old Idempotency-Key replay demo. Identical body to 'Create checkout session', sent again while the session is live: expect 200 (not 201) with the SAME paymentId, attemptId, and checkoutUrl \u2014 a double-clicked Pay button must not open two gateway sessions. The DB enforces it with a partial unique index: at most one PENDING attempt per payment.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Read payment by id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{apiBase}}/payments/{{paymentId}}",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "payments",
+                "{{paymentId}}"
+              ]
+            },
+            "description": "The payment with every attempt made against it, oldest first \u2014 including lapsed/failed ones. 403 PAYMENT_FORBIDDEN if it belongs to another user, 404 PAYMENT_NOT_FOUND.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Read payment for booking (poll after checkout)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{apiBase}}/payments/by-booking/{{bookingId}}",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "payments",
+                "by-booking",
+                "{{bookingId}}"
+              ]
+            },
+            "description": "What a client polls after the user returns from the gateway. PENDING is a NORMAL answer for a moment (or forever, until 3.2 ships) \u2014 the authoritative confirmation is the gateway's webhook, not the redirect, so this read only ever reports what the webhook has already told us. 404 PAYMENT_NOT_FOUND if no payment exists for the booking yet.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create \u2014 missing token (401)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookingId\": {{bookingId}},\n  \"gateway\": \"SANDBOX\"\n}"
+            },
+            "url": {
+              "raw": "{{apiBase}}/payments",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "payments"
+              ]
+            },
+            "description": "Deliberate failure. Returns application/problem+json (RFC 9457) with code = PAYMENT_VALIDATION_ERROR \u2014 the same error envelope every service shares. The header is the Phase-7 seam where a JWT sub takes over.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401 without a token\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create \u2014 unknown gateway (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookingId\": {{bookingId}},\n  \"gateway\": \"NOPE\"\n}"
+            },
+            "url": {
+              "raw": "{{apiBase}}/payments",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "payments"
+              ]
+            },
+            "description": "Deliberate failure: code = PAYMENT_GATEWAY_NOT_AVAILABLE. The same code you get for a real gateway (e.g. PAYMOB) whose credentials are not configured \u2014 absent means not selectable, never listed-but-broken.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create \u2014 someone else's booking (403)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookingId\": {{bookingId}},\n  \"gateway\": \"SANDBOX\"\n}"
+            },
+            "url": {
+              "raw": "{{apiBase}}/payments",
+              "host": [
+                "{{apiBase}}"
+              ],
+              "path": [
+                "payments"
+              ]
+            },
+            "description": "Deliberate failure: a token whose sub is not the booking's owner gets 403 with code = PAYMENT_FORBIDDEN \u2014 you may only open a checkout session for your own booking.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{userToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

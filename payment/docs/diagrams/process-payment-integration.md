@@ -1,7 +1,7 @@
 # Payment · Cross-Service Reads
 
 **Type:** high-level (process / swimlane) · **Scope:** the `payment` service and its edges to `booking`
-**Files:** `process-payment-integration.html` (source) · `.svg` · `.png`
+**Files:** `process-payment-integration.html` (source) · `.svg`
 
 ## What it shows
 

@@ -1,9 +1,9 @@
 # Booking · Payment Saga
 
 **Type:** process (swimlane) · **Scope:** the `booking` ↔ `payment` choreography over RabbitMQ
-**Files:** `process-booking-payment-saga.html` (source) · `.svg` · `.png`
+**Files:** `process-booking-payment-saga.html` (source) · `.svg`
 
-![Booking–payment saga](process-booking-payment-saga.png)
+![Booking–payment saga](process-booking-payment-saga.svg)
 
 ## What to learn here
 

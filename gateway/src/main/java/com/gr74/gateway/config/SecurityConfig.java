@@ -56,6 +56,8 @@ public class SecurityConfig {
                         // Payment webhooks arrive with no JWT (HMAC-verified in Payment). Match on the
                         // incoming /api path — StripPrefix runs later during routing.
                         .requestMatchers(HttpMethod.POST, "/api/payments/webhooks/**").permitAll()
+                        // Movie browsing is public, mirroring Catalog's own GET /movies/** rule.
+                        .requestMatchers(HttpMethod.GET, "/api/movies/**").permitAll()
                         // Everything else needs a valid token; fine-grained roles live on services.
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2
